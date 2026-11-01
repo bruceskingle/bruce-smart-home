@@ -20,7 +20,7 @@ use crate::components::toggle_button::ToggleButton;
 use crate::data_set::CancelToken;
 use crate::octopus::category_filter::{CategoryFilter, CategoryFilterMenu, CategoryValues};
 use crate::octopus::context::OctopusContext;
-use crate::octopus::electricity::{self, CheapTimes, EXPORT_LABEL, OCTOPUS_EV_LABEL, is_intelligent, Electricity, ElectricityPoint, Estimate, MeterHalfHour};
+use crate::octopus::electricity::{self, CheapTimes, EXPORT_LABEL, MEASURED_EV_LABEL, OCTOPUS_EV_LABEL, is_intelligent, Electricity, ElectricityPoint, Estimate, EvComparison, MeterHalfHour};
 use crate::octopus::graphql::ElectricityDirection;
 use crate::octopus::graphql::meter::active_meter_points_with_agreements::ElectricityTariffType;
 use crate::octopus::measurements::MeasurementsDataSet;
@@ -119,9 +119,25 @@ fn source(point: &ElectricityPoint) -> String {
 
 /// The car's import measured and as Octopus split it, in kWh, over the points' half hours which have both, see
 /// ElectricityPoint::ev_comparison, None if none have.
-fn ev_comparison(points: &[ElectricityPoint]) -> Option<(f64, f64)> {
-    points.iter().filter_map(|point| point.ev_comparison)
-        .reduce(|(measured, octopus), (more_measured, more_octopus)| (measured + more_measured, octopus + more_octopus))
+fn ev_comparison(points: &[ElectricityPoint]) -> Option<EvComparison> {
+    points.iter().filter_map(|point| point.ev_comparison).reduce(|total, more| total + more)
+}
+
+/// What Octopus's split of the car's import in the half hours outside the cheap times did to the bill, compared with
+/// the measured split, see EvComparison::octopus_outside: the car's import there is at the low rate, and the house's at
+/// the standard one, so each kWh more of the car's is the difference between them less. rates are the standard and low
+/// rates in pence a kWh, None if they are not known.
+fn outside_cheap_times(comparison: &EvComparison, rates: Option<(f64, f64)>) -> String {
+    let more = comparison.octopus_outside - comparison.measured_outside;
+    if comparison.octopus_outside.abs() < 0.005 && comparison.measured_outside.abs() < 0.005 {
+        return String::from("All of it was in the cheap times, where the split does not change what it costs.");
+    }
+    let worth = rates.map(|(standard, low)| {
+        let pounds = more.abs() * (standard - low) / 100.0;
+        format!(", worth £{pounds:.2} {}", if more >= 0.0 { "less on the bill than the measured split" } else { "more on the bill than the measured split" })
+    }).unwrap_or_default();
+    format!("Outside the cheap times, where the split decides the rate: measured {:.2} kWh, Octopus {:.2} kWh, so Octopus put {:.2} kWh {} at the low rate{worth}.",
+        comparison.measured_outside, comparison.octopus_outside, more.abs(), if more >= 0.0 { "more" } else { "less" })
 }
 
 /// The range of half hours containing the times from start to end, as unix timestamps, as ranges are in half hours.
@@ -167,6 +183,9 @@ pub fn ElectricityPage(props: ElectricityPageProps) -> Element {
     // The import meter point's cheap times, from the time of use scheme of its current agreement.
     let mut cheap = None;
     let mut intelligent = false;
+    // Its standard and low rates, in pence a kWh, for what Octopus's split of the car's import is worth, if it is a day
+    // and night tariff, as Intelligent Octopus Go is.
+    let mut rates = None;
     let (meter_points, properties) = match (&*meter_points_resource.read(), &*properties_resource.read()) {
         (Some(Err(error)), _) => return rsx! { div { class: "error", ErrorText { error: format!("{error:#}"), message: "Failed to load the meter points" } } },
         (_, Some(Err(error))) => return rsx! { div { class: "error", ErrorText { error: format!("{error:#}"), message: "Failed to load the properties" } } },
@@ -195,6 +214,12 @@ pub fn ElectricityPage(props: ElectricityPageProps) -> Element {
                                 ElectricityTariffType::PrepayTariff(tariff) => tariff.product_code_.as_deref(),
                             })
                             .any(is_intelligent);
+                        rates = meter_point.agreements_.iter()
+                            .filter_map(|agreement| agreement.tariff_.as_ref())
+                            .find_map(|tariff| match tariff {
+                                ElectricityTariffType::DayNightTariff(tariff) => tariff.day_rate_.zip(tariff.night_rate_),
+                                _ => None,
+                            });
                     }
                     (meter_point.mpan_.clone(), meter_point.direction_.clone())
                 })
@@ -233,6 +258,7 @@ pub fn ElectricityPage(props: ElectricityPageProps) -> Element {
             export_mpan: mpan(ElectricityDirection::Export),
             esme_id,
             estimate,
+            rates,
             billing_timezone: context.billing_timezone,
         }
     }
@@ -253,8 +279,9 @@ struct Readings {
 
 #[component]
 fn ElectricityGraph(account_id: String, import_mpan: String, export_mpan: Option<String>, esme_id: Option<String>,
-    estimate: Estimate, billing_timezone: &'static Tz) -> Element
+    estimate: Estimate, rates: Option<(f64, f64)>, billing_timezone: &'static Tz) -> Element
 {
+    let cheap_known = estimate.cheap.is_some();
     let context = use_context::<Arc<OctopusContext>>();
     let tz = billing_timezone;
     // The last 7 days, so that both the meters' readings and the Home Mini's more recent ones are shown.
@@ -456,10 +483,14 @@ fn ElectricityGraph(account_id: String, import_mpan: String, export_mpan: Option
                 ElectricityView::Table => electricity_table(electricity, tz),
                 ElectricityView::Graph => electricity_graph(electricity, &start, &end, shown_period, mode(), &filter.read(), tz, on_drill, on_zoom, menu),
             }
-            if let Some((measured, octopus)) = comparison {
+            if let Some(comparison) = comparison {
                 p { class: "derived",
-                    "The car, where it was measured and Octopus has split the half hours: measured {measured:.2} kWh, Octopus {octopus:.2} kWh, "
-                    {format!("difference {:+.2} kWh ({:+.1}%)", octopus - measured, if measured > 0.0 { (octopus - measured) / measured * 100.0 } else { 0.0 })}
+                    "The car, where it was measured and Octopus has split the half hours: measured {comparison.measured:.2} kWh, Octopus {comparison.octopus:.2} kWh, "
+                    {format!("difference {:+.2} kWh ({:+.1}%)", comparison.octopus - comparison.measured,
+                        if comparison.measured > 0.0 { (comparison.octopus - comparison.measured) / comparison.measured * 100.0 } else { 0.0 })}
+                }
+                if cheap_known {
+                    p { class: "derived", {outside_cheap_times(&comparison, rates)} }
                 }
             }
         },
@@ -583,7 +614,7 @@ fn points_export(electricity: &Electricity, tz: &'static Tz) -> ExportTable {
                 let mut row = vec![ExportValue::unix_time(point.start, tz), ExportValue::unix_time(point.end, tz)];
                 row.extend(point.import.iter().map(|kwh| ExportValue::number(*kwh)));
                 row.push(ExportValue::number(point.export));
-                row.push(point.ev_comparison.map(|(_, octopus)| ExportValue::number(octopus)).unwrap_or(ExportValue::Text(String::new())));
+                row.push(point.ev_comparison.map(|comparison| ExportValue::number(comparison.octopus)).unwrap_or(ExportValue::Text(String::new())));
                 row.push(ExportValue::Text(source(point)));
                 row
             })
@@ -613,7 +644,7 @@ fn electricity_table(electricity: &Electricity, tz: &'static Tz) -> Element {
                 end.map(|end| end.format(&time_format).unwrap_or_default()).unwrap_or_default(),
                 point.import.iter().map(|kwh| format!("{kwh:.3}")).collect(),
                 format!("{:.3}", point.export),
-                point.ev_comparison.map(|(_, octopus)| format!("{octopus:.3}")).unwrap_or_default(),
+                point.ev_comparison.map(|comparison| format!("{:.3}", comparison.octopus)).unwrap_or_default(),
                 source(point),
             )
         })
@@ -657,7 +688,7 @@ fn electricity_table(electricity: &Electricity, tz: &'static Tz) -> Element {
                     td { class: "numeric derived", "{total}" }
                 }
                 td { class: "numeric derived", "{total_export}" }
-                td { class: "numeric derived", {ev_comparison(&electricity.points).map(|(_, octopus)| format!("{octopus:.3}")).unwrap_or_default()} }
+                td { class: "numeric derived", {ev_comparison(&electricity.points).map(|comparison| format!("{:.3}", comparison.octopus)).unwrap_or_default()} }
                 td {}
             }
         }
@@ -688,24 +719,38 @@ fn electricity_graph(electricity: &Electricity, start: &DateTime, end: &DateTime
     // The value of each import label and of the export, as a negative, for each point, as the filter shows them.
     let points = &electricity.points;
     let values: Vec<(Vec<f64>, f64)> = points.iter().map(|point| mode.values(point, &electricity.labels)).collect();
-    let categories: Vec<(String, Vec<f64>)> = electricity.labels.iter()
+    // Octopus's split of the car's import, dashed, and the measured one, solid, each half hourly, if they are shown, see
+    // CategoryFilterMenu, which shows or hides both as Octopus's EV split.
+    let line_style = filter.styles(&[String::from(OCTOPUS_EV_LABEL)]).remove(0);
+    let compared = line_style.visible && points.iter().any(|point| point.ev_comparison.is_some());
+    let mut categories: Vec<(String, Vec<f64>)> = electricity.labels.iter()
         .enumerate()
         .map(|(index, label)| (label.clone(), values.iter().map(|(import, _)| import[index]).collect()))
         .chain([(String::from(EXPORT_LABEL), values.iter().map(|(_, export)| -export).collect())])
         .collect();
+    // With the lines, the car's import is at the bottom of the bars, so that the lines, which are drawn up from zero, are
+    // level with its top.
+    if compared {
+        categories.sort_by_key(|(label, _)| !electricity::is_ev(label));
+    }
     let shown: Vec<CategoryValues> = filter.apply(categories, points.len(), false);
-    // Octopus's split of the car's import, as a line, if it is shown, see CategoryFilterMenu.
-    let line_style = filter.styles(&[String::from(OCTOPUS_EV_LABEL)]).remove(0);
-    let line = (line_style.visible && points.iter().any(|point| point.ev_comparison.is_some())).then(|| StackedBarLine {
-        label: String::from(OCTOPUS_EV_LABEL),
-        color: line_style.color,
+    let line = |label: &str, value: fn(&EvComparison) -> f64, dashed: bool| StackedBarLine {
+        label: String::from(label),
+        color: line_style.color.clone(),
         values: points.iter()
-            .map(|point| point.ev_comparison.map(|(_, octopus)| match mode {
-                ElectricityMode::Energy => octopus,
-                ElectricityMode::Power => octopus / ((point.end - point.start).max(1) as f64 / 3600.0),
+            .map(|point| point.ev_comparison.as_ref().map(value).map(|kwh| match mode {
+                ElectricityMode::Energy => kwh,
+                ElectricityMode::Power => kwh / ((point.end - point.start).max(1) as f64 / 3600.0),
             }))
             .collect(),
-    });
+        dashed,
+    };
+    let lines = if compared {
+        vec![line(MEASURED_EV_LABEL, |comparison| comparison.measured, false), line(OCTOPUS_EV_LABEL, |comparison| comparison.octopus, true)]
+    }
+    else {
+        Vec::new()
+    };
 
     let bars: Vec<StackedBarPoint> = points.iter()
         .enumerate()
@@ -761,7 +806,7 @@ fn electricity_graph(electricity: &Electricity, start: &DateTime, end: &DateTime
             on_zoom: (end.unix_timestamp() - start.unix_timestamp() > HALF_HOUR).then(|| EventHandler::new(on_zoom)),
             menu,
             x_bands,
-            line,
+            lines,
         }
     }
 }

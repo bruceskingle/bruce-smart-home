@@ -48,8 +48,10 @@ pub const EXPORT_LABEL: &str = "Export";
 const HOUSE: &str = "Home";
 const EV: &str = "EV";
 const BATTERY: &str = "Battery";
-/// Octopus's EV share, as a line over the bars, see ElectricityPoint::ev_comparison.
+/// Octopus's EV share, as a dashed line over the bars, and the measured one to compare it with, as a solid line, each
+/// as much every second of a half hour, see EvComparison.
 pub const OCTOPUS_EV_LABEL: &str = "Octopus's EV split";
+pub const MEASURED_EV_LABEL: &str = "Measured EV, half hourly";
 
 const HALF_HOUR: i64 = 1800;
 /// A half hour has all of its Home Mini readings if none of them, nor its start or end, are further apart than this.
@@ -174,8 +176,33 @@ pub struct ElectricityPoint {
     pub home_mini: bool,
     pub tesla: bool,
     pub meter: bool,
-    /// The car's import in kWh, measured, and as Octopus split it, over the half hours which have both, for comparing.
-    pub ev_comparison: Option<(f64, f64)>,
+    /// The car's import measured, and as Octopus split it, over the half hours which have both, for comparing.
+    pub ev_comparison: Option<EvComparison>,
+}
+
+/// The car's import, in kWh, measured and as Octopus split it, each as much every second of a half hour, as Octopus only
+/// has the half hour, so that the two can be compared however short the periods are, see ElectricityPoint.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EvComparison {
+    pub measured: f64,
+    pub octopus: f64,
+    /// The same, of the half hours outside the tariff's cheap times, where the split decides the rate: the car's import
+    /// is at the low rate in a dispatch there, and the rest at the standard rate. Zero if the cheap times are not known.
+    pub measured_outside: f64,
+    pub octopus_outside: f64,
+}
+
+impl std::ops::Add for EvComparison {
+    type Output = EvComparison;
+
+    fn add(self, other: EvComparison) -> EvComparison {
+        EvComparison {
+            measured: self.measured + other.measured,
+            octopus: self.octopus + other.octopus,
+            measured_outside: self.measured_outside + other.measured_outside,
+            octopus_outside: self.octopus_outside + other.octopus_outside,
+        }
+    }
 }
 
 /// The electricity in each period which has any, in time order, with the labels its import is split into.
@@ -197,7 +224,7 @@ struct Period {
     home_mini: bool,
     tesla: bool,
     meter: bool,
-    ev_comparison: Option<(f64, f64)>,
+    ev_comparison: Option<EvComparison>,
 }
 
 impl Period {
@@ -211,7 +238,7 @@ impl Period {
         self.tesla |= other.tesla;
         self.meter |= other.meter;
         self.ev_comparison = match (self.ev_comparison, other.ev_comparison) {
-            (Some((measured, octopus)), Some((other_measured, other_octopus))) => Some((measured + other_measured, octopus + other_octopus)),
+            (Some(one), Some(other)) => Some(one + other),
             (one, other) => one.or(other),
         };
     }
@@ -246,7 +273,7 @@ fn complete_half_hours(readings: &[TelemetryReading], start: i64, end: i64) -> V
 }
 
 /// Whether a label is of the car's import, e.g. EV Low Rate.
-fn is_ev(label: &str) -> bool {
+pub(crate) fn is_ev(label: &str) -> bool {
     label.starts_with(EV)
 }
 
@@ -523,15 +550,19 @@ pub fn combine(import: &[MeterHalfHour], export: &[MeterHalfHour], readings: &[T
     let charged = |half_hour: i64| import_meter.get(&half_hour)
         .is_some_and(|reading| reading.units.iter().any(|(label, units)| is_ev(label) && *units > 0.0));
 
-    // Whether the import in the half hour starting at half_hour, which the meter has no reading for, is estimated to be at
-    // the low rate, None if it can not be estimated. measured_charging is whether the car was measured charging in it.
-    let estimated_low = |half_hour: i64, measured_charging: bool| -> Option<bool> {
+    // Whether the half hour starting at half_hour is in the tariff's cheap times, None if they are not known.
+    let in_cheap_times = |half_hour: i64| -> Option<bool> {
         let cheap = estimate.cheap.as_ref()?;
         let minute = time::OffsetDateTime::from_unix_timestamp(half_hour)
             .map(|time| time.to_timezone(tz))
             .map(|time| time.hour() as i64 * 60 + time.minute() as i64)
             .unwrap_or_default();
-        Some(cheap.contains(minute) || (estimate.intelligent && (measured_charging || charging.contains(&half_hour))))
+        Some(cheap.contains(minute))
+    };
+    // Whether the import in the half hour starting at half_hour, which the meter has no reading for, is estimated to be at
+    // the low rate, None if it can not be estimated. measured_charging is whether the car was measured charging in it.
+    let estimated_low = |half_hour: i64, measured_charging: bool| -> Option<bool> {
+        Some(in_cheap_times(half_hour)? || (estimate.intelligent && (measured_charging || charging.contains(&half_hour))))
     };
 
     // The Home Mini's readings in the half hours it has them all for, in periods no longer than a half hour.
@@ -588,12 +619,18 @@ pub fn combine(import: &[MeterHalfHour], export: &[MeterHalfHour], readings: &[T
             },
         };
         let tesla = measured.is_some();
+        let outside = in_cheap_times(half_hour) == Some(false);
         parts.extend(half_hour_points.iter().zip(labels).map(|(point, import)| {
-            // Octopus only has the half hour, so as much each second of it.
-            let ev_comparison = octopus_ev.map(|octopus| (
-                import.iter().filter(|(label, _)| is_ev(label)).map(|(_, kwh)| kwh).sum(),
-                octopus * (point.end - point.start) as f64 / HALF_HOUR as f64,
-            ));
+            let ev_comparison = octopus_ev.map(|octopus| {
+                let share = (point.end - point.start) as f64 / HALF_HOUR as f64;
+                let (measured, octopus) = (measured_ev * share, octopus * share);
+                EvComparison {
+                    measured,
+                    octopus,
+                    measured_outside: if outside { measured } else { 0.0 },
+                    octopus_outside: if outside { octopus } else { 0.0 },
+                }
+            });
             Period {
                 start: point.start,
                 end: point.end,
@@ -887,10 +924,31 @@ mod tests {
         let point = &electricity.points[0];
         assert!((point.import[0] - 0.9).abs() < 1e-6 && (point.import[1] - 0.9).abs() < 1e-6, "{:?}", point.import);
         assert!(point.tesla && point.home_mini);
-        let (measured, octopus) = point.ev_comparison.unwrap();
-        assert!((measured - 0.9).abs() < 1e-6 && (octopus - 1.5).abs() < 1e-9);
+        let comparison = point.ev_comparison.unwrap();
+        assert!((comparison.measured - 0.9).abs() < 1e-6 && (comparison.octopus - 1.5).abs() < 1e-9);
         // Without the gateway's registers, the meter's split, and nothing to compare.
         let electricity = combine(&import, &[], &all, &[], DAY, DAY + 1800, TelemetryPeriod::HalfHour, &Estimate::default(), LONDON);
         assert!(!electricity.points[0].tesla && electricity.points[0].ev_comparison.is_none());
+    }
+
+    #[test]
+    fn the_comparison_is_as_much_each_minute_of_the_half_hour_and_counted_apart_outside_the_cheap_times() {
+        let go = CheapTimes::from_timeslots(&slots(&[("ECO7_DAY", "05:30:00", "23:30:00"), ("ECO7_NIGHT", "23:30:00", "05:30:00")]));
+        let estimate = Estimate { cheap: go, ..Estimate::default() };
+        // As a_measured_half_hour_is_labelled_by_use_at_the_meters_rate_with_octopuss_split_to_compare, at midnight,
+        // in the cheap times, and at noon, outside them.
+        for (start, outside) in [(DAY, false), (DAY + 12 * 3600, true)] {
+            let all = readings(start - 10, start + 1810);
+            let import = [half_hour(start, &[("Home Low Rate", 0.3), ("EV Low Rate", 1.5)])];
+            let electricity = combine(&import, &[], &all, &registers(start - 20, start + 1820, 1800.0, 0.0), start,
+                start + 1800, TelemetryPeriod::Minute, &estimate, LONDON);
+            assert_eq!(electricity.points.len(), 30);
+            for point in &electricity.points {
+                let comparison = point.ev_comparison.unwrap();
+                assert!((comparison.measured - 0.03).abs() < 1e-6 && (comparison.octopus - 0.05).abs() < 1e-9, "{comparison:?}");
+                assert_eq!(comparison.octopus_outside, if outside { comparison.octopus } else { 0.0 });
+                assert_eq!(comparison.measured_outside, if outside { comparison.measured } else { 0.0 });
+            }
+        }
     }
 }

@@ -70,13 +70,15 @@ pub struct StackedBarSeries {
     pub color: String,
 }
 
-/// A dashed line drawn over the bars, e.g. another estimate of one of the series, to compare with it, with a value for
-/// each point, None where it has none, in the same units as their values, named in the legend and the tooltip.
+/// A line drawn over the bars, e.g. another estimate of one of the series, to compare with it, with a value for each
+/// point, None where it has none, in the same units as their values, named in the legend and the tooltip. Dashed, or
+/// solid, so that two lines of the same colour can be told apart.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StackedBarLine {
     pub label: String,
     pub color: String,
     pub values: Vec<Option<f64>>,
+    pub dashed: bool,
 }
 
 #[derive(Clone, PartialEq)]
@@ -307,8 +309,8 @@ pub fn StackedBarGraph(
     /// Bands under the graph, e.g. for each day, in place of the x axis labels of the bars, for when the bars are not
     /// periods which are easy to label, e.g. charging sessions.
     #[props(default)] x_bands: Vec<XBand>,
-    /// A line over the bars, see StackedBarLine.
-    #[props(default)] line: Option<StackedBarLine>,
+    /// Lines over the bars, see StackedBarLine.
+    #[props(default)] lines: Vec<StackedBarLine>,
 ) -> Element {
     let mut hovered = use_signal::<Option<usize>>(|| None);
     // The series of the segment the mouse is over, with segment_tooltip.
@@ -351,12 +353,14 @@ pub fn StackedBarGraph(
     let stack = |point: &StackedBarPoint, positive: bool| point.values.iter()
         .filter(|value| (**value > 0.0) == positive)
         .sum::<f64>() * scale(point);
-    // The line's value for each point, as drawn, see scale.
-    let line_values: Vec<Option<f64>> = points.iter().enumerate()
-        .map(|(index, point)| line.as_ref().and_then(|line| line.values.get(index).copied().flatten()).map(|value| value * scale(point)))
+    // Each line's value for each point, as drawn, see scale.
+    let line_values: Vec<Vec<Option<f64>>> = lines.iter()
+        .map(|line| points.iter().enumerate()
+            .map(|(index, point)| line.values.get(index).copied().flatten().map(|value| value * scale(point)))
+            .collect())
         .collect();
-    let max_value = points.iter().map(|point| stack(point, true)).chain(line_values.iter().flatten().copied()).fold(0.0, f64::max);
-    let min_value = points.iter().map(|point| stack(point, false)).chain(line_values.iter().flatten().copied()).fold(0.0, f64::min);
+    let max_value = points.iter().map(|point| stack(point, true)).chain(line_values.iter().flatten().flatten().copied()).fold(0.0, f64::max);
+    let min_value = points.iter().map(|point| stack(point, false)).chain(line_values.iter().flatten().flatten().copied()).fold(0.0, f64::min);
     let format_value = |value: f64| match mode {
         StackedBarMode::Units => format!("{value:.3} {unit}"),
         StackedBarMode::Cost => format_money(value, currency),
@@ -402,22 +406,26 @@ pub fn StackedBarGraph(
         })
         .collect();
 
-    // The line, a step across each bar it has a value for, joined to the next if that has one too.
-    let line_path: String = {
-        let mut path = String::new();
-        let mut joined = false;
-        for (point, value) in points.iter().zip(&line_values) {
-            match value {
-                Some(value) => {
-                    let line_y = y(*value);
-                    path += &format!("{}{:.1} {line_y:.1} L{:.1} {line_y:.1} ", if joined { "L" } else { "M" }, x(point.start), x(point.end));
-                    joined = true;
-                },
-                None => joined = false,
+    // Each line, a step across each bar it has a value for, joined to the next if that has one too, with its colour and
+    // whether it is dashed, leaving out those with nothing to draw.
+    let line_paths: Vec<(String, String, bool)> = lines.iter().zip(&line_values)
+        .map(|(line, values)| {
+            let mut path = String::new();
+            let mut joined = false;
+            for (point, value) in points.iter().zip(values) {
+                match value {
+                    Some(value) => {
+                        let line_y = y(*value);
+                        path += &format!("{}{:.1} {line_y:.1} L{:.1} {line_y:.1} ", if joined { "L" } else { "M" }, x(point.start), x(point.end));
+                        joined = true;
+                    },
+                    None => joined = false,
+                }
             }
-        }
-        path
-    };
+            (path, line.color.clone(), line.dashed)
+        })
+        .filter(|(path, _, _)| !path.is_empty())
+        .collect();
 
     let y_ticks: Vec<(f64, String)> = (0..)
         // From a whole number of steps, so that zero is not a rounding error from it, e.g. -0.0.
@@ -467,10 +475,12 @@ pub fn StackedBarGraph(
     };
 
     // The legend, above the graph, as HTML, so that it wraps onto more lines if the labels need them: the series', then
-    // the line's, as a short dashed line.
+    // the lines', each as a short line, dashed or not as it is.
     let legend_entries: Vec<(String, String)> = if legend { segment_names.clone() } else { Vec::new() };
-    let line_legend = line.as_ref().filter(|_| legend && !line_path.is_empty())
-        .map(|line| (line.label.clone(), line.color.clone()));
+    let line_legend: Vec<(String, String, bool)> = lines.iter().zip(&line_values)
+        .filter(|(_, values)| legend && values.iter().any(Option::is_some))
+        .map(|(line, _)| (line.label.clone(), line.color.clone(), line.dashed))
+        .collect();
 
     // A column over each bar, the full height of the graph, which shows its tooltip when the mouse is over it and can
     // be double clicked or dragged across, and the start and end of each bar.
@@ -505,8 +515,10 @@ pub fn StackedBarGraph(
                 .filter(|(series, (value, _))| *value != 0.0 && (!segment_tooltip || hovered_series() == Some(*series)))
                 .map(|(_, (value, (label, color)))| (label.clone(), color.clone(), format_value(value)))
                 .collect();
-            if let Some((line, value)) = line.as_ref().zip(line.as_ref().and_then(|line| line.values.get(index).copied().flatten())) {
-                rows.push((line.label.clone(), line.color.clone(), format_value(value)));
+            for line in &lines {
+                if let Some(value) = line.values.get(index).copied().flatten() {
+                    rows.push((line.label.clone(), line.color.clone(), format_value(value)));
+                }
             }
             (tooltip_x, point.period_label.clone(), rows, format_value(totals[index]))
         })
@@ -570,7 +582,7 @@ pub fn StackedBarGraph(
     };
 
     rsx! {
-        if !legend_entries.is_empty() || line_legend.is_some() {
+        if !legend_entries.is_empty() || !line_legend.is_empty() {
             div { class: "stacked-legend",
                 for (label, color) in legend_entries {
                     span { class: "stacked-legend-item",
@@ -578,9 +590,9 @@ pub fn StackedBarGraph(
                         "{label}"
                     }
                 }
-                if let Some((label, color)) = line_legend {
+                for (label, color, dashed) in line_legend {
                     span { class: "stacked-legend-item",
-                        span { class: "stacked-legend-line", style: "border-top-color: {color};" }
+                        span { class: if dashed { "stacked-legend-line" } else { "stacked-legend-line solid" }, style: "border-top-color: {color};" }
                         "{label}"
                     }
                 }
@@ -643,8 +655,8 @@ pub fn StackedBarGraph(
                         }
                     }
                 }
-                if !line_path.is_empty() {
-                    path { class: "stacked-line", stroke: line.as_ref().map(|line| line.color.clone()).unwrap_or_default(), d: "{line_path}" }
+                for (line_path, color, dashed) in line_paths {
+                    path { class: if dashed { "stacked-line" } else { "stacked-line solid" }, stroke: "{color}", d: "{line_path}" }
                 }
                 for (index, column_x, column_width) in columns {
                     rect {

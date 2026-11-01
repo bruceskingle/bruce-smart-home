@@ -294,6 +294,12 @@ query activeMeterPointsWithAgreements($accountNumber: String!) {
               productCode
               __typename
             }
+            # The two rates, in pence a kWh with VAT, e.g. of Intelligent Octopus Go, for what the car's split is
+            # worth, see the Electricity page.
+            ... on DayNightTariff {
+              dayRate
+              nightRate
+            }
           }
           # When each rate applies, e.g. ECO7_NIGHT from 23:30 to 05:30, for tariffs with times of use.
           timeOfUseScheme {

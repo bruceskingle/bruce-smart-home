@@ -270,6 +270,11 @@ th.row-header {
     pointer-events: none;
 }
 
+/* A line which is not dashed, e.g. a measured one beside a dashed estimate of the same thing. */
+.stacked-line.solid {
+    stroke-dasharray: none;
+}
+
 /* A device's starts, on its card, see DeviceCard. */
 table.device-starts {
     margin-top: 6px;
@@ -970,6 +975,10 @@ button.danger:disabled {
 .stacked-legend-line {
     width: 16px;
     border-top: 2px dashed;
+}
+
+.stacked-legend-line.solid {
+    border-top-style: solid;
 }
 
 .stacked-consumption-graph .stacked-legend-swatch {
