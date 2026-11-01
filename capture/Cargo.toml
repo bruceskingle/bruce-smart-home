@@ -22,6 +22,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2.5.8"
 embedded-graphics = "0.8"
+# The graph's colours, see graph.rs.
+rgb = "0.8.53"
 # For myenergi's digest authentication, see myenergi.rs.
 md-5 = "0.10"
 

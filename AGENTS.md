@@ -19,6 +19,8 @@ use, costs and bills from Octopus Energy, and what its Tesla Powerwalls and myen
   `sparko_graphql` crates in a checkout of [sparko_graphql](https://github.com/bruceskingle/sparko_graphql) next to this
   one, on the branch of the same name.
 - `capture/`: firmware for the ESP32 capture devices, built separately, see [capture/README.md](capture/README.md).
+  It logs with the `log` macros, never `println!`, which panics on a device with no computer reading its USB port,
+  see the platform's CLAUDE.md in sparko-embedded-std.
 - `docs/`: the user guide, an mdBook, whose `docs/help/` pages are also built into the app's help panel.
 
 ## Building and Running

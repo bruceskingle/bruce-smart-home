@@ -28,6 +28,7 @@ use sparko_embedded_std::task::scheduler::ScheduledTask;
 use sparko_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
 
 use crate::connections::KeptConnection;
+use crate::graph::Sample;
 use crate::day_files::{self, DayFiles};
 use crate::device::{Device, captured_by};
 use crate::slots::Slots;
@@ -78,7 +79,8 @@ pub struct TeslaConfig {
 }
 
 /// Where its lines go on the screen, first.
-const PANEL_ORDER: u8 = 0;
+/// Where the meters' lines go, which a screen with the graph leaves out, see screen.rs, and the rest of the lines.
+const PANEL_ORDER: u8 = crate::screen::METERS_SECTION + 1;
 
 /// The meters, as named by the gateway, and as shown on the screen.
 const METERS: &[(&str, &str)] = &[("site", "Grid"), ("solar", "Solar"), ("battery", "Battery"), ("load", "House")];
@@ -135,7 +137,7 @@ impl Feature for TeslaCapture {
             client: self.gateway.clone(),
         };
 
-        self.panel.set(PANEL_ORDER, panel_lines(&store.lock().unwrap()));
+        set_panel(&self.panel, &store.lock().unwrap());
 
         // A first poll now, as the app does, so there is something to show without waiting for the first slot.
         poll.poll(sparko, None);
@@ -168,16 +170,29 @@ fn serve_records(
     })
 }
 
-/// What the screen shows: the power of each of the gateway's meters, the battery's charge and backup reserve, and when
-/// the gateway was last polled, or why that failed.
-fn panel_lines(store: &Store) -> Vec<Line> {
-    let mut lines = Vec::new();
+/// What the screen shows, see panel_lines, and the latest sample for its graph, see graph.rs.
+fn set_panel(panel: &Panel, store: &Store) {
+    let mut meters = Vec::new();
     if let Some(record) = store.latest() {
         for (name, label) in METERS {
             if let Some(meter) = record.meter(name) {
-                lines.push((format!("{label:<8}{:>7.2} kW", meter.instant_power / 1000.0), false));
+                meters.push((format!("{label:<8}{:>7.2} kW", meter.instant_power / 1000.0), false));
             }
         }
+        let power = crate::graph::SERIES.map(|(name, _)| record.meter(name).map(|meter| meter.instant_power));
+        if let [Some(grid), Some(solar), Some(battery), Some(house)] = power {
+            panel.add_sample(Sample { time: record.time(), power: [grid, solar, battery, house] });
+        }
+    }
+    panel.set(crate::screen::METERS_SECTION, meters);
+    panel.set(PANEL_ORDER, panel_lines(store));
+}
+
+/// What the screen shows besides the power of each of the gateway's meters: the battery's charge and backup reserve,
+/// and when the gateway was last polled, or why that failed.
+fn panel_lines(store: &Store) -> Vec<Line> {
+    let mut lines = Vec::new();
+    if let Some(record) = store.latest() {
         // As the gateway says them, which the Tesla app shows less the 5% it keeps in reserve.
         let charge = match record.response("system_status/soe") {
             Some(Response::Soe { percentage: Some(percentage) }) => format!("{percentage:.0}%"),
@@ -379,7 +394,7 @@ impl PollTask {
                 store.failed(requested, format!("{error:#}"));
             }
         }
-        self.panel.set(PANEL_ORDER, panel_lines(&store));
+        set_panel(&self.panel, &store);
     }
 
     /// Requests each of the ENDPOINTS in turn, on one connection, logging in first if there is no token.

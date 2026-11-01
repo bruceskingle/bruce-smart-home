@@ -1521,6 +1521,7 @@ dependencies = [
  "esp-idf-sys",
  "log",
  "md-5",
+ "rgb",
  "serde",
  "serde_json",
  "sparko-embedded-std",

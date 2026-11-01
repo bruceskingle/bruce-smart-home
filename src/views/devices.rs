@@ -135,7 +135,7 @@ fn restarts(starts: &capture_device::Starts, now: chrono::DateTime<chrono::Utc>)
 
 /// What a device's reset reason, see DeviceInfo::reset_reason, means, and whether it is trouble, e.g. a crash, rather
 /// than being switched on or restarted.
-fn started_after(reason: &str) -> (String, bool) {
+pub(crate) fn started_after(reason: &str) -> (String, bool) {
     match reason {
         "PowerOn" => ("After being switched on".to_string(), false),
         "Software" => ("After being restarted".to_string(), false),

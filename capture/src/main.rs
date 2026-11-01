@@ -1,12 +1,13 @@
 //! A Capture Device: an ESP32 which polls what Marco Sparko needs while the computer it runs on sleeps, keeps it, and
 //! gives it to the app, which reads it from the device's /api/capture/... pages: the Tesla gateway, see tesla.rs,
 //! myenergi's zappi, see myenergi.rs, and Octopus's smart charging, see octopus.rs, on a CYD, whose screen shows the
-//! clock with the latest numbers below it, or a Waveshare ESP32-C6-Touch-LCD-1.47, whose small screen shows only the
-//! numbers, see board.
+//! clock with the latest numbers below it, or a Waveshare ESP32-C6-Touch-LCD-1.47, whose small screen shows a graph of
+//! the gateway's power, and the device's status when it is swiped, see board and screen.rs.
 
 mod connections;
 mod day_files;
 mod device;
+mod graph;
 mod myenergi;
 mod octopus;
 mod records;
@@ -26,9 +27,11 @@ mod board {
     use sparko_esp_idf::Esp32PlatformBuilder;
     use sparko_esp_idf::features::analog_clock::AnalogClock;
 
-    /// 240 by 320, 8 lines of numbers under the clock.
+    /// 240 by 320, 8 lines of numbers under the clock, and no graph, see screen.rs, redrawn every other second.
     pub const ORIENTATION: DisplayOrientation = DisplayOrientation::Rotate0;
     pub const CLOCK_HEIGHT: u32 = 160;
+    pub const GRAPH: bool = false;
+    pub const SCREEN_SCHEDULE: &str = "*/2 * * * * *";
 
     pub fn with_clock(builder: Esp32PlatformBuilder) -> anyhow::Result<Esp32PlatformBuilder> {
         builder.with_feature(Box::new(
@@ -49,9 +52,12 @@ mod board {
     use sparko_embedded_std::DisplayOrientation;
     use sparko_esp_idf::Esp32PlatformBuilder;
 
-    /// 320 by 172, too small for the clock too, so 8 lines of numbers, as the board's example is.
+    /// 320 by 172, too small for the analog clock too, so the graph of the gateway's power, with a small digital
+    /// clock, see screen.rs, which ticks every second, or until there is a graph, 8 lines of numbers.
     pub const ORIENTATION: DisplayOrientation = DisplayOrientation::Rotate270;
     pub const CLOCK_HEIGHT: u32 = 0;
+    pub const GRAPH: bool = true;
+    pub const SCREEN_SCHEDULE: &str = "* * * * * *";
 
     pub fn with_clock(builder: Esp32PlatformBuilder) -> anyhow::Result<Esp32PlatformBuilder> {
         Ok(builder)

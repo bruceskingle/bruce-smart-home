@@ -416,6 +416,8 @@ fn next_occurrence(spec: &str, after: time::OffsetDateTime) -> Option<time::Offs
 pub struct CaptureReader {
     /// After /api/, e.g. capture/tesla/records.
     path: &'static str,
+    /// The module whose records they are, e.g. tesla, the part of path after capture/.
+    module_id: String,
     /// The time of the latest record read from each device, by its ID, to only ask for later ones. Not kept between
     /// runs: the first read of a device asks for those after the default given to read.
     read_until: std::sync::Mutex<std::collections::HashMap<String, time::OffsetDateTime>>,
@@ -423,17 +425,74 @@ pub struct CaptureReader {
     schedules: std::sync::Mutex<std::collections::HashMap<String, String>>,
 }
 
-/// What a device says with its records, e.g. when and why it last started, for the log.
-#[derive(Deserialize, Debug)]
+/// What a device says with its records, e.g. when and why it last started, for the log and the Polling page, see
+/// DeviceStatus.
+#[derive(Clone, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
-struct RecordsDevice {
-    boot_time: Option<String>,
-    reset_reason: Option<String>,
-    storage: Option<String>,
-    storage_problem: Option<String>,
-    free_heap: Option<u64>,
+pub struct RecordsDevice {
+    pub boot_time: Option<String>,
+    pub reset_reason: Option<String>,
+    /// Where it keeps its records, e.g. sd, or ram, see storage_problem.
+    pub storage: Option<String>,
+    /// Why it keeps its records in RAM, e.g. ESP_ERR_TIMEOUT, as it has no SD card.
+    pub storage_problem: Option<String>,
+    pub free_heap: Option<u64>,
+    /// The least free heap since it started, which shows how near it has come to running out.
+    pub minimum_free_heap: Option<u64>,
+    /// How many records it has in RAM, and the most it keeps there, when it has no SD card.
+    pub records_in_ram: Option<u64>,
+    pub ram_capacity: Option<u64>,
     /// When it polls, a cron spec, see CaptureReader::next_read.
     schedule: Option<String>,
+}
+
+/// How reading a profile's capture devices is going, for the Polling page, see device_statuses.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct DeviceStatus {
+    pub id: String,
+    pub address: String,
+    /// Its name on the network, e.g. cyd, see DeviceInfo::hostname, once it has been asked.
+    pub name: Option<String>,
+    /// The modules whose records it takes, by module id, e.g. tesla, see CaptureReader::path.
+    pub takes: std::collections::BTreeSet<String>,
+    /// When it was last read, and when last asked, with why that failed, if it did.
+    pub last_read: Option<time::OffsetDateTime>,
+    pub last_error: Option<(time::OffsetDateTime, String)>,
+    /// The records read from it since the app started, and how many of them the app did not have already.
+    pub read: u64,
+    pub saved: u64,
+    /// What it said with its records last.
+    pub device: Option<RecordsDevice>,
+}
+
+/// The status of each of the profile's capture devices, by ID, since the poller started, see clear_statuses.
+static STATUSES: Mutex<std::collections::BTreeMap<String, DeviceStatus>> = Mutex::new(std::collections::BTreeMap::new());
+
+/// The status of each capture device read since the poller started, by ID. The Polling page shows them after each
+/// poll, which is when they change.
+pub fn device_statuses() -> Vec<DeviceStatus> {
+    STATUSES.lock().unwrap().values().cloned().collect()
+}
+
+/// Forgets the statuses, when the poller starts, e.g. for another profile.
+pub fn clear_statuses() {
+    STATUSES.lock().unwrap().clear();
+}
+
+/// The names of the devices which take the module's records, e.g. ["WaveTouch", "cyd"], by ID if they have no name.
+pub fn devices_taking(module_id: &str) -> Vec<String> {
+    STATUSES.lock().unwrap().values()
+        .filter(|status| status.takes.contains(module_id))
+        .map(|status| status.name.clone().unwrap_or_else(|| status.id.clone()))
+        .collect()
+}
+
+/// Changes the status of device with change, adding it if it is new.
+fn update_status(device: &DeviceProfile, change: impl FnOnce(&mut DeviceStatus)) {
+    let mut statuses = STATUSES.lock().unwrap();
+    let status = statuses.entry(device.id.clone()).or_insert_with(|| DeviceStatus { id: device.id.clone(), ..Default::default() });
+    status.address = device.address.clone();
+    change(status);
 }
 
 #[derive(Deserialize)]
@@ -460,6 +519,7 @@ impl CaptureReader {
     pub fn new(path: &'static str) -> CaptureReader {
         CaptureReader {
             path,
+            module_id: path.split('/').nth(1).unwrap_or(path).to_string(),
             read_until: std::sync::Mutex::new(std::collections::HashMap::new()),
             schedules: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
@@ -495,10 +555,12 @@ impl CaptureReader {
                 // It does not take them.
                 Err(error) if error.downcast_ref::<StatusError>().is_some_and(|error| error.status == 404) => {
                     self.schedules.lock().unwrap().remove(&device.id);
+                    update_status(device, |status| { status.takes.remove(&self.module_id); });
                 }
                 Err(error) => {
                     takes = true;
                     crate::log_warning!("Unable to read {} from the capture device {}, {error:#}", self.path, device.id);
+                    update_status(device, |status| status.last_error = Some((crate::clock::now_utc(), format!("{error:#}"))));
                     first_error.get_or_insert(error);
                 }
             }
@@ -514,12 +576,21 @@ impl CaptureReader {
         save: &mut dyn FnMut(&Value) -> anyhow::Result<bool>, progress: &mut dyn FnMut(String)) -> anyhow::Result<()> {
         let mut since = self.read_until.lock().unwrap().get(&device.id).copied().or(since);
         let client = DeviceClient::for_device(device)?;
+        // Its name, once, for the Polling page.
+        let named = STATUSES.lock().unwrap().get(&device.id).is_some_and(|status| status.name.is_some());
+        if !named {
+            match client.info().await {
+                Ok(info) => update_status(device, |status| status.name = info.hostname.filter(|name| !name.is_empty())),
+                Err(error) => crate::log_info!("Unable to get the name of the capture device {}, {error:#}", device.id),
+            }
+        }
         let mut read = 0;
         let mut saved = 0;
         progress(format!("Reading the capture device {}", device.id));
         loop {
             let records = self.read_page(&client, device, since).await?;
             read += records.records.len();
+            let page_saved = saved;
             let mut latest = since;
             for record in &records.records {
                 let Some(time) = record_time(record) else {
@@ -534,6 +605,14 @@ impl CaptureReader {
             if let Some(latest) = latest {
                 self.read_until.lock().unwrap().insert(device.id.clone(), latest);
             }
+            update_status(device, |status| {
+                status.takes.insert(self.module_id.clone());
+                status.last_read = Some(crate::clock::now_utc());
+                status.last_error = None;
+                status.read += records.records.len() as u64;
+                status.saved += (saved - page_saved) as u64;
+                status.device = Some(records.device.clone());
+            });
             // Only while the page moved on, so that a device which said more of nothing is not asked forever.
             if !records.more || latest == since {
                 break;

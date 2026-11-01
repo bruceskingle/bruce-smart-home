@@ -154,7 +154,8 @@ fn path_date(path: &std::path::Path) -> Option<time::Date> {
     let month = path.parent()?;
     let year = month.parent()?.file_name()?.to_str()?;
     let month = month.file_name()?.to_str()?;
-    let format = time::macros::format_description!("[year] [month repr:long] [day]");
+    // The day is not padded, e.g. 1, see path_for.
+    let format = time::macros::format_description!("[year] [month repr:long] [day padding:none]");
     time::Date::parse(&format!("{year} {month} {day}"), format).ok()
 }
 
@@ -280,7 +281,7 @@ fn path_time(path: &std::path::Path) -> Option<OffsetDateTime> {
     let year = month.parent()?.file_name()?.to_str()?;
     let month = month.file_name()?.to_str()?;
     let text = format!("{year} {month} {day} {time}");
-    let format = time::macros::format_description!("[year] [month repr:long] [day] [hour][minute][second]");
+    let format = time::macros::format_description!("[year] [month repr:long] [day padding:none] [hour][minute][second]");
     Some(time::PrimitiveDateTime::parse(&text, format).ok()?.assume_utc())
 }
 
@@ -461,6 +462,15 @@ mod tests {
     fn the_time_is_read_from_the_path() {
         let path = std::path::Path::new("/cache/n2-tesla/2026/October/29#snapshot-111151");
         assert_eq!(path_time(path), OffsetDateTime::parse("2026-10-29T11:11:51Z", &Rfc3339).ok());
+        let path = std::path::Path::new("/cache/n2-tesla/2026/November/1#snapshot-111151");
+        assert_eq!(path_time(path), OffsetDateTime::parse("2026-11-01T11:11:51Z", &Rfc3339).ok());
+    }
+
+    #[test]
+    fn the_day_is_read_from_the_path_of_a_day_file() {
+        let day = |path: &str| path_date(std::path::Path::new(path));
+        assert_eq!(day("/cache/n2-tesla/2026/October/29#snapshots"), Some(time::macros::date!(2026-10-29)));
+        assert_eq!(day("/cache/n2-tesla/2026/November/1#snapshots"), Some(time::macros::date!(2026-11-01)));
     }
 
     #[test]

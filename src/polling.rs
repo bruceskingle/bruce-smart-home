@@ -155,6 +155,7 @@ pub fn Poller(context: crate::util::SharedProp<MarcoSparkoContext>) -> Element {
         let registrations = registrations.clone();
         async move {
             statuses.set(BTreeMap::new());
+            crate::capture_device::clear_statuses();
             // An offline profile is only its cached data, so there is nothing to poll.
             if context.profile.active_profile.offline {
                 return;

@@ -62,7 +62,7 @@ const CALLS_PER_HOUR: usize = 20;
 const MAX_BODY: usize = 32 * 1024;
 
 /// Where its line goes on the screen, after the zappi's.
-const PANEL_ORDER: u8 = 2;
+const PANEL_ORDER: u8 = 3;
 
 /// The accounts the API key may use, the first of which is polled if the config does not say which.
 const ACCOUNTS: &str = "query accounts { viewer { accounts { number } } }";

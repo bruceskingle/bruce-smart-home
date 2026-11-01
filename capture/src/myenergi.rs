@@ -53,7 +53,7 @@ const ASN_HEADER: &str = "x_myenergi-asn";
 const MAX_BODY: usize = 32 * 1024;
 
 /// Where its line goes on the screen, after the Powerwall's.
-const PANEL_ORDER: u8 = 1;
+const PANEL_ORDER: u8 = 2;
 
 /// The fields of each zappi kept, those marco-sparko's StatusSample and ct_names use. Of the other devices only the
 /// serial number is kept, sno, so that the app can fetch their minute records.
