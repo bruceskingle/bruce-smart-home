@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Write;
 use std::time::Duration;
 
 use sparko_graphql::{GraphQLCaller, GraphQLQueryBuilder};
@@ -43,7 +44,13 @@ impl MeterAgreementDataSet {
             queries,
             config,
             request_manager).await?;
-        
+
+        if !data._attributes.cached {
+            if let Err(error) = record_tariffs(config, account_number, &data.data) {
+                crate::log_warning!("Unable to record the tariffs' history, {error:#}");
+            }
+        }
+
 
         let mut export_electricity_map = HashMap::new();
         let mut import_electricity_map = HashMap::new();
@@ -73,6 +80,79 @@ impl MeterAgreementDataSet {
         })
     }
 
+}
+
+/// Adds each agreement in force now, with its whole tariff, to <account>#TariffHistory, a JSON line each, when it
+/// differs from the last recorded for the agreement, e.g. a new standing charge or new unit rates. Octopus only returns
+/// a tariff as it is now, e.g. the unit rates which apply now, so this is the only record of what it was before, and of
+/// when it changed. Agreements which have ended are left as they were last recorded, as Octopus returns nulls for
+/// their rates.
+fn record_tariffs(config: &CacheConfig, account_number: &str, responses: &[meter::meter_agreements::Response]) -> anyhow::Result<()> {
+    let path = config.path_for_hash_key(&format!("{}#TariffHistory", account_number));
+    let mut last = HashMap::new();
+    if let Ok(history) = std::fs::read_to_string(&path) {
+        for line in history.lines() {
+            if let Ok(mut record) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(id) = record["agreement"]["id"].as_i64() {
+                    last.insert(id, record["agreement"].take());
+                }
+            }
+        }
+    }
+    let now = DateTime::from_unix_timestamp(crate::clock::now_utc().unix_timestamp())?;
+    let in_force = |valid_from: &DateTime, valid_to: &Option<DateTime>| valid_from <= &now && valid_to.as_ref().is_none_or(|valid_to| valid_to > &now);
+    let mut agreements = Vec::new();
+    for response in responses {
+        match &response.node_ {
+            meter::meter_agreements::Node::ElectricityMeterType(meter) => {
+                let kind = if meter.import_meter_.is_some() { "export" } else { "import" };
+                for agreement in &meter.meter_point_.agreements_ {
+                    if in_force(&agreement.valid_from_, &agreement.valid_to_) {
+                        agreements.push((kind, serde_json::to_value(agreement)?));
+                    }
+                }
+            },
+            meter::meter_agreements::Node::GasMeterType(meter) => {
+                for agreement in &meter.meter_point_.agreements_ {
+                    if in_force(&agreement.valid_from_, &agreement.valid_to_) {
+                        agreements.push(("gas", serde_json::to_value(agreement)?));
+                    }
+                }
+            },
+            _ => {},
+        }
+    }
+    let mut file = None;
+    for (kind, mut agreement) in agreements {
+        // Sorted, so that the same rates in another order are not a change.
+        if let Some(rates) = agreement["tariff"]["unitRates"].as_array_mut() {
+            rates.sort_by_key(|rate| rate.to_string());
+        }
+        let Some(id) = agreement["id"].as_i64() else { continue };
+        let previous = last.get(&id);
+        if previous == Some(&agreement) {
+            continue;
+        }
+        if previous.is_some() {
+            crate::log_info!("The {kind} tariff {} {} has changed", agreement["tariff"]["displayName"].as_str().unwrap_or(""),
+                agreement["tariff"]["tariffCode"].as_str().unwrap_or(""));
+        }
+        let record = serde_json::json!({
+            "seen": crate::clock::now_utc().format(&time::format_description::well_known::Rfc3339)?,
+            "meter": kind,
+            "agreement": agreement,
+        });
+        if file.is_none() {
+            file = Some(std::fs::OpenOptions::new().create(true).append(true).open(&path)?);
+        }
+        if let Some(file) = &mut file {
+            writeln!(file, "{record}")?;
+        }
+    }
+    Ok(())
+}
+
+impl MeterAgreementDataSet {
     pub fn get_in_scope(self, meter_type: &MeterType, is_export: bool, start_date: &DateTime, end_date: &DateTime) -> Vec<MeterAgreement> {
         let mut in_scope_agreements = Vec::new();
 
@@ -112,5 +192,66 @@ impl MeterAgreementDataSet {
         }
 
         in_scope_agreements
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A response for an import meter with an ended agreement, and one in force now, half-hourly, at the standing charge
+    /// and with the rates given.
+    fn response(standing_charge: f64, rates: serde_json::Value) -> meter::meter_agreements::Response {
+        serde_json::from_value(serde_json::json!({
+            "node": {
+                "__typename": "ElectricityMeterType",
+                "nodeId": "meter",
+                "meterPoint": {
+                    "mpan": "mpan",
+                    "agreements": [{
+                        "id": 0,
+                        "validFrom": "2025-06-30T23:00:00Z",
+                        "validTo": "2026-08-26T23:00:00Z",
+                        "tariff": { "__typename": "HalfHourlyTariff", "standingCharge": standing_charge, "unitRates": [] },
+                    }, {
+                        "id": 1,
+                        "validFrom": "2026-08-26T23:00:00Z",
+                        "validTo": null,
+                        "tariff": {
+                            "__typename": "HalfHourlyTariff",
+                            "displayName": "Intelligent Octopus Go",
+                            "tariffCode": "E-1R-IOG",
+                            "standingCharge": standing_charge,
+                            "unitRates": rates,
+                        },
+                    }],
+                },
+            },
+        })).unwrap()
+    }
+
+    #[test]
+    fn a_tariff_is_recorded_again_only_when_it_changes() {
+        let dir = std::env::temp_dir().join(format!("marco-sparko-tariff-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = CacheConfig::new(dir.clone(), false, false);
+        let path = config.path_for_hash_key("A#TariffHistory");
+        let _ = std::fs::remove_file(&path);
+        let lines = || std::fs::read_to_string(&path).unwrap().lines().count();
+        let off_peak = serde_json::json!({ "value": 6.6, "rateType": "EV_DEVICE_OFF_PEAK" });
+        let peak = serde_json::json!({ "value": 36.294, "rateType": "EV_DEVICE_PEAK" });
+
+        record_tariffs(&config, "A", &[response(50.0, serde_json::json!([off_peak, peak]))]).unwrap();
+        assert_eq!(lines(), 1);
+        // The same rates in another order are not a change.
+        record_tariffs(&config, "A", &[response(50.0, serde_json::json!([peak, off_peak]))]).unwrap();
+        assert_eq!(lines(), 1);
+        record_tariffs(&config, "A", &[response(55.0, serde_json::json!([peak, off_peak]))]).unwrap();
+        assert_eq!(lines(), 2);
+        let last: serde_json::Value = serde_json::from_str(std::fs::read_to_string(&path).unwrap().lines().last().unwrap()).unwrap();
+        assert_eq!(last["meter"], "import");
+        assert_eq!(last["agreement"]["id"], 1, "only the agreement in force is recorded");
+        assert_eq!(last["agreement"]["tariff"]["standingCharge"], 55.0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

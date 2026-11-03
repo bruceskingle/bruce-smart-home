@@ -306,7 +306,12 @@ fn DeviceCard(device: DeviceProfile, profile_name: String) -> Element {
                         if let Some(reason) = &info.reset_reason {
                             {
                                 let (text, trouble) = started_after(reason);
-                                rsx! { tr { th { "Last started" } td { class: if trouble { "invalid" }, "{text}" } } }
+                                rsx! {
+                                    tr { th { "Last started" } td { class: if trouble { "invalid" }, "{text}" } }
+                                    if let Some(crash) = &info.last_crash {
+                                        tr { th { "Crash" } td { class: "invalid", "{crash}" } }
+                                    }
+                                }
                             }
                         }
                         if let Some(Ok(starts)) = &*starts.read() {

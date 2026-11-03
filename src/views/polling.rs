@@ -106,7 +106,11 @@ fn DevicesTable(devices: Vec<DeviceStatus>) -> Element {
                             if let Some(reason) = &device.reset_reason {
                                 {
                                     let (text, trouble) = crate::views::devices::started_after(reason);
-                                    rsx! { ", " span { class: if trouble { "invalid" }, "{text.to_lowercase()}" } }
+                                    // Why it crashed, if it knows, as the tooltip.
+                                    match &device.last_crash {
+                                        Some(crash) => rsx! { ", " span { class: "invalid", title: "{crash}", "{text.to_lowercase()}" } },
+                                        None => rsx! { ", " span { class: if trouble { "invalid" }, "{text.to_lowercase()}" } },
+                                    }
                                 }
                             }
                         }
@@ -114,9 +118,23 @@ fn DevicesTable(devices: Vec<DeviceStatus>) -> Element {
                     td { class: "number",
                         if let Some(device) = &status.device {
                             if let Some(free) = device.free_heap {
-                                match device.minimum_free_heap {
-                                    Some(least) => rsx! { span { title: "The least since it started was {least / 1024} KB", "{free / 1024} KB" } },
-                                    None => rsx! { "{free / 1024} KB" },
+                                {
+                                    let mut details = Vec::new();
+                                    if let Some(least) = device.minimum_free_heap {
+                                        details.push(format!("The least since it started was {} KB", least / 1024));
+                                    }
+                                    if let Some(largest) = device.largest_free_block {
+                                        details.push(format!("the largest free block {} KB", largest / 1024));
+                                    }
+                                    if let Some(failed) = device.failed_allocations.filter(|failed| *failed > 0) {
+                                        details.push(format!("{failed} allocations have failed"));
+                                    }
+                                    let low = device.failed_allocations.is_some_and(|failed| failed > 0);
+                                    if details.is_empty() {
+                                        rsx! { "{free / 1024} KB" }
+                                    } else {
+                                        rsx! { span { class: if low { "invalid" }, title: "{details.join(\", \")}", "{free / 1024} KB" } }
+                                    }
                                 }
                             }
                         }

@@ -10,6 +10,10 @@
 //! the latest in RAM, for the screen, and for the app if there is no card.
 //!
 //! It only needs the API key: the account is the key's first, unless the config says which.
+//!
+//! The responses are kept as the JSON Octopus sends, see RawValue, with only what the device needs read from them, as
+//! a serde_json::Value of them takes several times the RAM of their JSON: each object a BTreeMap of at least 400 bytes,
+//! and a night's charging is a completed dispatch, two objects, for each half hour, which ran the CYD out of memory.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -23,7 +27,9 @@ use embedded_svc::io::Write;
 use esp_idf_svc::http::Method;
 use esp_idf_svc::http::client::{Configuration, EspHttpConnection};
 use log::{info, warn};
-use serde_json::{Value, json};
+use serde::Deserialize;
+use serde_json::json;
+use serde_json::value::RawValue;
 use sparko_embedded_std::config::ConfigSpec;
 use sparko_embedded_std::config::ConfigSpecValue;
 use sparko_embedded_std::config::FeatureConfig;
@@ -46,7 +52,7 @@ const FEATURE_NAME: &str = "OctopusCapture";
 /// 30 seconds before and after each half hour ends, 30 seconds clear of the other features' polls on the minute.
 const DEFAULT_SCHEDULE: &str = "30 0,29,30,59 * * * *";
 
-/// 2 hours of records, about 1.2 KB each, for when there is no SD card.
+/// 2 hours of records, from about 1 KB each, to about 4 KB after a night's charging, for when there is no SD card.
 const RAM_CAPACITY: usize = 8;
 
 const URL: &str = "https://api.octopus.energy/v1/graphql/";
@@ -200,14 +206,14 @@ impl Octopus {
         Ok(())
     }
 
-    /// POSTs a GraphQL operation, returning its data, or its errors.
+    /// POSTs a GraphQL operation, returning the response, whose data is read with data, or its errors.
     fn graphql(
         &mut self,
         client: &mut Client<EspHttpConnection>,
         query: &str,
-        variables: Value,
+        variables: serde_json::Value,
         token: Option<&str>,
-    ) -> anyhow::Result<Value> {
+    ) -> anyhow::Result<Vec<u8>> {
         self.spend()?;
         let body = serde_json::to_vec(&json!({ "query": query, "variables": variables }))?;
         let length = body.len().to_string();
@@ -223,18 +229,19 @@ impl Octopus {
         if !(200..300).contains(&status) {
             anyhow::bail!("Octopus responded {status}: {}", String::from_utf8_lossy(&body[..body.len().min(100)]));
         }
-        let mut json: Value = serde_json::from_slice(&body)?;
-        if let Some(errors) = json.get("errors").and_then(|errors| errors.as_array()).filter(|errors| !errors.is_empty()) {
+        let errors: Errors = serde_json::from_slice(&body)?;
+        if !errors.errors.is_empty() {
             let messages: Vec<String> = errors
+                .errors
                 .iter()
                 .map(|error| {
-                    let code = error["extensions"]["errorCode"].as_str().unwrap_or_default();
-                    format!("{} {code}", error["message"].as_str().unwrap_or("error"))
+                    let code = error.extensions.as_ref().and_then(|extensions| extensions.error_code.as_deref());
+                    format!("{} {}", error.message.as_deref().unwrap_or("error"), code.unwrap_or_default())
                 })
                 .collect();
             anyhow::bail!("{}", messages.join("; "));
         }
-        Ok(json["data"].take())
+        Ok(body)
     }
 
     /// The token, logging in with the API key first if there is none, or it is old.
@@ -246,18 +253,19 @@ impl Octopus {
         }
         info!("Octopus logging in");
         let variables = json!({ "input": { "APIKey": self.key } });
-        let data = self.graphql(client, LOGIN, variables, None)?;
-        let token = data["obtainKrakenToken"]["token"]
-            .as_str()
-            .ok_or_else(|| anyhow!("Octopus gave no token"))?
-            .to_string();
+        let body = self.graphql(client, LOGIN, variables, None)?;
+        let token = data::<Login>(&body)?
+            .obtain_kraken_token
+            .and_then(|token| token.token)
+            .ok_or_else(|| anyhow!("Octopus gave no token"))?;
         self.token = Some((token.clone(), Instant::now()));
         Ok(token)
     }
 
-    /// The responses, as marco-sparko's flex_poll::poll saves them: one flexPoll request once the charging device is
-    /// known, otherwise the devices first, to find it.
-    fn poll(&mut self) -> anyhow::Result<Value> {
+    /// The responses, as marco-sparko's flex_poll::poll saves them, as their JSON, and what the screen shows of them:
+    /// one flexPoll request once the charging device is known, otherwise the devices first, to find it.
+    fn poll(&mut self) -> anyhow::Result<(String, Line)> {
+        crate::device::log_memory("Before Octopus");
         let mut client = Client::wrap(EspHttpConnection::new(&Configuration {
             timeout: Some(Duration::from_secs(20)),
             // Room for the Authorization header, the token, a JWT of about 1 KB, as the default is 512 bytes.
@@ -270,47 +278,153 @@ impl Octopus {
             Some(account) => account.clone(),
             None => {
                 info!("Octopus finding the account");
-                let data = self.graphql(&mut client, ACCOUNTS, json!({}), Some(&token))?;
-                let account = data["viewer"]["accounts"][0]["number"]
-                    .as_str()
-                    .ok_or_else(|| anyhow!("Octopus has no account for the API key"))?
-                    .to_string();
+                let body = self.graphql(&mut client, ACCOUNTS, json!({}), Some(&token))?;
+                let account = data::<Accounts>(&body)?
+                    .viewer
+                    .and_then(|viewer| viewer.accounts?.into_iter().next()?.number)
+                    .ok_or_else(|| anyhow!("Octopus has no account for the API key"))?;
                 self.account = Some(account.clone());
                 account
             }
         };
         if self.charging_device.is_none() {
             info!("Octopus finding the charging device");
-            let data = self.graphql(&mut client, DEVICES, json!({ "accountNumber": account }), Some(&token))?;
-            self.charging_device = charging_device(&data["devices"]);
+            let body = self.graphql(&mut client, DEVICES, json!({ "accountNumber": account }), Some(&token))?;
+            self.charging_device = charging_device(&devices(data::<DevicesData>(&body)?.devices)?);
         }
         let Some(device_id) = self.charging_device.clone() else {
             anyhow::bail!("Octopus has no charging device on the account");
         };
         info!("Octopus flexPoll");
         let variables = json!({ "accountNumber": account, "deviceId": device_id });
-        let mut data = self
+        let body = self
             .graphql(&mut client, FLEX_POLL, variables, Some(&token))
             // e.g. the device has gone, so that the next poll finds the devices again.
             .inspect_err(|_| self.charging_device = None)?;
-        let devices = data["devices"].take();
+        drop(client);
+        let data = data::<FlexPoll>(&body)?;
+        let devices_read = devices(data.devices)?;
         // The device may have changed, so that the next poll asks for the new one.
-        self.charging_device = charging_device(&devices);
-        Ok(json!({
-            "devicePreferences": { "devices": devices },
-            "flexPlannedDispatches": { device_id: { "flexPlannedDispatches": data["flexPlannedDispatches"].take() } },
-            "completedDispatches": { "completedDispatches": data["completedDispatches"].take() },
-        }))
+        self.charging_device = charging_device(&devices_read);
+        let planned: Option<Vec<Dispatch>> = serde_json::from_str(data.flex_planned_dispatches.get())?;
+        let line = panel_line(&devices_read, planned.as_deref().unwrap_or_default());
+        let responses = format!(
+            r#"{{"devicePreferences":{{"devices":{}}},"flexPlannedDispatches":{{{}:{{"flexPlannedDispatches":{}}}}},"completedDispatches":{{"completedDispatches":{}}}}}"#,
+            data.devices.get(),
+            serde_json::to_string(&device_id)?,
+            data.flex_planned_dispatches.get(),
+            data.completed_dispatches.get()
+        );
+        Ok((responses, line))
     }
 }
 
+/// A response's errors, see Octopus::graphql.
+#[derive(Deserialize)]
+struct Errors {
+    #[serde(default)]
+    errors: Vec<GraphqlError>,
+}
+
+#[derive(Deserialize)]
+struct GraphqlError {
+    message: Option<String>,
+    extensions: Option<Extensions>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Extensions {
+    error_code: Option<String>,
+}
+
+/// A response's data, as T, which the operation's types below read only what the device needs of.
+fn data<'a, T: Deserialize<'a>>(body: &'a [u8]) -> anyhow::Result<T> {
+    #[derive(Deserialize)]
+    struct Data<T> {
+        data: Option<T>,
+    }
+    serde_json::from_slice::<Data<T>>(body)?.data.ok_or_else(|| anyhow!("Octopus gave no data"))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Login {
+    obtain_kraken_token: Option<Token>,
+}
+
+#[derive(Deserialize)]
+struct Token {
+    token: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Accounts {
+    viewer: Option<Viewer>,
+}
+
+#[derive(Deserialize)]
+struct Viewer {
+    accounts: Option<Vec<Account>>,
+}
+
+#[derive(Deserialize)]
+struct Account {
+    number: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DevicesData<'a> {
+    #[serde(borrow)]
+    devices: &'a RawValue,
+}
+
+/// flexPoll's data, as the JSON Octopus sent, see the module comment.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FlexPoll<'a> {
+    #[serde(borrow)]
+    devices: &'a RawValue,
+    #[serde(borrow)]
+    flex_planned_dispatches: &'a RawValue,
+    #[serde(borrow)]
+    completed_dispatches: &'a RawValue,
+}
+
+/// What the device reads of each of the devices.
+#[derive(Deserialize)]
+struct DeviceRead {
+    id: Option<String>,
+    #[serde(rename = "__typename")]
+    typename: Option<String>,
+    preferences: Option<Preferences>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Preferences {
+    is_charging_duration_capped: Option<String>,
+}
+
+/// What the device reads of each planned dispatch.
+#[derive(Deserialize)]
+struct Dispatch {
+    start: Option<String>,
+    end: Option<String>,
+}
+
+/// The devices, of which there are none if Octopus gives null.
+fn devices(devices: &RawValue) -> anyhow::Result<Vec<DeviceRead>> {
+    let devices: Option<Vec<DeviceRead>> = serde_json::from_str(devices.get())?;
+    Ok(devices.unwrap_or_default())
+}
+
 /// The first device which charges, a charge point or vehicle, the only ones with planned dispatches.
-fn charging_device(devices: &Value) -> Option<String> {
+fn charging_device(devices: &[DeviceRead]) -> Option<String> {
     devices
-        .as_array()?
         .iter()
-        .find(|device| matches!(device["__typename"].as_str(), Some("SmartFlexChargePoint" | "SmartFlexVehicle")))
-        .and_then(|device| device["id"].as_str().map(String::from))
+        .find(|device| matches!(device.typename.as_deref(), Some("SmartFlexChargePoint" | "SmartFlexVehicle")))
+        .and_then(|device| device.id.clone())
 }
 
 fn read_body(response: &mut embedded_svc::http::client::Response<&mut EspHttpConnection>) -> anyhow::Result<Vec<u8>> {
@@ -330,25 +444,19 @@ fn read_body(response: &mut embedded_svc::http::client::Response<&mut EspHttpCon
 
 /// What the responses say for the screen: when the next planned charging starts, or none, and whether charging is
 /// capped to the cheap hours, e.g. "Octopus 23:30 capped".
-fn panel_line(responses: &Value) -> Line {
+fn panel_line(devices: &[DeviceRead], planned: &[Dispatch]) -> Line {
     let now = Utc::now();
-    let next = responses["flexPlannedDispatches"]
-        .as_object()
-        .into_iter()
-        .flatten()
-        .filter_map(|(_, device)| device["flexPlannedDispatches"].as_array())
-        .flatten()
+    let next = planned
+        .iter()
         .filter_map(|dispatch| {
-            let start = DateTime::parse_from_rfc3339(dispatch["start"].as_str()?).ok()?.with_timezone(&Utc);
-            let end = DateTime::parse_from_rfc3339(dispatch["end"].as_str()?).ok()?.with_timezone(&Utc);
+            let start = DateTime::parse_from_rfc3339(dispatch.start.as_deref()?).ok()?.with_timezone(&Utc);
+            let end = DateTime::parse_from_rfc3339(dispatch.end.as_deref()?).ok()?.with_timezone(&Utc);
             (end > now).then_some(start)
         })
         .min();
-    let capped = responses["devicePreferences"]["devices"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|device| device["preferences"]["isChargingDurationCapped"].as_str())
+    let capped = devices
+        .iter()
+        .filter_map(|device| device.preferences.as_ref()?.is_charging_duration_capped.as_deref())
         .find(|cap| *cap != "NOT_APPLICABLE");
     let cap = match capped {
         Some("ENABLED") => " capped",
@@ -398,24 +506,30 @@ impl PollTask {
         let minimum_heap = unsafe { esp_idf_sys::esp_get_minimum_free_heap_size() };
         let mut store = self.store.lock().unwrap();
         match result {
-            Ok(responses) => {
-                store.line = panel_line(&responses);
+            Ok((responses, line)) => {
+                store.line = line;
                 if store.files.problem().is_some() {
                     store.line.0.push_str(", no SD");
                     store.line.1 = true;
                 }
-                let record = json!({
+                let mut record = json!({
                     "slot": slot.map(format_time),
                     "requested": format_time(requested),
                     "received": format_time(received),
                     "capturedBy": self.captured_by,
                     "firmware": FIRMWARE,
-                    "responses": responses,
-                });
+                })
+                .to_string();
+                // The responses as their JSON, last, in place of the closing brace, see the module comment.
+                record.pop();
+                record.push_str(r#","responses":"#);
+                record.push_str(&responses);
+                record.push('}');
+                drop(responses);
                 let time = slot.unwrap_or(requested);
                 store.files.append(time, &record);
                 let Store { files, ram, .. } = &mut *store;
-                files.keep(ram, RAM_CAPACITY, time, &record);
+                files.keep(ram, RAM_CAPACITY, time, record);
                 info!("Octopus poll saved, free heap {heap}, minimum {minimum_heap}");
             }
             Err(error) => {

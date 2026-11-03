@@ -65,6 +65,9 @@ pub struct DeviceInfo {
     /// Why it last started, e.g. Panic, see started_after. Devices from before it was given say nothing.
     #[serde(default)]
     pub reset_reason: Option<String>,
+    /// Why it crashed before this start, if it did and knows: a panic's message, or that it ran out of memory.
+    #[serde(default)]
+    pub last_crash: Option<String>,
     pub features: Vec<FeatureState>,
 }
 
@@ -442,6 +445,12 @@ pub struct RecordsDevice {
     /// How many records it has in RAM, and the most it keeps there, when it has no SD card.
     pub records_in_ram: Option<u64>,
     pub ram_capacity: Option<u64>,
+    /// The largest block of the free heap, which an internet connection needs some KB of, and how many allocations
+    /// have failed since it started.
+    pub largest_free_block: Option<u64>,
+    pub failed_allocations: Option<u64>,
+    /// Why it crashed before this start, see DeviceInfo::last_crash.
+    pub last_crash: Option<String>,
     /// When it polls, a cron spec, see CaptureReader::next_read.
     schedule: Option<String>,
 }

@@ -71,15 +71,19 @@ query meterAgreements($meterNodeId: ID!, $validAfter: DateTime) @ms_required_by_
           validTo @ms_optional
           tariff {
             ... on HalfHourlyTariff {
+              id
+              isExport
+              tags
               displayName
               fullName
               standingCharge
-#              unitRates {
-#                validFrom
-#                validTo
-#                preVatValue
-#                value
-#              }
+              unitRates {
+                validFrom
+                validTo
+                preVatValue
+                value
+                rateType
+              }
               description
               preVatStandingCharge @ms_optional
               productCode

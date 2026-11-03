@@ -103,6 +103,11 @@ fn gui_opt_rate(rate: Option<f64>) -> Element {
 }
 
 
+/// The name Octopus gives a unit rate's type, e.g. EV_DEVICE_OFF_PEAK, as its Display is JSON, in quotes.
+fn rate_type_name(rate_type: &super::graphql::NonBespokeElectricityRateTypeChoices) -> String {
+    serde_json::to_value(rate_type).ok().and_then(|value| value.as_str().map(str::to_string)).unwrap_or_default()
+}
+
 fn format_opt_str<T: ToString>(str: &Option<T>) -> String {
     if let Some(str) = str {
         str.to_string()
@@ -212,24 +217,28 @@ impl Tariff {
                                     }
                                 
                                 }
-                            
-                            // h4 { "Unit Rates" }
-                            // table { class: "display",
-                            //     tr {
-                            //         th { "Valid From" }
-                            //         th { "Valid To" }
-                            //         th { "Pre-VAT Unit Rate" }
-                            //         th { "Unit Rate" }
-                            //     }
-                            //     for rate in &tariff.unit_rates_ {
-                            //         tr {
-                            //             {gui_opt_str(&rate.valid_from_)}
-                            //             {gui_opt_str(&rate.valid_to_)}
-                            //             {gui_opt_rate(rate.pre_vat_value_)}
-                            //             {gui_opt_rate(rate.value_)}
-                            //         }
-                            //     }
-                            // }
+                            if !tariff.unit_rates_.is_empty() {
+                                h4 { "Unit Rates" }
+                                table { class: "display",
+                                    tr {
+                                        th { "Rate Type" }
+                                        th { "Valid From" }
+                                        th { "Valid To" }
+                                        th { "Pre-VAT Unit Rate" }
+                                        th { "Unit Rate" }
+                                    }
+                                    for rate in &tariff.unit_rates_ {
+                                        tr {
+                                            {gui_opt_str(&rate.rate_type_.as_ref().map(rate_type_name))}
+                                            {gui_opt_str(&rate.valid_from_)}
+                                            // No end is the usual case, a rate which is still current.
+                                            td { {rate.valid_to_.as_ref().map(|valid_to| valid_to.to_string()).unwrap_or_default()} }
+                                            {gui_opt_rate(rate.pre_vat_value_)}
+                                            {gui_opt_rate(rate.value_)}
+                                        }
+                                    }
+                                }
+                            }
                             }
                         }
                     },

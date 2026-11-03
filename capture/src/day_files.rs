@@ -32,8 +32,8 @@ impl DayFiles {
         }
     }
 
-    /// Adds record, of time, to its day's file, if there is a card, noting the problem if that fails.
-    pub fn append(&mut self, time: DateTime<Utc>, record: &serde_json::Value) {
+    /// Adds record, of time, as its JSON, to its day's file, if there is a card, noting the problem if that fails.
+    pub fn append(&mut self, time: DateTime<Utc>, record: &str) {
         let Some(dir) = &self.dir else { return };
         match append_line(dir, time, record) {
             Ok(()) => self.problem = None,
@@ -61,19 +61,20 @@ impl DayFiles {
     /// Keeps a feature's latest records in RAM, oldest first, up to capacity, as their JSON, for the app if there is no
     /// card, or only the latest while the card keeps them, so that RAM is not used for nothing.
     pub fn keep(&self, ram: &mut std::collections::VecDeque<(DateTime<Utc>, Box<str>)>, capacity: usize,
-        time: DateTime<Utc>, record: &serde_json::Value) {
+        time: DateTime<Utc>, record: String) {
         let capacity = if self.usable().is_some() { 1 } else { capacity };
         while ram.len() >= capacity {
             ram.pop_front();
         }
-        ram.push_back((time, record.to_string().into()));
+        ram.push_back((time, record.into()));
     }
 }
 
-fn append_line(dir: &Path, time: DateTime<Utc>, record: &serde_json::Value) -> anyhow::Result<()> {
+fn append_line(dir: &Path, time: DateTime<Utc>, record: &str) -> anyhow::Result<()> {
     std::fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
     let path = dir.join(format!("{}.jsonl", time.format("%Y-%m-%d")));
-    let mut line = serde_json::to_vec(record)?;
+    let mut line = Vec::with_capacity(record.len() + 1);
+    line.extend_from_slice(record.as_bytes());
     line.push(b'\n');
     let mut file = OpenOptions::new()
         .create(true)

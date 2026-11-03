@@ -35,7 +35,9 @@ Wi-Fi settings on it.
   before saving.
 - The card shows what the device is, how long it has been running, and why it last started, and checks every 30
   seconds that it can be reached. **Restarts** counts how often it started in the last 7 days, by kind, crashes,
-  watchdog resets and power dips in red, as they are trouble. Click the count for the list, with when each was.
+  watchdog resets and power dips in red, as they are trouble. Click the count for the list, with when each was. If it
+  last started after a crash, **Crash** says why, if the device knows: the error, or that it ran out of memory, with
+  how much it wanted and how much was free.
 - **Refresh** asks the device again what it is, and **Restart** restarts it, when it can be reached.
 - **Release** gives the device back to its own /config page, and removes it from this profile.
 - **Forget** only removes it from this profile, e.g. if it no longer works. It stays adopted until its **BOOT** button

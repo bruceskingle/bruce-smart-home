@@ -172,6 +172,7 @@ impl Myenergi {
     /// GETs path, answering the server's digest challenge, on one connection. A request without authentication gets
     /// the challenge, as the nonce may only be good for one request, as marco-sparko's MyenergiClient::get does.
     fn get(&mut self, path: &str) -> anyhow::Result<Value> {
+        crate::device::log_memory("Before myenergi");
         let mut client = Client::wrap(EspHttpConnection::new(&Configuration {
             timeout: Some(Duration::from_secs(15)),
             crt_bundle_attach: Some(esp_idf_sys::esp_crt_bundle_attach),
@@ -421,11 +422,12 @@ impl PollTask {
                     "capturedBy": self.captured_by,
                     "firmware": FIRMWARE,
                     "response": response,
-                });
+                })
+                .to_string();
                 let time = slot.unwrap_or(requested);
                 store.files.append(time, &record);
                 let Store { files, ram, .. } = &mut *store;
-                files.keep(ram, RAM_CAPACITY, time, &record);
+                files.keep(ram, RAM_CAPACITY, time, record);
                 info!("myenergi poll saved, free heap {heap}, minimum {minimum_heap}");
             }
             Err(error) => {

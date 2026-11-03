@@ -225,7 +225,7 @@ impl Store {
     }
 
     pub fn add(&mut self, record: Record) {
-        self.files.append(record.time(), &record.to_json(&self.captured_by));
+        self.files.append(record.time(), &record.to_json(&self.captured_by).to_string());
         // Only the latest, for the screen, while the card keeps them, so that RAM is not used for nothing.
         let capacity = if self.files.usable().is_some() { 1 } else { self.capacity };
         while self.records.len() >= capacity {

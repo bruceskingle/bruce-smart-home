@@ -15,6 +15,14 @@ pub fn captured_by(sparko: &sparko_esp_idf::Esp32Platform) -> String {
     sparko.hostname().unwrap_or_else(|| FIRMWARE.to_string())
 }
 
+/// Logs the free heap and its largest free block before an internet connection, whose TLS needs tens of KB, so that a
+/// crash for want of memory can be seen coming, see sparko_esp_idf::panics.
+pub fn log_memory(what: &str) {
+    let free = unsafe { esp_idf_sys::esp_get_free_heap_size() };
+    let largest = unsafe { esp_idf_sys::heap_caps_get_largest_free_block(esp_idf_sys::MALLOC_CAP_DEFAULT) };
+    log::info!("{what}: free heap {free}, largest block {largest}");
+}
+
 pub struct Device {
     /// When the device last started, and why, e.g. Brownout, which shows power dips.
     boot_time: DateTime<Utc>,
@@ -45,6 +53,10 @@ impl Device {
             "ramCapacity": ram_capacity,
             "freeHeap": unsafe { esp_idf_sys::esp_get_free_heap_size() },
             "minimumFreeHeap": unsafe { esp_idf_sys::esp_get_minimum_free_heap_size() },
+            "largestFreeBlock": unsafe { esp_idf_sys::heap_caps_get_largest_free_block(esp_idf_sys::MALLOC_CAP_DEFAULT) },
+            "failedAllocations": sparko_esp_idf::panics::failed_allocations(),
+            // Why it crashed before this start, if it did.
+            "lastCrash": sparko_esp_idf::panics::last(),
         })
     }
 }
