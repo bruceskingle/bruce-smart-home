@@ -152,6 +152,64 @@ pub struct ElectricityPageProps {
     path: Vec<String>,
 }
 
+struct ElectricityMeterPoint {
+    mpan: String,
+    direction: Option<ElectricityDirection>,
+    has_active_agreement: bool,
+    cheap_times: Option<CheapTimes>,
+    intelligent: bool,
+    /// Its standard and low rates, in pence a kWh, for what Octopus's split of the car's import is worth, if it is a
+    /// day and night tariff, as Intelligent Octopus Go is.
+    rates: Option<(f64, f64)>,
+}
+
+fn meter_point_for_direction(
+    meter_points: &[ElectricityMeterPoint],
+    direction: ElectricityDirection,
+) -> Option<&ElectricityMeterPoint> {
+    meter_points.iter()
+        .find(|point| point.has_active_agreement && point.direction.as_ref() == Some(&direction))
+        .or_else(|| meter_points.iter().find(|point| point.direction.as_ref() == Some(&direction)))
+}
+
+#[cfg(test)]
+mod meter_point_selection_tests {
+    use super::{ElectricityMeterPoint, meter_point_for_direction};
+    use crate::octopus::graphql::ElectricityDirection;
+
+    fn point(mpan: &str, direction: ElectricityDirection, has_active_agreement: bool) -> ElectricityMeterPoint {
+        ElectricityMeterPoint {
+            mpan: mpan.to_string(),
+            direction: Some(direction),
+            has_active_agreement,
+            cheap_times: None,
+            intelligent: false,
+            rates: None,
+        }
+    }
+
+    #[test]
+    fn prefers_a_meter_point_with_an_active_agreement() {
+        let meter_points = [
+            point("inactive", ElectricityDirection::Import, false),
+            point("active", ElectricityDirection::Import, true),
+        ];
+        assert_eq!(
+            meter_point_for_direction(&meter_points, ElectricityDirection::Import).map(|point| point.mpan.as_str()),
+            Some("active")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_a_meter_point_without_an_active_agreement() {
+        let meter_points = [point("only", ElectricityDirection::Import, false)];
+        assert_eq!(
+            meter_point_for_direction(&meter_points, ElectricityDirection::Import).map(|point| point.mpan.as_str()),
+            Some("only")
+        );
+    }
+}
+
 /// Finds the account's import and export meter points and its Home Mini's meter, then shows their electricity.
 #[component]
 pub fn ElectricityPage(props: ElectricityPageProps) -> Element {
@@ -181,18 +239,16 @@ pub fn ElectricityPage(props: ElectricityPageProps) -> Element {
     });
 
     // The import meter point's cheap times, from the time of use scheme of its current agreement.
-    let mut cheap = None;
-    let mut intelligent = false;
-    // Its standard and low rates, in pence a kWh, for what Octopus's split of the car's import is worth, if it is a day
-    // and night tariff, as Intelligent Octopus Go is.
-    let mut rates = None;
     let (meter_points, properties) = match (&*meter_points_resource.read(), &*properties_resource.read()) {
         (Some(Err(error)), _) => return rsx! { div { class: "error", ErrorText { error: format!("{error:#}"), message: "Failed to load the meter points" } } },
         (_, Some(Err(error))) => return rsx! { div { class: "error", ErrorText { error: format!("{error:#}"), message: "Failed to load the properties" } } },
         (Some(Ok(meter_points)), Some(Ok(properties))) => (
             meter_points.meter_points.iter()
                 .map(|meter_point| {
-                    if meter_point.direction_ == Some(ElectricityDirection::Import) {
+                    let has_active_agreement = !meter_point.agreements_.is_empty();
+                    let (cheap_times, intelligent, rates) = if meter_point.direction_ == Some(ElectricityDirection::Import)
+                        && has_active_agreement
+                    {
                         let timeslots: Vec<(String, String, String)> = meter_point.agreements_.iter()
                             .filter_map(|agreement| agreement.time_of_use_scheme_.as_ref())
                             .flat_map(|scheme| scheme.timeslots_.iter())
@@ -202,8 +258,8 @@ pub fn ElectricityPage(props: ElectricityPageProps) -> Element {
                                 slot.active_to_.as_str().unwrap_or_default().to_string(),
                             ))
                             .collect();
-                        cheap = CheapTimes::from_timeslots(&timeslots);
-                        intelligent = meter_point.agreements_.iter()
+                        let cheap_times = CheapTimes::from_timeslots(&timeslots);
+                        let intelligent = meter_point.agreements_.iter()
                             .filter_map(|agreement| agreement.tariff_.as_ref())
                             .filter_map(|tariff| match tariff {
                                 ElectricityTariffType::StandardTariff(tariff) => tariff.product_code_.as_deref(),
@@ -214,14 +270,25 @@ pub fn ElectricityPage(props: ElectricityPageProps) -> Element {
                                 ElectricityTariffType::PrepayTariff(tariff) => tariff.product_code_.as_deref(),
                             })
                             .any(is_intelligent);
-                        rates = meter_point.agreements_.iter()
+                        let rates = meter_point.agreements_.iter()
                             .filter_map(|agreement| agreement.tariff_.as_ref())
                             .find_map(|tariff| match tariff {
                                 ElectricityTariffType::DayNightTariff(tariff) => tariff.day_rate_.zip(tariff.night_rate_),
                                 _ => None,
                             });
+                        (cheap_times, intelligent, rates)
                     }
-                    (meter_point.mpan_.clone(), meter_point.direction_.clone())
+                    else {
+                        (None, false, None)
+                    };
+                    ElectricityMeterPoint {
+                        mpan: meter_point.mpan_.clone(),
+                        direction: meter_point.direction_.clone(),
+                        has_active_agreement,
+                        cheap_times,
+                        intelligent,
+                        rates,
+                    }
                 })
                 .collect::<Vec<_>>(),
             properties.property_map.values()
@@ -233,12 +300,15 @@ pub fn ElectricityPage(props: ElectricityPageProps) -> Element {
         _ => return rsx! { div { "Loading the meter points..." } },
     };
     let esme_id = properties;
-    let mpan = |direction: ElectricityDirection| meter_points.iter()
-        .find(|(_, meter_direction)| meter_direction.as_ref() == Some(&direction))
-        .map(|(mpan, _)| mpan.clone());
-    let Some(import_mpan) = mpan(ElectricityDirection::Import) else {
+    let Some(import_point) = meter_point_for_direction(&meter_points, ElectricityDirection::Import) else {
         return rsx! { div { "There is no electricity import meter point on this account" } };
     };
+    let import_mpan = import_point.mpan.clone();
+    let cheap = import_point.cheap_times.clone();
+    let intelligent = import_point.intelligent;
+    let rates = import_point.rates;
+    let export_mpan = meter_point_for_direction(&meter_points, ElectricityDirection::Export)
+        .map(|point| point.mpan.clone());
     // Without the charger's power, the rate is still estimated from the cheap times, but not while charging outside them,
     // and the car's share of the import is not placed where it was charging.
     let charger_watts = match &*devices_resource.read() {
@@ -255,7 +325,7 @@ pub fn ElectricityPage(props: ElectricityPageProps) -> Element {
             key: "{import_mpan}",
             account_id: context.account_id.clone(),
             import_mpan,
-            export_mpan: mpan(ElectricityDirection::Export),
+            export_mpan,
             esme_id,
             estimate,
             rates,
