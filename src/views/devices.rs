@@ -301,6 +301,9 @@ fn DeviceCard(device: DeviceProfile, profile_name: String) -> Element {
                             tr { th { "Name" } td { "{hostname}" } }
                         }
                         tr { th { "Board" } td { "{info.board}" } }
+                        if let Some(chip) = &info.chip {
+                            tr { th { "Chip" } td { {chip.describe()} } }
+                        }
                         tr { th { "Firmware" } td { "{info.firmware.name} {info.firmware.version} on {info.platform.name} {info.platform.version}" } }
                         tr { th { "Running for" } td { {up_time(info.up_time_seconds)} } }
                         if let Some(reason) = &info.reset_reason {
@@ -312,6 +315,16 @@ fn DeviceCard(device: DeviceProfile, profile_name: String) -> Element {
                                         tr { th { "Crash" } td { class: "invalid", "{crash}" } }
                                     }
                                 }
+                            }
+                        }
+                        // Where it keeps its records, and how its latest polls went, as it said when the app last read
+                        // its records, see KeptOn and Takes.
+                        if let Some(status) = capture_device::device_statuses().into_iter().find(|status| status.id == device.id) {
+                            if let Some(records_device) = status.device.clone() {
+                                tr { th { "Records kept on" } td { crate::views::polling::KeptOn { device: records_device } } }
+                            }
+                            if !status.polls.is_empty() {
+                                tr { th { "Polls" } td { crate::views::polling::Takes { status } } }
                             }
                         }
                         if let Some(Ok(starts)) = &*starts.read() {
@@ -504,6 +517,9 @@ fn AddDevice(profile_name: String) -> Element {
             table { class: "device-details",
                 tr { th { "Device" } td { "{device.info.id}" } }
                 tr { th { "Board" } td { "{device.info.board}" } }
+                if let Some(chip) = &device.info.chip {
+                    tr { th { "Chip" } td { {chip.describe()} } }
+                }
                 tr { th { "Firmware" } td { "{device.info.firmware.name} {device.info.firmware.version}" } }
                 tr { th { "Certificate" } td { {device.fingerprint[..8].to_string()} } }
             }

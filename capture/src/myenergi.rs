@@ -32,7 +32,7 @@ use sparko_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
 use crate::connections::KeptConnection;
 use crate::day_files::{self, DayFiles};
 use crate::device::{Device, FIRMWARE, captured_by};
-use crate::records::format_time;
+use crate::records::{LastPoll, format_time};
 use crate::screen::{Line, Panel};
 use crate::slots::Slots;
 
@@ -112,6 +112,7 @@ impl Feature for MyenergiCapture {
             files: DayFiles::new(dir),
             ram: VecDeque::with_capacity(RAM_CAPACITY),
             line: ("myenergi: not polled yet".to_string(), false),
+            last_poll: None,
         }));
         let device = Arc::new(Device::new(&schedule_spec));
 
@@ -135,7 +136,7 @@ impl Feature for MyenergiCapture {
         sparko.api_get("/api/capture/myenergi/records", move |request| {
             let (files, device_json) = {
                 let store = store.lock().unwrap();
-                (store.files.usable(), device.to_json(&store.files, store.ram.len(), RAM_CAPACITY))
+                (store.files.usable(), device.to_json(&store.files, store.ram.len(), RAM_CAPACITY, store.last_poll.as_ref()))
             };
             day_files::respond(request, &device_json, files, |since, write| {
                 let store = store.lock().unwrap();
@@ -156,6 +157,8 @@ struct Store {
     ram: VecDeque<(DateTime<Utc>, Box<str>)>,
     /// What the screen shows, see panel_line.
     line: Line,
+    /// How the latest poll went, for the app, see Device::to_json.
+    last_poll: Option<LastPoll>,
 }
 
 /// The myenergi API, which needs digest authentication, with the hub's serial number and API key.
@@ -428,10 +431,12 @@ impl PollTask {
                 store.files.append(time, &record);
                 let Store { files, ram, .. } = &mut *store;
                 files.keep(ram, RAM_CAPACITY, time, record);
+                store.last_poll = Some(LastPoll::succeeded(received));
                 info!("myenergi poll saved, free heap {heap}, minimum {minimum_heap}");
             }
             Err(error) => {
                 warn!("myenergi poll failed, {error:#}");
+                store.last_poll = Some(LastPoll::failed(store.last_poll.as_ref(), received, format!("{error:#}")));
                 store.line = (format!("myenergi: {error:#}"), true);
             }
         }

@@ -202,10 +202,32 @@ pub fn format_time(time: DateTime<Utc>) -> String {
     time.to_rfc3339_opts(SecondsFormat::Micros, true)
 }
 
-/// The latest poll, for the screen: when, and the error if it failed.
+/// The latest poll, for the screen and the app: when, the error if it failed, and when a poll last succeeded, so that
+/// the app can show how long a feature has been failing, see Device::to_json.
 pub struct LastPoll {
     pub time: DateTime<Utc>,
     pub error: Option<String>,
+    pub last_success: Option<DateTime<Utc>>,
+}
+
+impl LastPoll {
+    /// A poll at time which succeeded.
+    pub fn succeeded(time: DateTime<Utc>) -> LastPoll {
+        LastPoll { time, error: None, last_success: Some(time) }
+    }
+
+    /// A poll at time which failed, after the previous poll, if there was one.
+    pub fn failed(previous: Option<&LastPoll>, time: DateTime<Utc>, error: String) -> LastPoll {
+        LastPoll { time, error: Some(error), last_success: previous.and_then(|previous| previous.last_success) }
+    }
+
+    pub fn to_json(&self) -> serde_json::Value {
+        json!({
+            "time": format_time(self.time),
+            "error": self.error,
+            "lastSuccess": self.last_success.map(format_time),
+        })
+    }
 }
 
 /// The records, kept on the SD card, see DayFiles, and the latest, up to capacity, in RAM too, oldest first, as typed
@@ -231,12 +253,12 @@ impl Store {
         while self.records.len() >= capacity {
             self.records.pop_front();
         }
-        self.last_poll = Some(LastPoll { time: record.received, error: None });
+        self.last_poll = Some(LastPoll::succeeded(record.received));
         self.records.push_back(record);
     }
 
     pub fn failed(&mut self, time: DateTime<Utc>, error: String) {
-        self.last_poll = Some(LastPoll { time, error: Some(error) });
+        self.last_poll = Some(LastPoll::failed(self.last_poll.as_ref(), time, error));
     }
 
     pub fn latest(&self) -> Option<&Record> {

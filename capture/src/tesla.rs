@@ -161,7 +161,7 @@ fn serve_records(
 ) -> anyhow::Result<()> {
     let (files, device_json) = {
         let store = store.lock().unwrap();
-        (store.files().usable(), device.to_json(store.files(), store.len(), store.capacity()))
+        (store.files().usable(), device.to_json(store.files(), store.len(), store.capacity(), store.last_poll()))
     };
     // Not holding the store while the files are read, so that polling carries on while a few days are read.
     day_files::respond(request, &device_json, files, |since, write| {

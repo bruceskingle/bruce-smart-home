@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use time::macros::format_description;
 use time_tz::OffsetDateTimeExt;
 
-use crate::capture_device::DeviceStatus;
+use crate::capture_device::{DeviceStatus, RecordsDevice};
 use crate::components::error_text::ErrorText;
 use crate::polling::{PollState, PollStatuses, poll_now, set_paused};
 
@@ -17,7 +17,7 @@ fn shown_time(time: Option<time::OffsetDateTime>) -> String {
 }
 
 /// When a device said it started, an RFC 3339 time, in the computer's time zone, e.g. 1 Nov 16:25.
-fn shown_date_time(time: &str) -> String {
+pub(crate) fn shown_date_time(time: &str) -> String {
     let format = format_description!("[day padding:none] [month repr:short] [hour]:[minute]");
     let Ok(time) = time::OffsetDateTime::parse(time, &time::format_description::well_known::Rfc3339) else {
         return time.to_string();
@@ -54,6 +54,62 @@ pub fn PollingPage() -> Element {
     }
 }
 
+/// The sources whose records a device takes, e.g. tesla, myenergi, any whose latest poll by the device failed in the
+/// invalid style, with the error, when, and when it last succeeded, as the tooltip.
+#[component]
+pub fn Takes(status: DeviceStatus) -> Element {
+    rsx! {
+        for (i, module_id) in status.takes.iter().enumerate() {
+            {if i == 0 { "" } else { ", " }}
+            match status.polls.get(module_id).and_then(|poll| poll.error.as_ref().map(|error| (poll, error))) {
+                Some((poll, error)) => {
+                    let since = match &poll.last_success {
+                        Some(time) => format!(", last polled successfully {}", shown_date_time(time)),
+                        None => ", not polled successfully since it started".to_string(),
+                    };
+                    rsx! { ErrorText { error: format!("Unable to poll {module_id} at {}, {error}{since}", shown_date_time(&poll.time)), message: "{module_id}" } }
+                },
+                None => rsx! { "{module_id}" },
+            }
+        }
+    }
+}
+
+/// Where a device keeps its records: on its SD card, with how much of it is free, in the invalid style if less than a
+/// tenth is, or only in its memory, how many of how many, with why as a tooltip, e.g. that its slot is empty.
+#[component]
+pub fn KeptOn(device: RecordsDevice) -> Element {
+    let gb = |bytes: u64| format!("{:.1} GB", bytes as f64 / 1e9);
+    match (device.storage.as_deref(), &device.storage_problem) {
+        (Some("sd"), _) => match &device.sd_card {
+            Some(card) => {
+                let low = card.free_bytes < card.total_bytes / 10;
+                rsx! { span { class: if low { "invalid" }, "SD card, {gb(card.free_bytes)} free of {gb(card.total_bytes)}" } }
+            },
+            None => rsx! { "SD card" },
+        },
+        (Some("ram"), problem) => {
+            let kept = match (device.records_in_ram, device.ram_capacity) {
+                (Some(records), Some(capacity)) => format!(", {records} of {capacity}"),
+                _ => String::new(),
+            };
+            let why = match problem.as_deref() {
+                // What ESP-IDF says when there is no card in the slot, or one it cannot read.
+                Some(problem) if problem.contains("ESP_ERR_TIMEOUT") => format!("Not on an SD card, as its slot is empty, or the card cannot be read, {problem}"),
+                Some(problem) => format!("Not on an SD card, {problem}"),
+                None => String::new(),
+            };
+            if why.is_empty() {
+                rsx! { "RAM{kept}" }
+            } else {
+                rsx! { span { title: "{why}", "RAM{kept}" } }
+            }
+        },
+        (Some(other), _) => rsx! { "{other}" },
+        (None, _) => rsx! {},
+    }
+}
+
 /// How reading each capture device is going.
 #[component]
 fn DevicesTable(devices: Vec<DeviceStatus>) -> Element {
@@ -71,7 +127,7 @@ fn DevicesTable(devices: Vec<DeviceStatus>) -> Element {
             for status in devices {
                 tr {
                     td { title: "ID {status.id} at {status.address}", {status.name.clone().unwrap_or_else(|| status.id.clone())} }
-                    td { {status.takes.iter().cloned().collect::<Vec<_>>().join(", ")} }
+                    td { Takes { status: status.clone() } }
                     td { {shown_time(status.last_read)} }
                     td {
                         match &status.last_error {
@@ -81,21 +137,7 @@ fn DevicesTable(devices: Vec<DeviceStatus>) -> Element {
                     }
                     td {
                         if let Some(device) = &status.device {
-                            match (device.storage.as_deref(), &device.storage_problem) {
-                                (Some("sd"), _) => rsx! { "SD card" },
-                                (Some("ram"), problem) => {
-                                    let kept = match (device.records_in_ram, device.ram_capacity) {
-                                        (Some(records), Some(capacity)) => format!(", {records} of {capacity}"),
-                                        _ => String::new(),
-                                    };
-                                    match problem {
-                                        Some(problem) => rsx! { span { title: "Not on an SD card, {problem}", "RAM{kept}" } },
-                                        None => rsx! { "RAM{kept}" },
-                                    }
-                                },
-                                (Some(other), _) => rsx! { "{other}" },
-                                (None, _) => rsx! {},
-                            }
+                            KeptOn { device: device.clone() }
                         }
                     }
                     td {

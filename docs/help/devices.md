@@ -33,11 +33,17 @@ Wi-Fi settings on it.
   type a new one to replace it, or **Clear Password** to remove an optional one. **Fill in from this profile** fills in what the
   profile already knows for a feature, e.g. the Tesla gateway's login or the myenergi and Octopus API keys, to check
   before saving.
-- The card shows what the device is, how long it has been running, and why it last started, and checks every 30
+- The card shows what the device is, the board its firmware was built for and the **Chip** it is running on, with
+  its flash and PSRAM, how long it has been running, and why it last started, and checks every 30
   seconds that it can be reached. **Restarts** counts how often it started in the last 7 days, by kind, crashes,
   watchdog resets and power dips in red, as they are trouble. Click the count for the list, with when each was. If it
   last started after a crash, **Crash** says why, if the device knows: the error, or that it ran out of memory, with
   how much it wanted and how much was free.
+  **Records kept on** says where it keeps its records: on its SD card, with how much of it is free, in red if less
+  than a tenth is, or only in its memory, which loses them when it restarts, with why as a tooltip, e.g. that its SD
+  card slot is empty. **Polls** lists the sources it takes, as it said when the app last read its records: any whose latest poll failed
+  is in red, with the error, such as an API key the source did not accept, and when it last succeeded, as a tooltip.
+  The log says when one starts failing, and when it polls again.
 - **Refresh** asks the device again what it is, and **Restart** restarts it, when it can be reached.
 - **Release** gives the device back to its own /config page, and removes it from this profile.
 - **Forget** only removes it from this profile, e.g. if it no longer works. It stays adopted until its **BOOT** button

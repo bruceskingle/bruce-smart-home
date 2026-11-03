@@ -4,7 +4,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 use serde_json::json;
 
 use crate::day_files::DayFiles;
-use crate::records::format_time;
+use crate::records::{LastPoll, format_time};
 
 /// The firmware which took the records, in each one's firmware.
 pub const FIRMWARE: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"));
@@ -38,8 +38,9 @@ impl Device {
         Device { boot_time: Utc::now() - up_time, reset_reason: sparko_esp_idf::reset_reason(), schedule: schedule.to_string() }
     }
 
-    /// The details, with where the feature's records are kept, and how many of them are in RAM, out of how many.
-    pub fn to_json(&self, files: &DayFiles, in_ram: usize, ram_capacity: usize) -> serde_json::Value {
+    /// The details, with where the feature's records are kept, how many of them are in RAM, out of how many, and how
+    /// its latest poll went, as the screen shows it, so that the app can show a feature which is failing.
+    pub fn to_json(&self, files: &DayFiles, in_ram: usize, ram_capacity: usize, last_poll: Option<&LastPoll>) -> serde_json::Value {
         json!({
             "name": env!("CARGO_PKG_NAME"),
             "version": env!("CARGO_PKG_VERSION"),
@@ -49,6 +50,9 @@ impl Device {
             "schedule": self.schedule,
             "storage": files.storage(),
             "storageProblem": files.problem(),
+            // The SD card's size and free space, if the records are kept on one.
+            "sdCard": files.usable().and_then(|_| sparko_esp_idf::sd_card::space())
+                .map(|(total, free)| json!({ "totalBytes": total, "freeBytes": free })),
             "recordsInRam": in_ram,
             "ramCapacity": ram_capacity,
             "freeHeap": unsafe { esp_idf_sys::esp_get_free_heap_size() },
@@ -57,6 +61,7 @@ impl Device {
             "failedAllocations": sparko_esp_idf::panics::failed_allocations(),
             // Why it crashed before this start, if it did.
             "lastCrash": sparko_esp_idf::panics::last(),
+            "lastPoll": last_poll.map(LastPoll::to_json),
         })
     }
 }

@@ -57,6 +57,10 @@ pub struct DeviceInfo {
     /// Its name on the network, e.g. cyd, if it has one.
     pub hostname: Option<String>,
     pub board: String,
+    /// The chip it is running on, as it says it is, whichever board its firmware was built for. Devices from before
+    /// it was given say nothing.
+    #[serde(default)]
+    pub chip: Option<Chip>,
     pub firmware: Software,
     pub platform: Software,
     pub certificate_fingerprint: String,
@@ -69,6 +73,29 @@ pub struct DeviceInfo {
     #[serde(default)]
     pub last_crash: Option<String>,
     pub features: Vec<FeatureState>,
+}
+
+/// A device's chip, see DeviceInfo::chip.
+#[derive(Clone, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Chip {
+    /// e.g. ESP32-C6.
+    pub model: String,
+    /// e.g. v0.2.
+    pub revision: String,
+    pub cores: u8,
+    pub flash_bytes: u64,
+    pub psram_bytes: u64,
+}
+
+impl Chip {
+    /// e.g. ESP32-C6 v0.2, 1 core, 8 MB flash, no PSRAM, as the device's /config page says it.
+    pub fn describe(&self) -> String {
+        let mb = |bytes: u64| format!("{} MB", bytes / (1024 * 1024));
+        let cores = if self.cores == 1 { "1 core".to_string() } else { format!("{} cores", self.cores) };
+        let psram = if self.psram_bytes == 0 { "no PSRAM".to_string() } else { format!("{} PSRAM", mb(self.psram_bytes)) };
+        format!("{} {}, {cores}, {} flash, {psram}", self.model, self.revision, mb(self.flash_bytes))
+    }
 }
 
 #[derive(Clone, Deserialize, Debug, PartialEq)]
@@ -439,6 +466,9 @@ pub struct RecordsDevice {
     pub storage: Option<String>,
     /// Why it keeps its records in RAM, e.g. ESP_ERR_TIMEOUT, as it has no SD card.
     pub storage_problem: Option<String>,
+    /// The SD card's size and free space, when it keeps its records on one. Devices from before it was given do not
+    /// say.
+    pub sd_card: Option<SdCard>,
     pub free_heap: Option<u64>,
     /// The least free heap since it started, which shows how near it has come to running out.
     pub minimum_free_heap: Option<u64>,
@@ -451,8 +481,29 @@ pub struct RecordsDevice {
     pub failed_allocations: Option<u64>,
     /// Why it crashed before this start, see DeviceInfo::last_crash.
     pub last_crash: Option<String>,
+    /// How its latest poll of these records' source went, e.g. that Octopus did not accept the API key. Devices from
+    /// before it was given do not say.
+    pub last_poll: Option<LastPoll>,
     /// When it polls, a cron spec, see CaptureReader::next_read.
     schedule: Option<String>,
+}
+
+/// A device's SD card, see RecordsDevice::sd_card.
+#[derive(Clone, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SdCard {
+    pub total_bytes: u64,
+    pub free_bytes: u64,
+}
+
+/// How a device's latest poll of a source went, as its screen shows it: when, the error if it failed, and when a poll
+/// last succeeded, the times as RFC 3339.
+#[derive(Clone, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LastPoll {
+    pub time: String,
+    pub error: Option<String>,
+    pub last_success: Option<String>,
 }
 
 /// How reading a profile's capture devices is going, for the Polling page, see device_statuses.
@@ -472,6 +523,8 @@ pub struct DeviceStatus {
     pub saved: u64,
     /// What it said with its records last.
     pub device: Option<RecordsDevice>,
+    /// How its latest poll of each source went, by module id, e.g. octopus, see RecordsDevice::last_poll.
+    pub polls: std::collections::BTreeMap<String, LastPoll>,
 }
 
 /// The status of each of the profile's capture devices, by ID, since the poller started, see clear_statuses.
@@ -502,6 +555,17 @@ fn update_status(device: &DeviceProfile, change: impl FnOnce(&mut DeviceStatus))
     let status = statuses.entry(device.id.clone()).or_insert_with(|| DeviceStatus { id: device.id.clone(), ..Default::default() });
     status.address = device.address.clone();
     change(status);
+}
+
+/// Logs a device's poll of the module starting to fail, or recovering, from previous to poll, so that the log says when
+/// it happened, without an entry for every read while it goes on.
+fn log_poll_change(status: &DeviceStatus, module_id: &str, previous: Option<&LastPoll>, poll: &LastPoll) {
+    let name = status.name.as_deref().unwrap_or(&status.id);
+    match (previous.and_then(|previous| previous.error.as_ref()), &poll.error) {
+        (None, Some(error)) => crate::log_warning!("The capture device {name} is unable to poll {module_id}, {error}"),
+        (Some(_), None) => crate::log_info!("The capture device {name} polled {module_id} again"),
+        _ => {}
+    }
 }
 
 #[derive(Deserialize)]
@@ -621,6 +685,10 @@ impl CaptureReader {
                 status.read += records.records.len() as u64;
                 status.saved += (saved - page_saved) as u64;
                 status.device = Some(records.device.clone());
+                if let Some(poll) = &records.device.last_poll {
+                    log_poll_change(status, &self.module_id, status.polls.get(&self.module_id), poll);
+                    status.polls.insert(self.module_id.clone(), poll.clone());
+                }
             });
             // Only while the page moved on, so that a device which said more of nothing is not asked forever.
             if !records.more || latest == since {
@@ -669,6 +737,16 @@ impl CaptureReader {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_chip_is_described_as_the_device_describes_it() {
+        let chip: Chip = serde_json::from_value(serde_json::json!({
+            "model": "ESP32-C6", "revision": "v0.2", "cores": 1, "flashBytes": 4194304, "psramBytes": 0,
+        })).unwrap();
+        assert_eq!(chip.describe(), "ESP32-C6 v0.2, 1 core, 4 MB flash, no PSRAM");
+        let chip = Chip { model: "ESP32-S3".to_string(), revision: "v0.2".to_string(), cores: 2, flash_bytes: 16 << 20, psram_bytes: 8 << 20 };
+        assert_eq!(chip.describe(), "ESP32-S3 v0.2, 2 cores, 16 MB flash, 8 MB PSRAM");
+    }
 
     #[test]
     fn requests_are_signed_as_a_device_checks_them() {
