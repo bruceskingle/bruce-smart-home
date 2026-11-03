@@ -5,8 +5,7 @@ sleeps, e.g. the Powerwall's and the zappi's every 5 minutes, and show the lates
 it next runs. **Devices** in Home's page list shows them.
 
 A capture device needs a **micro SD card**, formatted FAT32, which is where it keeps what it fetches, a file a day,
-until the app reads it, and its log of when and why it started. Without one it only keeps the last few of each in its
-memory, which are lost if it restarts, and knows only why it last started. The Powerwall's readings every 10 seconds
+until the app reads it. Without one it only keeps the last few of each in its memory, which are lost if it restarts. The Powerwall's readings every 10 seconds
 take about 9 MB a day, so an 8 GB card holds over two years.
 
 ## Adopting a device
@@ -28,15 +27,21 @@ Wi-Fi settings on it.
 
 ## Managing a device
 
+The page lists the devices in a table, a row each, with its name, board, address, whether it is up and for how long,
+why it last started, in red after a crash, and its restarts in the last 7 days, and checks every 30 seconds that each
+can be reached. Click a device's ID, its Wi-Fi MAC address, for its card, below the table, with all of its details
+and buttons; clicking another's shows its card instead.
+
 - **Settings** shows each of the device's features, with its settings. Change them and click **Save**, then
   **Restart Now**, as they take effect when the device restarts. Passwords are never shown, only whether they are set:
   type a new one to replace it, or **Clear Password** to remove an optional one. **Fill in from this profile** fills in what the
   profile already knows for a feature, e.g. the Tesla gateway's login or the myenergi and Octopus API keys, to check
   before saving.
 - The card shows what the device is, the board its firmware was built for and the **Chip** it is running on, with
-  its flash and PSRAM, how long it has been running, and why it last started, and checks every 30
-  seconds that it can be reached. **Restarts** counts how often it started in the last 7 days, by kind, crashes,
-  watchdog resets and power dips in red, as they are trouble. Click the count for the list, with when each was. If it
+  its flash and PSRAM, how long it has been running, and why it last started. **Restarts** counts how often it started in the last 7 days, by kind, crashes,
+  watchdog resets and power dips in red, as they are trouble. Click the count for the list, with when each was. The
+  device keeps its last 30 starts. Older firmware kept them on its SD card, so with no card they are
+  **Not known**, and a card moved from another device brought that device's starts with it: update its firmware. If it
   last started after a crash, **Crash** says why, if the device knows: the error, or that it ran out of memory, with
   how much it wanted and how much was free.
   **Records kept on** says where it keeps its records: on its SD card, with how much of it is free, in red if less

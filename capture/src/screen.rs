@@ -87,8 +87,8 @@ impl Panel {
         self.generation.fetch_add(1, Ordering::SeqCst);
     }
 
-    /// Shows the status for a while, see STATUS_TIME.
-    fn show_status(&self) {
+    /// Shows the status for a while, see STATUS_TIME, after a swipe, or a press of the RLCD's KEY button.
+    pub fn show_status(&self) {
         *self.status_until.lock().unwrap() = Some(Instant::now() + STATUS_TIME);
     }
 
@@ -100,6 +100,7 @@ impl Panel {
                 panel: self.clone(),
                 shown: None,
                 clock_shown: None,
+                status_overlay: false,
                 #[cfg(feature = "waveshare-c6-touch")]
                 swipe: None,
             };
@@ -126,6 +127,8 @@ struct Screen {
     shown: Option<(Mode, u32, u32, bool)>,
     /// The time the graph's clock last showed, so it is drawn once a second.
     clock_shown: Option<String>,
+    /// Whether the status is being shown, as an overlay, see run.
+    status_overlay: bool,
     /// Kept, as the touch driver only keeps a weak reference to it, see Swipe.
     #[cfg(feature = "waveshare-c6-touch")]
     swipe: Option<Arc<dyn sparko_embedded_std::listener::Listener<sparko_esp_idf::touch::axs5106l::TouchPoint>>>,
@@ -253,7 +256,19 @@ impl ScheduledTask<Esp32Platform> for Screen {
 
         let display_manager = sparko.display_manager.clone();
         let mut manager = display_manager.lock().unwrap();
-        if manager.overlay_active() {
+        // The status is shown as an overlay, so that the clock, which draws only its hands as they move, draws nothing
+        // over it, and draws itself in full once it ends, which clears the screen, see DisplayManager::set_overlay.
+        // Another's overlay, e.g. adoption's pairing code, is left alone.
+        if mode == Mode::Status && !self.status_overlay {
+            if manager.overlay_active() {
+                return Ok(());
+            }
+            manager.set_overlay(true)?;
+            self.status_overlay = true;
+        } else if mode != Mode::Status && self.status_overlay {
+            manager.set_overlay(false)?;
+            self.status_overlay = false;
+        } else if manager.overlay_active() && !self.status_overlay {
             return Ok(());
         }
         let bounding_box = manager.display().bounding_box();

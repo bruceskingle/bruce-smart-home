@@ -166,6 +166,8 @@ pub fn Devices() -> Element {
     let settings = use_context::<Signal<ProfileSettings>>();
     let profile_name = context_signal.read().as_ref().map(|context| context.profile.active_profile.name.clone()).unwrap_or_default();
     let devices = settings.read().capture_devices.clone();
+    // The device whose card is shown, below the table, see DeviceRow.
+    let selected = use_signal(|| None::<Selected>);
 
     rsx! {
         div { class: "settings-page",
@@ -175,27 +177,54 @@ pub fn Devices() -> Element {
             }
             if devices.is_empty() {
                 p { "There are no capture devices in profile {profile_name} yet." }
+            } else {
+                table { class: "display device-list",
+                    tr {
+                        th { "Device" }
+                        th { "Name" }
+                        th { "Board" }
+                        th { "Address" }
+                        th { "State" }
+                        th { "Last started" }
+                        th { "Restarts" }
+                    }
+                    for device in devices.iter() {
+                        DeviceRow { key: "{device.id}", device: device.clone(), selected }
+                    }
+                }
             }
-            for device in devices {
-                DeviceCard { key: "{device.id}", device: device.clone(), profile_name: profile_name.clone() }
+            // The device whose ID was clicked, while it is still in the profile, which Forget would remove it from.
+            if let Some(shown) = selected().filter(|shown| devices.iter().any(|device| device.id == shown.device.id)) {
+                DeviceCard {
+                    key: "{shown.device.id}",
+                    device: shown.device.clone(),
+                    profile_name: profile_name.clone(),
+                    info: shown.info,
+                    starts: shown.starts,
+                    generation: shown.generation,
+                    selected,
+                }
             }
             AddDevice { profile_name: profile_name.clone() }
         }
     }
 }
 
-/// One adopted device: what it says it is, and its buttons.
+/// A device whose card is shown, with what its row has asked it, which the card shows too, rather than asking again,
+/// and its row's generation, which Refresh moves on, see DeviceRow.
+#[derive(Clone, PartialEq)]
+struct Selected {
+    device: DeviceProfile,
+    info: Resource<anyhow::Result<capture_device::DeviceInfo>>,
+    starts: Resource<anyhow::Result<capture_device::Starts>>,
+    generation: Signal<u32>,
+}
+
+/// One adopted device's row in the table, which asks it what it is, and its starts, now and every HEARTBEAT, and
+/// summarises them. Its ID shows its card, see DeviceCard, in place of the one shown.
 #[component]
-fn DeviceCard(device: DeviceProfile, profile_name: String) -> Element {
-    let mut settings = use_context::<Signal<ProfileSettings>>();
-    let mut generation = use_signal(|| 0u32);
-    let mut status = use_signal(|| None::<Result<String, String>>);
-    let mut busy = use_signal(|| false);
-    let mut show_settings = use_signal(|| false);
-    // The list of the device's starts, see restarts.
-    let mut show_starts = use_signal(|| false);
-    // Release or Forget waiting for Yes or No.
-    let mut confirming = use_signal(|| None::<&'static str>);
+fn DeviceRow(device: DeviceProfile, selected: Signal<Option<Selected>>) -> Element {
+    let generation = use_signal(|| 0u32);
 
     // Devices with firmware from before /api/starts say nothing, so nothing is shown.
     let mut starts = use_resource({
@@ -222,7 +251,7 @@ fn DeviceCard(device: DeviceProfile, profile_name: String) -> Element {
         }
     });
 
-    // A heartbeat, so that the card shows whether the device is on the network now, not only when the page opened,
+    // A heartbeat, so that the row shows whether the device is on the network now, not only when the page opened,
     // or Refresh was pressed: what it says it is, over plain HTTP, which costs it little, see DeviceClient::info, and
     // its starts, which show if it restarted. The last of each is shown until the next arrives.
     use_future(move || async move {
@@ -233,6 +262,93 @@ fn DeviceCard(device: DeviceProfile, profile_name: String) -> Element {
         }
     });
 
+    let is_selected = selected.read().as_ref().is_some_and(|shown| shown.device.id == device.id);
+    let show = {
+        let device = device.clone();
+        move |_| selected.set(Some(Selected { device: device.clone(), info, starts, generation }))
+    };
+
+    rsx! {
+        tr { class: if is_selected { "selected" },
+            td { span { class: "link", onclick: show, "{device.id}" } }
+            match &*info.read() {
+                None => rsx! {
+                    td {} td {}
+                    td { "{device.address}" }
+                    td { "Connecting..." }
+                    td {}
+                },
+                // The reason is in the log too, see info.
+                Some(Err(error)) => rsx! {
+                    td {} td {}
+                    td { "{device.address}" }
+                    td { ErrorText { error: format!("{error:#}"), message: "Not reachable" } }
+                    td {}
+                },
+                Some(Ok(info)) => rsx! {
+                    td { {info.hostname.clone().unwrap_or_default()} }
+                    td { "{info.board}" }
+                    td { "{device.address}" }
+                    td {
+                        if info.adopted {
+                            "Up {up_time(info.up_time_seconds)}"
+                        } else {
+                            span { class: "invalid", "Not adopted" }
+                        }
+                    }
+                    td {
+                        if let Some(reason) = &info.reset_reason {
+                            {
+                                let (text, trouble) = started_after(reason);
+                                rsx! { span { class: if trouble { "invalid" }, "{text}" } }
+                            }
+                        }
+                    }
+                },
+            }
+            td {
+                match &*starts.read() {
+                    Some(Ok(starts)) if starts.problem.is_some() => rsx! {
+                        ErrorText { error: format!("The device could not read its log of starts: {}", starts.problem.clone().unwrap_or_default()), message: "Not known" }
+                    },
+                    Some(Ok(starts)) => {
+                        let restarts = restarts(starts, chrono::Utc::now());
+                        rsx! {
+                            "{restarts.count} in {RESTART_DAYS} days"
+                            for (i, (kind, trouble)) in restarts.kinds.iter().enumerate() {
+                                {if i == 0 { ": " } else { ", " }}
+                                span { class: if *trouble { "invalid" }, "{kind}" }
+                            }
+                        }
+                    }
+                    _ => rsx! {},
+                }
+            }
+        }
+    }
+}
+
+/// One adopted device: what it says it is, as its row asked it, and its buttons.
+#[component]
+fn DeviceCard(
+    device: DeviceProfile,
+    profile_name: String,
+    info: Resource<anyhow::Result<capture_device::DeviceInfo>>,
+    starts: Resource<anyhow::Result<capture_device::Starts>>,
+    generation: Signal<u32>,
+    selected: Signal<Option<Selected>>,
+) -> Element {
+    let mut settings = use_context::<Signal<ProfileSettings>>();
+    let mut generation = generation;
+    let mut selected = selected;
+    let mut status = use_signal(|| None::<Result<String, String>>);
+    let mut busy = use_signal(|| false);
+    let mut show_settings = use_signal(|| false);
+    // The list of the device's starts, see restarts.
+    let mut show_starts = use_signal(|| false);
+    // Release or Forget waiting for Yes or No.
+    let mut confirming = use_signal(|| None::<&'static str>);
+
     let remove = {
         let device = device.clone();
         let profile_name = profile_name.clone();
@@ -240,6 +356,8 @@ fn DeviceCard(device: DeviceProfile, profile_name: String) -> Element {
             let devices: Vec<DeviceProfile> = settings.read().capture_devices.iter().filter(|other| other.id != device.id).cloned().collect();
             if let Err(error) = save_devices(&profile_name, &mut settings, devices) {
                 status.set(Some(Err(error)));
+            } else {
+                selected.set(None);
             }
         }
     };
@@ -332,20 +450,30 @@ fn DeviceCard(device: DeviceProfile, profile_name: String) -> Element {
                                 let restarts = restarts(starts, chrono::Utc::now());
                                 let problem = starts.problem.clone();
                                 rsx! { tr { th { "Restarts" } td {
-                                    div {
-                                        // Shows or hides the list.
-                                        span { class: "link", onclick: move |_| show_starts.toggle(),
-                                            "{restarts.count} in the last {RESTART_DAYS} days"
+                                    // A device which could not read its log, e.g. older firmware, which kept it on the
+                                    // SD card, with no card, gives only its last start, which says nothing of the
+                                    // others, so no count is shown, only that they are not known.
+                                    if let Some(problem) = problem {
+                                        div {
+                                            ErrorText {
+                                                error: format!("The device could not read its log of starts, so it only knows why it last started, \
+                                                    see Last started. Older firmware keeps the log on the SD card, so has none without a card: {problem}"),
+                                                message: "Not known",
+                                            }
                                         }
-                                        for (i, (kind, trouble)) in restarts.kinds.iter().enumerate() {
-                                            {if i == 0 { ": " } else { ", " }}
-                                            span { class: if *trouble { "invalid" }, "{kind}" }
-                                        }
-                                        if restarts.not_logged > 0 {
-                                            ", and {restarts.not_logged} more not logged"
-                                        }
-                                        if let Some(problem) = problem {
-                                            ", only the last is known, {problem}"
+                                    } else {
+                                        div {
+                                            // Shows or hides the list.
+                                            span { class: "link", onclick: move |_| show_starts.toggle(),
+                                                "{restarts.count} in the last {RESTART_DAYS} days"
+                                            }
+                                            for (i, (kind, trouble)) in restarts.kinds.iter().enumerate() {
+                                                {if i == 0 { ": " } else { ", " }}
+                                                span { class: if *trouble { "invalid" }, "{kind}" }
+                                            }
+                                            if restarts.not_logged > 0 {
+                                                ", and {restarts.not_logged} more not logged"
+                                            }
                                         }
                                     }
                                     if show_starts() {

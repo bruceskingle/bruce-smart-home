@@ -1220,6 +1220,15 @@ button.danger:disabled {
     margin-top: 12px;
 }
 
+/* The Capture Devices page: a row for each device, the one whose card is shown highlighted. */
+table.device-list {
+    margin: 12px 0;
+}
+
+table.device-list tr.selected td {
+    background-color: rgb(45, 45, 60);
+}
+
 /* The Capture Devices page. */
 .device-card {
     max-width: 60em;

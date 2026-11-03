@@ -123,13 +123,14 @@ pub struct Start {
     pub count: Option<u32>,
 }
 
-/// A device's latest starts, oldest first, from the log it keeps on its SD card, or only its last if it has no card.
+/// A device's latest starts, oldest first, from the log it keeps in its NVS, or, with older firmware, on its SD
+/// card, or only its last if it could not read the log, e.g. it has no card.
 #[derive(Clone, Deserialize, Debug, PartialEq)]
 pub struct Starts {
     /// The last start's number, see Start::count.
     pub count: Option<u32>,
     pub starts: Vec<Start>,
-    /// Why the device could only say when it last started, e.g. it has no SD card.
+    /// Why the device could only say when it last started, e.g. older firmware with no SD card.
     pub problem: Option<String>,
 }
 
