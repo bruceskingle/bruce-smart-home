@@ -22,6 +22,10 @@ Without capture devices, polling stops while the app is closed or the computer i
 
 Devices lists the [capture devices](devices.md) the profile has adopted, small always-on boards which fetch data while this computer sleeps, and adopts more.
 
+## Temp & Humidity
+
+[Temp & Humidity](climate.md) shows what the capture devices with a sensor of their own measure, a line for each device. The app reads them every 5 minutes while it is open, which Polling shows as climate.
+
 The buttons at the top right:
 
 - ![Help](icons/help.svg) shows or hides this help.

@@ -1220,6 +1220,37 @@ button.danger:disabled {
     margin-top: 12px;
 }
 
+/* The Temp & Humidity page: a graph for each series, a line for each device, see views/climate.rs. */
+svg.climate-graph {
+    width: 100%;
+    max-width: 60em;
+    display: block;
+}
+
+svg.climate-graph text {
+    fill: currentColor;
+    font-size: 11px;
+}
+
+svg.climate-graph line.grid {
+    stroke: rgb(61, 61, 61);
+    stroke-width: 1;
+}
+
+.climate-legend {
+    display: flex;
+    gap: 16px;
+    margin: 12px 0;
+}
+
+.climate-swatch {
+    display: inline-block;
+    width: 24px;
+    height: 4px;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
 /* The Capture Devices page: a row for each device, the one whose card is shown highlighted. */
 table.device-list {
     margin: 12px 0;

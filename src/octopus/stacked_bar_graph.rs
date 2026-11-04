@@ -215,7 +215,7 @@ pub fn day_bands(start: i64, end: i64, tz: &'static Tz) -> Vec<XBand> {
 }
 
 /// A readable step between y axis ticks of at least raw, e.g. 0.25 or 50, and the number of decimal places it needs.
-pub(super) fn nice_step(raw: f64) -> (f64, usize) {
+pub(crate) fn nice_step(raw: f64) -> (f64, usize) {
     if !(raw > 0.0) {
         return (1.0, 0);
     }

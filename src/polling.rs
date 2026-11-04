@@ -193,6 +193,17 @@ pub fn Poller(context: crate::util::SharedProp<MarcoSparkoContext>) -> Element {
                 }
             }
 
+            // The temperature and humidity the profile's capture devices measure, which are not a module's, see
+            // climate.rs.
+            if !crate::capture_device::adopted_devices(&context.profile.active_profile.name).is_empty() {
+                let reader = crate::climate::ClimateReader::new(&context.profile.active_profile.name);
+                let mut status = PollStatus::new();
+                status.state = PollState::Waiting;
+                status.interval = reader.poll_interval();
+                statuses.write().insert(crate::climate::MODULE_ID.to_string(), status);
+                modules.push((crate::climate::MODULE_ID.to_string(), Box::new(reader) as Box<dyn Module + Send>));
+            }
+
             // The polls under way, each finishing on its own, so that a Poll Now of another module, or its next slot,
             // does not wait for them, e.g. for a capture device which does not answer, see CaptureReader::read_device.
             let mut in_flight = futures::stream::FuturesUnordered::new();

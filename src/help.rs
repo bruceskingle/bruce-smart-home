@@ -41,6 +41,7 @@ static PAGES: &[HelpPage] = help_pages![
     "profile-size.md",
     "settings.md",
     "devices.md",
+    "climate.md",
     "log.md",
     "date-range.md",
     "graphs.md",

@@ -109,7 +109,7 @@ impl TeslaContext {
         let devices = crate::capture_device::adopted_devices(&self.context.profile.active_profile.name);
         // Those after the latest snapshot, the first time, and only into an online profile, see snapshot::take.
         let since = snapshot::latest(&self.cache_config).as_ref().and_then(snapshot::time_of);
-        let save = &mut |record: &serde_json::Value| self.snapshots.save(&self.cache_config, record);
+        let save = &mut |_: &crate::capture_device::DeviceProfile, record: &serde_json::Value| self.snapshots.save(&self.cache_config, record);
         if !self.cache_config.offline && self.capture.read(&devices, since, save, progress).await? {
             return Ok(());
         }

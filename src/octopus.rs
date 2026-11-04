@@ -17,7 +17,7 @@ mod measurements;
 mod electricity;
 mod fetch;
 mod logging_caller;
-mod stacked_bar_graph;
+pub(crate) mod stacked_bar_graph;
 mod trend_graph;
 mod category_filter;
 mod context;
@@ -245,7 +245,7 @@ impl Module for OctopusModule {
         let devices = crate::capture_device::adopted_devices(&self.profile_name);
         let since = flex_poll::latest(cache_config).and_then(|(time, _)| time);
         if !cache_config.offline
-            && self.capture.read(&devices, since, &mut |record| flex_poll::save_if_new(cache_config, record), &mut |_| {}).await? {
+            && self.capture.read(&devices, since, &mut |_, record| flex_poll::save_if_new(cache_config, record), &mut |_| {}).await? {
             return Ok(flex_poll::latest(cache_config).map(|(_, summary)| summary).unwrap_or_default());
         }
         flex_poll::poll(&self.context, slot, &self.call_budget, &self.charging_device).await

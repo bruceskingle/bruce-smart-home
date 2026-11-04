@@ -30,7 +30,11 @@ pub fn Home(
     // The help follows the page shown, see the Navbar.
     let home_help = try_use_context::<crate::help::HomeHelpTopic>();
     use_effect(move || {
-        let topic = if page() == "devices" { "devices.md" } else { "home.md" };
+        let topic = match page() {
+            "devices" => "devices.md",
+            "climate" => "climate.md",
+            _ => "home.md",
+        };
         if let Some(mut help) = home_help
             && *help.0.peek() != topic
         {
@@ -228,6 +232,7 @@ pub fn Home(
                     match page() {
                         "polling" => rsx! { PollingPage {} },
                         "devices" => rsx! { super::Devices {} },
+                        "climate" => rsx! { super::ClimatePage {} },
                         _ => modules_page,
                     }
                 }
@@ -237,8 +242,9 @@ pub fn Home(
 }
 
 /// The pages of Home, the first of which is shown first.
-const HOME_PAGES: [PageInfo; 3] = [
+const HOME_PAGES: [PageInfo; 4] = [
     PageInfo { label: "Modules", path: "modules" },
     PageInfo { label: "Polling", path: "polling" },
     PageInfo { label: "Devices", path: "devices" },
+    PageInfo { label: "Temp & Humidity", path: "climate" },
 ];

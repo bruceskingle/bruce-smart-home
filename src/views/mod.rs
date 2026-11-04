@@ -30,5 +30,8 @@ pub use settings::Settings;
 mod devices;
 pub use devices::Devices;
 
+mod climate;
+pub use climate::ClimatePage;
+
 pub mod log_panel;
 pub mod help_panel;

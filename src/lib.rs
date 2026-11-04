@@ -7,6 +7,7 @@ mod myenergi;
 mod tesla;
 mod http;
 pub mod capture_device;
+pub mod climate;
 mod cache_browser;
 pub mod polling;
 pub mod util;

@@ -164,18 +164,21 @@ fn start_after(file: &mut File, since: DateTime<Utc>) -> anyhow::Result<u64> {
     Ok(low)
 }
 
-/// When the record which is line is of, its slot, or if it has none, when it was requested.
+/// When the record which is line is of, its slot, or if it has none, when it was requested, or for a period, e.g. of
+/// the temperature, see climate.rs, its end.
 fn line_time(line: &[u8]) -> Option<DateTime<Utc>> {
     #[derive(Deserialize)]
     struct Times {
         slot: Option<String>,
         requested: Option<String>,
+        end: Option<String>,
     }
 
     let times = serde_json::from_slice::<Times>(line).ok()?;
     times
         .slot
         .or(times.requested)
+        .or(times.end)
         .and_then(|time| DateTime::parse_from_rfc3339(&time).ok())
         .map(|time| time.with_timezone(&Utc))
 }

@@ -140,7 +140,7 @@ impl Module for MyenergiModule {
         let cache_config = &self.context.cache_config;
         let devices = crate::capture_device::adopted_devices(&self.profile_name);
         let captured = !cache_config.offline && self.capture.read(&devices, fetch::latest_status_time(cache_config),
-            &mut |record| fetch::save_status_if_new(cache_config, record), &mut |_| {}).await?;
+            &mut |_, record| fetch::save_status_if_new(cache_config, record), &mut |_| {}).await?;
         fetch::poll(&self.context.client, cache_config, slot, &self.whole_days_fetched, captured).await
     }
 

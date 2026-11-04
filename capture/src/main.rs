@@ -5,6 +5,8 @@
 //! the gateway's power, and the device's status when it is swiped, or a Waveshare ESP32-S3-RLCD-4.2, whose black and
 //! white screen shows the clock and numbers, and the status when KEY is pressed, see board and screen.rs.
 
+#[cfg(feature = "waveshare-rlcd")]
+mod climate;
 mod connections;
 mod day_files;
 mod device;
@@ -98,16 +100,19 @@ mod board {
 
     use crate::screen::Panel;
 
-    /// 398 by 298, black and white, as the CYD: the clock, with 11 lines of numbers under it, as the graph's series
-    /// would all be black, redrawn every other second, as the display is updated at most every 200 ms anyway.
-    pub const CLOCK_HEIGHT: u32 = 150;
+    /// 398 by 298, black and white, as the CYD: the clock, with 11 lines of numbers under it, in the board's smaller
+    /// console font, as the graph's series would all be black, redrawn every other second, as the display is updated
+    /// at most every 200 ms anyway.
+    pub const CLOCK_HEIGHT: u32 = 130;
     pub const GRAPH: bool = false;
     pub const SCREEN_SCHEDULE: &str = "*/2 * * * * *";
 
-    /// The clock, and the KEY button, which shows the status, as a swipe does on the touch screen.
+    /// The clock, the log of the board's temperature and humidity sensor, see climate.rs, and the KEY button, which
+    /// shows the status, as a swipe does on the touch screen.
     pub fn configure(builder: Esp32PlatformBuilder, panel: &Arc<Panel>) -> anyhow::Result<Esp32PlatformBuilder> {
         let panel = panel.clone();
         Ok(builder
+            .with_feature(Box::new(crate::climate::ClimateCapture::new(panel.clone())))?
             .with_feature(Box::new(
                 AnalogClock::builder()
                     .with_layout(|bounding_box: &Rectangle| {

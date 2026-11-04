@@ -584,7 +584,7 @@ struct Records {
 
 /// When a record is of: its slot, if it was taken on one, otherwise when it was requested.
 pub fn record_time(record: &Value) -> Option<time::OffsetDateTime> {
-    ["slot", "requested"].iter()
+    ["slot", "requested", "end"].iter()
         .find_map(|name| record.get(*name)?.as_str())
         .and_then(|time| time::OffsetDateTime::parse(time, &time::format_description::well_known::Rfc3339).ok())
 }
@@ -612,11 +612,12 @@ impl CaptureReader {
     }
 
     /// Reads the records of each device which takes them, those since since, the time of the latest the app has, the
-    /// first time, and since the latest read after that, saving each with save, which says whether it was new.
+    /// first time, and since the latest read after that, saving each with save, given the device it is from, which
+    /// says whether it was new.
     /// Returns false if none of them takes them, e.g. there are none, so that the app fetches them itself, and an error
     /// if none which does could be read.
     pub async fn read(&self, devices: &[DeviceProfile], since: Option<time::OffsetDateTime>,
-        save: &mut dyn FnMut(&Value) -> anyhow::Result<bool>, progress: &mut dyn FnMut(String)) -> anyhow::Result<bool> {
+        save: &mut dyn FnMut(&DeviceProfile, &Value) -> anyhow::Result<bool>, progress: &mut dyn FnMut(String)) -> anyhow::Result<bool> {
         let mut takes = false;
         let mut read_any = false;
         let mut first_error = None;
@@ -647,7 +648,7 @@ impl CaptureReader {
 
     /// Reads the records of device a page at a time, see PAGE_SIZE, saving each page before asking for the next.
     async fn read_device(&self, device: &DeviceProfile, since: Option<time::OffsetDateTime>,
-        save: &mut dyn FnMut(&Value) -> anyhow::Result<bool>, progress: &mut dyn FnMut(String)) -> anyhow::Result<()> {
+        save: &mut dyn FnMut(&DeviceProfile, &Value) -> anyhow::Result<bool>, progress: &mut dyn FnMut(String)) -> anyhow::Result<()> {
         let mut since = self.read_until.lock().unwrap().get(&device.id).copied().or(since);
         let client = DeviceClient::for_device(device)?;
         // Its name, once, for the Polling page.
@@ -671,7 +672,7 @@ impl CaptureReader {
                     crate::log_warning!("A capture device record has no time, {}", crate::http::summary(&record.to_string()));
                     continue;
                 };
-                if save(record)? {
+                if save(device, record)? {
                     saved += 1;
                 }
                 latest = latest.max(Some(time));
