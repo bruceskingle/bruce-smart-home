@@ -5,7 +5,7 @@
 //! the gateway's power, and the device's status when it is swiped, or a Waveshare ESP32-S3-RLCD-4.2, whose black and
 //! white screen shows the clock and numbers, and the status when KEY is pressed, see board and screen.rs.
 
-#[cfg(feature = "waveshare-rlcd")]
+#[cfg(feature = "wave-esp32s3-rlcd-42")]
 mod climate;
 mod connections;
 mod day_files;
@@ -22,7 +22,7 @@ use sparko_esp_idf::Esp32Platform;
 
 /// What differs between the boards: the screen's orientation, and how much of the top of it the clock takes, the
 /// numbers having the rest, see screen.rs.
-#[cfg(feature = "cyd")]
+#[cfg(feature = "cyd-esp32-28")]
 mod board {
     use std::sync::Arc;
 
@@ -62,7 +62,7 @@ mod board {
     }
 }
 
-#[cfg(feature = "waveshare-c6-touch")]
+#[cfg(feature = "wave-esp32c6-touch-147")]
 mod board {
     use std::sync::Arc;
 
@@ -89,7 +89,7 @@ mod board {
     }
 }
 
-#[cfg(feature = "waveshare-rlcd")]
+#[cfg(feature = "wave-esp32s3-rlcd-42")]
 mod board {
     use std::sync::Arc;
 

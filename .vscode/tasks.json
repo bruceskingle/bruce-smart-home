@@ -21,7 +21,7 @@
 			// the chip's own USB.
 			"label": "Device: Flash Waveshare",
 			"type": "shell",
-			"command": "MCU=esp32c6 cargo build --release --target riscv32imac-esp-espidf --no-default-features --features waveshare-c6-touch && espflash flash --port \"$(ls /dev/cu.usbmodem* | head -1)\" --monitor target/riscv32imac-esp-espidf/release/marco-sparko-capture",
+			"command": "MCU=esp32c6 cargo build --release --target riscv32imac-esp-espidf --no-default-features --features wave-esp32c6-touch-147 && espflash flash --port \"$(ls /dev/cu.usbmodem* | head -1)\" --monitor target/riscv32imac-esp-espidf/release/marco-sparko-capture",
 			"options": { "cwd": "${workspaceFolder}/capture" },
 			"problemMatcher": [],
 			"presentation": { "reveal": "always", "focus": true, "panel": "dedicated" }

@@ -5,8 +5,8 @@ edition = "2024"
 resolver = "2"
 description = "Firmware for an ESP32 Capture Device, which polls what Marco Sparko needs while the computer sleeps"
 
-# Firmware for a CYD (ESP32-2432S028R), with the waveshare-c6-touch feature a Waveshare ESP32-C6-Touch-LCD-1.47, or with
-# the waveshare-rlcd feature a Waveshare ESP32-S3-RLCD-4.2, built on ../../sparko-embedded-std, see README.md. It is its own Cargo project, not part of marco-sparko's build:
+# Firmware for a CYD (ESP32-2432S028R), with the wave-esp32c6-touch-147 feature a Waveshare ESP32-C6-Touch-LCD-1.47, or with
+# the wave-esp32s3-rlcd-42 feature a Waveshare ESP32-S3-RLCD-4.2, built on ../../sparko-embedded-std, see README.md. It is its own Cargo project, not part of marco-sparko's build:
 # cd capture && cargo build --release, see README.md for the Waveshare.
 
 [[bin]]
@@ -38,12 +38,12 @@ esp-idf-sys = { version = "0.37.2", features = ["binstart"] }
 
 # The board, exactly one: the CYD by default.
 [features]
-default = ["cyd"]
-cyd = ["sparko-esp-idf/board-cyd"]
+default = ["cyd-esp32-28"]
+cyd-esp32-28 = ["sparko-esp-idf/board-cyd-esp32-28"]
 # The platform needs its IMU support, ahrs, for the board's motion sensor.
-waveshare-c6-touch = ["sparko-esp-idf/board-wave-esp32c6touch147", "sparko-esp-idf/ahrs"]
+wave-esp32c6-touch-147 = ["sparko-esp-idf/board-wave-esp32c6-touch-147", "sparko-esp-idf/ahrs"]
 # A Waveshare ESP32-S3-RLCD-4.2, whose KEY button shows the status.
-waveshare-rlcd = ["sparko-esp-idf/board-waveshare-s3-rlcd42", "sparko-esp-idf/key-button"]
+wave-esp32s3-rlcd-42 = ["sparko-esp-idf/board-wave-esp32s3-rlcd-42", "sparko-esp-idf/key-button"]
 
 [build-dependencies]
 embuild = "0.33"

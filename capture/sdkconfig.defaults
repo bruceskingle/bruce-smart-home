@@ -1,4 +1,4 @@
-# As boards/cyd in sparko-embedded-std, but with a bigger main task stack, as the scheduler runs the HTTPS requests to
+# As boards/cyd-esp32-28 in sparko-embedded-std, but with a bigger main task stack, as the scheduler runs the HTTPS requests to
 # the Tesla gateway, myenergi and Octopus in it. At 16 KB, /api/memory showed at most about 10 KB used.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=12288
 

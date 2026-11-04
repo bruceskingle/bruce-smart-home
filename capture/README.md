@@ -6,10 +6,10 @@ gateway, myenergi's zappi and Octopus's smart charging, and keeps what it gets o
 
 - a CYD (ESP32-2432S028R), whose screen shows a clock with the latest numbers below, the default;
 - a Waveshare ESP32-C6-Touch-LCD-1.47, an ESP32-C6, whose small screen shows only the numbers, with the
-  `waveshare-c6-touch` feature. Its SD card slot shares the display's SPI bus.
+  `wave-esp32c6-touch-147` feature. Its SD card slot shares the display's SPI bus.
 - a Waveshare ESP32-S3-RLCD-4.2, an ESP32-S3 with 8 MB of PSRAM, whose black and white reflective screen shows the
   clock with the latest numbers below, as the CYD's does, and the status for a while when its KEY button is pressed, and plays `sounds/Startup.wav` as it starts, with
-  the `waveshare-rlcd` feature. Its **Temperature and Humidity Log** feature (`climate.rs`) logs its own sensor every 10
+  the `wave-esp32s3-rlcd-42` feature. Its **Temperature and Humidity Log** feature (`climate.rs`) logs its own sensor every 10
   seconds, as periods of each value, at `/api/capture/climate/records`, which the app's Temp & Humidity page shows. `sdkconfig.defaults.esp32s3` adds its flash and PSRAM to `sdkconfig.defaults`.
 
 ## Building and flashing
@@ -18,10 +18,10 @@ From this directory, with the ESP Rust toolchain installed (see sparko-embedded-
 
 - `cargo build --release` for a CYD, and `cargo run --release` flashes the CYD plugged in by USB, and shows its log.
 - For the Waveshare, which is RISC-V: `MCU=esp32c6 cargo build --release --target riscv32imac-esp-espidf
-  --no-default-features --features waveshare-c6-touch`, then `espflash flash --port /dev/cu.usbmodem...
+  --no-default-features --features wave-esp32c6-touch-147`, then `espflash flash --port /dev/cu.usbmodem...
   target/riscv32imac-esp-espidf/release/marco-sparko-capture`.
 - For the RLCD: `MCU=esp32s3 cargo build --release --target xtensa-esp32s3-espidf --no-default-features --features
-  waveshare-rlcd`, then `espflash flash --port /dev/cu.usbmodem... target/xtensa-esp32s3-espidf/release/marco-sparko-capture`.
+  wave-esp32s3-rlcd-42`, then `espflash flash --port /dev/cu.usbmodem... target/xtensa-esp32s3-espidf/release/marco-sparko-capture`.
 - `python3 log.py [port]` shows a device's log without restarting it (needs pyserial). Not `espflash monitor`, which
   restarts it, or with `--no-reset` leaves it stopped in its bootloader. The CYD's port is `/dev/cu.usbserial-*`, its
   USB chip's, the Waveshare's `/dev/cu.usbmodem*`, the chip's own USB.
