@@ -1,6 +1,8 @@
 # Electricity
 
-Where your electricity went, putting together the meters' half hourly readings, which are what you are billed for, the [Home Mini's](home-mini.md) readings every 10 seconds, which show what happened within each half hour, and, where a [capture device](../devices.md) was reading your Tesla gateway, what it measured.
+Home's first page, the profile's electricity, from its modules: its supplier's, [Octopus Energy](octopus/index.md), described here, or [GloBird](globird/index.md), whose smart meter's readings every 5 minutes are shown the same way, with the import split into the tariff's charge types, e.g. Peak Usage, and the export below zero. Where a [capture device](devices.md) read a [Tesla](tesla/index.md) gateway, what it measured splits the supplier's import by what it was used for. A profile with Tesla but no supplier shows the gateway's own import, the house's and the Powerwalls', and export, for the periods it was read all through.
+
+Where your electricity went, putting together the meters' half hourly readings, which are what you are billed for, the [Home Mini's](octopus/home-mini.md) readings every 10 seconds, which show what happened within each half hour, and, where a [capture device](devices.md) was reading your Tesla gateway, what it measured.
 
 - **Import** is split by the rate it was billed at, and by what it was used for: the house (**Home**), the car (**EV**) and, where it was measured, the Powerwalls charging from the grid (**Battery**).
 - **Export** is what was sent to the grid, shown below the line.
@@ -10,7 +12,7 @@ The meters' readings arrive a few days later. Until they do, the rate is estimat
 
 On an Intelligent Octopus tariff, charging the car outside the cheap times is at the cheap rate too, and the estimates allow for that.
 
-Show it as a **Table** or **Graph**, see [using the graphs](../graphs.md). In the graph, **Energy** shows kWh and **Power** the average kW. Short periods, down to 10 seconds, use the Home Mini's readings where there are all of a half hour's.
+Show it as a **Table** or **Graph**, see [using the graphs](graphs.md). In the graph, **Energy** shows kWh and **Power** the average kW. Short periods, down to 10 seconds, use the Home Mini's readings where there are all of a half hour's.
 
 ## Measured or Octopus's split
 

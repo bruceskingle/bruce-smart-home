@@ -28,6 +28,8 @@ mod settings;
 pub use settings::Settings;
 
 mod devices;
+
+pub mod electricity;
 pub use devices::Devices;
 
 mod climate;

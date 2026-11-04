@@ -124,7 +124,7 @@ fn graph(series: &Series, index: usize, devices: &[DeviceClimate], from: i64, to
     let (min, max) = values.iter().fold((f64::MAX, f64::MIN), |(min, max), value| (min.min(*value), max.max(*value)));
     // At least a degree, or 5 %, so that the sensor's smallest steps do not fill the graph.
     let span = (max - min).max(if series.decimals > 0 { 1.0 } else { 5.0 });
-    let (step, decimals) = crate::octopus::stacked_bar_graph::nice_step(span / 4.0);
+    let (step, decimals) = crate::components::stacked_bar_graph::nice_step(span / 4.0);
     let low = (min / step).floor() * step;
     let high = ((max / step).ceil() * step).max(low + step);
     let plot_width = WIDTH - LEFT - RIGHT;

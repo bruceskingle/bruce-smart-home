@@ -18,6 +18,7 @@
 
 - [Help](help/index.md)
     - [Home](help/home.md)
+        - [Electricity](help/electricity.md)
     - [Profile](help/profile-size.md)
     - [Settings](help/settings.md)
     - [Capture Devices](help/devices.md)
@@ -36,13 +37,14 @@
     - [Meters](help/octopus/meters.md)
         - [A Meter's Readings](help/octopus/meter.md)
         - [Home Mini](help/octopus/home-mini.md)
-    - [Electricity](help/octopus/electricity.md)
     - [EV Charging](help/octopus/ev-charging.md)
         - [Charging Sessions](help/octopus/charging-sessions.md)
 - [myenergi](help/myenergi/index.md)
     - [Logging in](help/myenergi/login.md)
 - [Tesla](help/tesla/index.md)
     - [Logging in](help/tesla/login.md)
+- [GloBird](help/globird/index.md)
+    - [Logging in](help/globird/login.md)
 
 # More
 

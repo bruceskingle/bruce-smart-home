@@ -25,12 +25,15 @@ pub fn Home(
     // By name, so that they are always in the same order.
     let mut modules = BTreeMap::new();
     let mut upgrade_requested = use_context::<Signal<UpgradeRequested>>();
-    // The page of Home which is shown, see HOME_PAGES.
-    let mut page = use_signal(|| HOME_PAGES[0].path);
+    // The page of Home which is shown, see HOME_PAGES: Electricity if the profile has any modules, otherwise Modules,
+    // to choose some.
+    let has_modules = !context.profile.active_profile.modules.is_empty();
+    let mut page = use_signal(|| if has_modules { "electricity" } else { "modules" });
     // The help follows the page shown, see the Navbar.
     let home_help = try_use_context::<crate::help::HomeHelpTopic>();
     use_effect(move || {
         let topic = match page() {
+            "electricity" => "electricity.md",
             "devices" => "devices.md",
             "climate" => "climate.md",
             _ => "home.md",
@@ -230,6 +233,7 @@ pub fn Home(
                     active: page(),
                     on_select: move |path: &'static str| page.set(path),
                     match page() {
+                        "electricity" => rsx! { super::electricity::ElectricityPage {} },
                         "polling" => rsx! { PollingPage {} },
                         "devices" => rsx! { super::Devices {} },
                         "climate" => rsx! { super::ClimatePage {} },
@@ -241,8 +245,9 @@ pub fn Home(
     }
 }
 
-/// The pages of Home, the first of which is shown first.
-const HOME_PAGES: [PageInfo; 4] = [
+/// The pages of Home.
+const HOME_PAGES: [PageInfo; 5] = [
+    PageInfo { label: "Electricity", path: "electricity" },
     PageInfo { label: "Modules", path: "modules" },
     PageInfo { label: "Polling", path: "polling" },
     PageInfo { label: "Devices", path: "devices" },

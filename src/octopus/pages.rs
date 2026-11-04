@@ -19,4 +19,4 @@ pub use account::AccountRow;
 pub use properties::PropertiesPage;
 pub use measurements::MeasurementsPage;
 pub use ev_charging::EvChargingPage;
-pub use electricity::ElectricityPage;
+pub use electricity::OctopusElectricity;

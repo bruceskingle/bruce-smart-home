@@ -13,4 +13,4 @@ Show them as a **Table**, **Graph** or **Trend**, see [using the graphs](../grap
 
 Octopus limits how many of these readings can be downloaded in an hour. If a download is held up by the limit, the app waits until it can continue, and shows how long that is.
 
-These readings are what the meter measured, they are not used for billing, which uses [the meter's half hourly readings](meter.md). The [Electricity](electricity.md) page puts the two together.
+These readings are what the meter measured, they are not used for billing, which uses [the meter's half hourly readings](meter.md). The [Electricity](../electricity.md) page puts the two together.

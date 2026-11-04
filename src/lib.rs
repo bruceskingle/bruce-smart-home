@@ -5,6 +5,9 @@ pub use ordered_map::OrderedMap;
 mod octopus;
 mod myenergi;
 mod tesla;
+mod globird;
+pub mod period;
+pub mod power;
 mod http;
 pub mod capture_device;
 pub mod climate;
@@ -252,6 +255,12 @@ pub struct PageInfo {
 /// How many days back --fetch fetches, see Module::fetch_latest_data.
 pub const FETCH_DAYS: i64 = 30;
 
+/// The labels the modules give energy, e.g. Home Low Rate, with their default colours, in the order they are shown,
+/// each module's own, then the app's, see components::category_filter.
+pub fn known_labels() -> impl Iterator<Item = &'static (&'static str, &'static str)> {
+    power::combine::LABELS.iter().chain(&globird::LABELS).chain(&power::LABELS)
+}
+
 // Not Send, as fetch_latest_data is run on one thread, see fetch_latest_data, and the data sets' futures are not Send.
 #[async_trait(?Send)]
 pub trait Module {
@@ -261,6 +270,16 @@ pub trait Module {
     /// The help page of the page page_id showing path, relative to docs/help, see help.rs, e.g. octopus/meters.md
     fn help_topic(&self, page_id: &str, path: &[String]) -> String;
     fn cli_debug(&self) -> anyhow::Result<()>;
+    /// The site's electricity, for Home's Electricity page, see views/electricity.rs, if the module has it, e.g. a
+    /// supplier's meters, or a device which measures the grid, None if it does not.
+    fn electricity_source(&self) -> Option<std::sync::Arc<dyn power::ElectricitySource>> {
+        None
+    }
+    /// What the module's devices measured of the site's use, which splits a supplier's electricity by use, see
+    /// power::measured, None if it has none.
+    fn measurement_source(&self) -> Option<std::sync::Arc<dyn power::measured::MeasurementSource>> {
+        None
+    }
     /// Fetches the latest data of every page, as if each was shown with the last FETCH_DAYS days, printing its progress,
     /// for --fetch. Data which is already cached and up to date is not fetched again.
     async fn fetch_latest_data(&self) -> anyhow::Result<()>;
@@ -369,6 +388,7 @@ impl ModuleRegistrations {
         Self::load_module(&mut module_registrations, octopus::OctopusModule::registration(), verbose);
         Self::load_module(&mut module_registrations, myenergi::MyenergiModule::registration(), verbose);
         Self::load_module(&mut module_registrations, tesla::TeslaModule::registration(), verbose);
+        Self::load_module(&mut module_registrations, globird::GlobirdModule::registration(), verbose);
 
         if verbose {
             println!("Loaded {} modules", module_registrations.len());

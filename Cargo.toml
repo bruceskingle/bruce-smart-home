@@ -58,6 +58,9 @@ chrono = "0.4"
 reqwest = { version = "0.12.7", default-features = false, features = ["json", "rustls-tls", "charset", "http2", "macos-system-configuration"] }
 # The digest authentication of the myenergi API
 md-5 = "0.10"
+# The GloBird portal's login, which encrypts the password with RSA-OAEP-SHA256 to the portal's public key
+rsa = { version = "0.9", features = ["sha2", "getrandom"] }
+base64 = "0.22"
 
 
 # Windows only, to create files which only their owner can access, see private_file.rs

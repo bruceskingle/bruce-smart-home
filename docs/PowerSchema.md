@@ -98,6 +98,29 @@ its currency, GBP or AUD; its supplier's module; and its devices.
    what happened.
 4. `src/globird.rs` and `src/globird/`, the module: the portal client, its caches, and its `PowerSource`.
 
+### What was built first
+
+The shape above is not built yet. What is, in `src/power/`, is the Electricity page's own, put together by the app from
+whatever the profile's modules give, none of which knows of the others:
+
+- Each module gives its `SiteData` for a range through an `ElectricitySource`: a supplier's meters' readings, by
+  label, e.g. Octopus's half hours by rate or GloBird's 5 minutes by charge type, a grid meter's readings every few
+  seconds, e.g. the Octopus Home Mini's, and hints for estimating the rate of import not billed yet, e.g. Octopus's
+  cheap times. A device, e.g. the Tesla gateway, gives its site meter's readings as grid readings.
+- A module may give `Measurements` of the site's use, e.g. the Tesla gateway's registers, which split the grid's
+  import into the car's, the batteries' and the house's, see `power/measured.rs`.
+- The app, `power::electricity`, takes the meters' readings of the first module which has any, the grid readings of
+  the first which has any, suppliers first, and the measurements, and `power/combine.rs`, which was Octopus's,
+  combines them, as it did, into periods with the import by label and the export.
+
+Next: the zappi's grid CT and charging, from myenergi, as grid readings and measurements of the car, which would give
+a GloBird site, e.g., a real Electricity page without a capture device; then the use and band split of the labels, and
+the costs.
+
+GloBird's page shows Sydney's time for now, so in summer its days start an hour before GloBird's AEST days, and a
+day's totals differ from the Days page's. A site's timezone, and whether its days are the supplier's or the clock's,
+is a setting to come.
+
 ## Storage
 
 For now GloBird's replies are kept as the other modules' are, in DataSets, a day a record. Unlike Octopus's, its
@@ -125,4 +148,7 @@ Tesla and the zappi for that site wait for a capture device there.
 - [ ] Export (`B1`) is mostly non-zero through the night on 2 November. The Powerwalls exporting, e.g. for the Super
   Export top up, or something else?
 - [ ] The bands' rates, from many days of usage and cost: worth it, or are the rates on Jeff's bill enough?
-- [ ] How far back does the portal go? It gave all of the 35 days asked for.
+- [ ] How far back does the portal go? It gave all of the 35 days asked for, and then all of the 40 the module asks
+  for, so at least 40.
+- [ ] The ZEROHERO Credit and Super Export top up costs were there for 4 November while it was the current day, and gone
+  two hours after it ended. Are they estimates which GloBird replaces, and where do they end up?

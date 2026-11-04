@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 use sparko_graphql::types::{Currency, Date, DateTime};
 use time_tz::{OffsetDateTimeExt, Tz};
 
-use super::stacked_bar_graph::{StackedBarMode, axis_label, axis_unit, format_money, nice_step};
+use crate::components::stacked_bar_graph::{StackedBarMode, axis_label, axis_unit, format_money, nice_step};
 
 const LEFT: f64 = 64.0;
 const RIGHT: f64 = 16.0;

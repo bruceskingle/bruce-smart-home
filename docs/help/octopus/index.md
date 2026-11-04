@@ -6,7 +6,7 @@ The Octopus module shows the data Octopus Energy holds about your account, using
 - [Bills](bills.md), every statement, each of which opens in [a window of its own](bill.md).
 - [Properties](properties.md), with their meters and smart devices.
 - [Meters](meters.md), each meter's half hourly readings, and the [Home Mini's](home-mini.md) readings every 10 seconds.
-- [Electricity](electricity.md), both put together to show where your electricity went.
+- [Electricity](../electricity.md), on Home,, both put together to show where your electricity went.
 - [EV Charging](ev-charging.md), your charger and its [charging sessions](charging-sessions.md).
 
 Octopus only provides some data for a while, for example the Home Mini's readings for 30 days. The app saves everything it downloads, so it keeps what Octopus no longer has, and a [scheduled fetch](../../ScheduledFetch.md) can download it regularly without opening the app.

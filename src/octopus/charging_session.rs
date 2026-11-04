@@ -11,7 +11,7 @@ use crate::CacheConfig;
 use crate::data_set::{CancelToken, MonthlyDataSet};
 use super::decimal::Decimal;
 use super::graphql::meter::charging_sessions;
-use super::stacked_bar_graph::{StackedBarPeriod, StackedBarPoint, StackedBarSeries};
+use crate::components::stacked_bar_graph::{StackedBarPeriod, StackedBarPoint, StackedBarSeries};
 
 /// The most sessions asked for in one request, if this many are returned the rest are asked for in another.
 const PAGE_SIZE: i32 = 100;
@@ -436,7 +436,7 @@ mod tests {
 
     use super::{ChargingSession, ERROR, FULL, NO_CHARGE, PUBLIC, Problem, SMART, graph_points};
     use crate::octopus::decimal::Decimal;
-    use crate::octopus::stacked_bar_graph::StackedBarPeriod;
+    use crate::components::stacked_bar_graph::StackedBarPeriod;
 
     fn time(text: &str) -> DateTime {
         DateTime::from_unix_timestamp(time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339).unwrap().unix_timestamp()).unwrap()

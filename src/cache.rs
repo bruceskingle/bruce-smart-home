@@ -116,14 +116,6 @@ impl CacheConfig {
         path.push(format!("{}#{}", date.month(), hash_key));
     }
     
-    /// The cache of another module of the same profile, e.g. tesla's for the Electricity page, which is octopus's, as
-    /// each module's directory is <profile>-<module>.
-    pub fn sibling(&self, module_id: &str) -> Option<CacheConfig> {
-        let name = self.dir_path.file_name()?.to_str()?;
-        let (profile, _) = name.rsplit_once('-')?;
-        Some(CacheConfig::new(self.dir_path.with_file_name(format!("{profile}-{module_id}")), self.verbose, self.offline))
-    }
-
     pub fn new(dir_path: PathBuf, verbose: bool, offline: bool) -> Self {
         CacheConfig {
             dir_path,

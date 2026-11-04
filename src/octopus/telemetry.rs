@@ -12,19 +12,18 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use sparko_graphql::types::{Date, DateTime};
+use sparko_graphql::types::DateTime;
 use sparko_graphql::{GraphQLCaller, GraphQLQueryBuilder, ProgressMonitor};
 use time_tz::Tz;
 
 use crate::CacheConfig;
+use crate::power::grid::{GridPoint, GridSample};
 use crate::components::export::{ExportTable, ExportValue};
 use crate::data_set::{CancelToken, call_unless_cancelled};
 use super::rate_limit::FieldRateLimit;
 use super::graphql::TelemetryGrouping;
 use super::graphql::meter::meter_telemetry;
 
-/// The interval between readings, in seconds.
-pub const READING_SECONDS: i64 = 10;
 /// Which readings are missing is worked out an hour, about 360 readings, at a time.
 const HOUR_SECONDS: i64 = 3600;
 /// The most which is fetched in one request, as consecutive missing hours. The server returns 13 hours of 10 second
@@ -48,7 +47,7 @@ const COMPLETE_AFTER_SECONDS: i64 = DAY_SECONDS;
 /// A day which is not complete, e.g. today, is fetched again when its cache is older than this.
 const REFRESH_SECONDS: i64 = 5 * 60;
 
-/// A reading of the meter, the values are as the server gives them, see TelemetryPoint for their units.
+/// A reading of the meter, the values are as the server gives them, see GridPoint for their units.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct TelemetryReading {
     /// When it was read, a unix timestamp.
@@ -67,6 +66,28 @@ pub struct TelemetryReading {
 
 fn number(value: Option<super::decimal::Decimal>) -> Option<f64> {
     value.and_then(|value| value.to_string().parse().ok())
+}
+
+impl GridSample for TelemetryReading {
+    fn read_at(&self) -> i64 {
+        self.read_at
+    }
+
+    fn demand(&self) -> Option<f64> {
+        self.demand
+    }
+
+    fn consumption_delta(&self) -> Option<f64> {
+        self.consumption_delta
+    }
+
+    fn consumption(&self) -> Option<f64> {
+        self.consumption
+    }
+
+    fn export(&self) -> Option<f64> {
+        self.export
+    }
 }
 
 impl TelemetryReading {
@@ -306,220 +327,6 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
     Ok(result)
 }
 
-/// How long the periods of the graph and table are.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub enum TelemetryPeriod {
-    TenSeconds,
-    Minute,
-    TenMinutes,
-    HalfHour,
-    Day,
-    Week,
-    Month,
-}
-
-impl TelemetryPeriod {
-    pub const ALL: [TelemetryPeriod; 7] = [
-        TelemetryPeriod::TenSeconds,
-        TelemetryPeriod::Minute,
-        TelemetryPeriod::TenMinutes,
-        TelemetryPeriod::HalfHour,
-        TelemetryPeriod::Day,
-        TelemetryPeriod::Week,
-        TelemetryPeriod::Month,
-    ];
-
-    /// The length of a period shorter than a day, in seconds.
-    pub fn seconds(&self) -> Option<i64> {
-        match self {
-            TelemetryPeriod::TenSeconds => Some(READING_SECONDS),
-            TelemetryPeriod::Minute => Some(60),
-            TelemetryPeriod::TenMinutes => Some(600),
-            TelemetryPeriod::HalfHour => Some(1800),
-            _ => None,
-        }
-    }
-
-    /// The next shorter period, to drill down to, None for the shortest.
-    pub fn shorter(&self) -> Option<TelemetryPeriod> {
-        match self {
-            TelemetryPeriod::TenSeconds => None,
-            TelemetryPeriod::Minute => Some(TelemetryPeriod::TenSeconds),
-            TelemetryPeriod::TenMinutes => Some(TelemetryPeriod::Minute),
-            TelemetryPeriod::HalfHour => Some(TelemetryPeriod::TenMinutes),
-            TelemetryPeriod::Day => Some(TelemetryPeriod::HalfHour),
-            TelemetryPeriod::Week => Some(TelemetryPeriod::Day),
-            TelemetryPeriod::Month => Some(TelemetryPeriod::Week),
-        }
-    }
-
-    /// Whether the period is a day or longer.
-    pub fn is_calendar(&self) -> bool {
-        self.seconds().is_none()
-    }
-}
-
-impl std::fmt::Display for TelemetryPeriod {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TelemetryPeriod::TenSeconds => write!(f, "10s"),
-            TelemetryPeriod::Minute => write!(f, "1min"),
-            TelemetryPeriod::TenMinutes => write!(f, "10min"),
-            TelemetryPeriod::HalfHour => write!(f, "30min"),
-            TelemetryPeriod::Day => write!(f, "Day"),
-            TelemetryPeriod::Week => write!(f, "Week"),
-            TelemetryPeriod::Month => write!(f, "Month"),
-        }
-    }
-}
-
-/// The readings in a period, totalled.
-#[derive(Clone, PartialEq, Debug)]
-pub struct TelemetryPoint {
-    /// Unix timestamps.
-    pub start: i64,
-    pub end: i64,
-    /// The energy imported, in Wh, see energy_since.
-    pub energy: f64,
-    /// The energy exported, in Wh, see export_since.
-    pub export: f64,
-    /// The average power, in W, negative when more is exported than imported, None if there were no readings of it.
-    pub demand: Option<f64>,
-    /// The number of readings.
-    pub readings: usize,
-}
-
-/// The start and end of the day, week (from Monday) or month containing date, in the timezone, as unix timestamps.
-fn calendar_bounds(date: Date, period: TelemetryPeriod, tz: &'static Tz) -> (i64, i64) {
-    let (start, end) = match period {
-        TelemetryPeriod::Week => {
-            let monday = *date - time::Duration::days(date.weekday().number_days_from_monday() as i64);
-            (monday, monday + time::Duration::days(7))
-        },
-        TelemetryPeriod::Month => {
-            let first = date.replace_day(1).unwrap_or(*date);
-            let next = if first.month() == time::Month::December {
-                first.replace_year(first.year() + 1).and_then(|date| date.replace_month(time::Month::January))
-            }
-            else {
-                first.replace_month(first.month().next())
-            }.unwrap_or(first);
-            (first, next)
-        },
-        _ => (*date, *date + time::Duration::days(1)),
-    };
-    (Date::from(start).at_midnight(tz).unix_timestamp(), Date::from(end).at_midnight(tz).unix_timestamp())
-}
-
-/// The start and end of the period containing time, all as unix timestamps, in the timezone for days, weeks and months.
-pub fn period_bounds(time: i64, period: TelemetryPeriod, tz: &'static Tz) -> (i64, i64) {
-    match period.seconds() {
-        Some(seconds) => {
-            let start = time - time.rem_euclid(seconds);
-            (start, start + seconds)
-        },
-        None => match DateTime::from_unix_timestamp(time) {
-            Ok(time) => calendar_bounds(time.to_timezone(tz).to_date(), period, tz),
-            Err(_) => (time, time),
-        },
-    }
-}
-
-/// The energy imported up to reading since previous, the reading before it, in Wh. This is the change in the meter's
-/// import register, consumption, which is exact however far apart the readings are, so readings which are missing do
-/// not lose any energy, it is in the reading after them. A reading's consumption_delta is the energy since the reading
-/// before, and usually covers a reading which is missing too, but not always, so it is only used when there are no
-/// register readings, e.g. for the first reading, or the register goes down, e.g. if the meter is replaced.
-pub(crate) fn energy_since(previous: Option<&TelemetryReading>, reading: &TelemetryReading) -> f64 {
-    match (previous.and_then(|previous| previous.consumption), reading.consumption) {
-        (Some(before), Some(after)) if after >= before => after - before,
-        _ => reading.consumption_delta.unwrap_or_default(),
-    }
-}
-
-/// The energy exported, in Wh, since the reading before, from the export register as for energy_since, or 0 if there
-/// is not one before or it goes down, as there is no export delta.
-fn export_since(previous: Option<&TelemetryReading>, reading: &TelemetryReading) -> f64 {
-    match (previous.and_then(|previous| previous.export), reading.export) {
-        (Some(before), Some(after)) if after >= before => after - before,
-        _ => 0.0,
-    }
-}
-
-/// A point for each reading from start to end, from the reading before it to its time, which is the time its energy was
-/// used in, see energy_since, so that they meet although some 10 second slots have no reading, see BOUNDARY_SECONDS. A
-/// reading with none before it is 10 seconds long. Readings before start are not included, but the last of them gives
-/// the energy and start of the first reading from start.
-fn reading_points(readings: &[TelemetryReading], start: i64, end: i64) -> Vec<TelemetryPoint> {
-    let mut points: Vec<TelemetryPoint> = Vec::new();
-    let mut previous: Option<&TelemetryReading> = None;
-    for reading in readings.iter().take_while(|reading| reading.read_at < end) {
-        let since = previous.replace(reading);
-        if reading.read_at < start {
-            continue;
-        }
-        points.push(TelemetryPoint {
-            start: since.map(|since| since.read_at).unwrap_or(reading.read_at - READING_SECONDS),
-            end: reading.read_at,
-            energy: energy_since(since, reading),
-            export: export_since(since, reading),
-            demand: reading.demand,
-            readings: 1,
-        });
-    }
-    points
-}
-
-/// The periods from start to end, as unix timestamps, including ones with no readings, with the readings, which are in
-/// time order, totalled in each. Readings before start are not counted, but the last of them gives the energy of the
-/// first reading from start. For 10 seconds there is a period for each reading, see reading_points.
-pub fn aggregate(readings: &[TelemetryReading], start: i64, end: i64, period: TelemetryPeriod, tz: &'static Tz) -> Vec<TelemetryPoint> {
-    if period == TelemetryPeriod::TenSeconds {
-        return reading_points(readings, start, end);
-    }
-    let mut points = Vec::new();
-    let mut period_start = match period.seconds() {
-        Some(seconds) => start - start.rem_euclid(seconds),
-        None => match DateTime::from_unix_timestamp(start) {
-            Ok(start) => calendar_bounds(start.to_timezone(tz).to_date(), period, tz).0,
-            Err(_) => return points,
-        },
-    };
-    let mut readings = readings.iter().peekable();
-    // The reading before the next, for the energy since it.
-    let mut previous: Option<&TelemetryReading> = None;
-    while period_start < end {
-        let period_end = match period.seconds() {
-            Some(seconds) => period_start + seconds,
-            None => match DateTime::from_unix_timestamp(period_start) {
-                Ok(time) => calendar_bounds(time.to_timezone(tz).to_date(), period, tz).1,
-                Err(_) => break,
-            },
-        };
-        let mut point = TelemetryPoint { start: period_start, end: period_end, energy: 0.0, export: 0.0, demand: None, readings: 0 };
-        let mut demand_total = 0.0;
-        let mut demand_readings = 0;
-        while let Some(reading) = readings.next_if(|reading| reading.read_at < period_end) {
-            let since = previous.replace(reading);
-            if reading.read_at < period_start || reading.read_at < start {
-                continue;
-            }
-            point.readings += 1;
-            point.energy += energy_since(since, reading);
-            point.export += export_since(since, reading);
-            if let Some(demand) = reading.demand {
-                demand_total += demand;
-                demand_readings += 1;
-            }
-        }
-        if demand_readings > 0 {
-            point.demand = Some(demand_total / demand_readings as f64);
-        }
-        points.push(point);
-        period_start = period_end;
-    }
-    points
-}
 
 /// The readings as a table, for export.
 pub fn readings_export(readings: &[TelemetryReading], tz: &'static Tz) -> ExportTable {
@@ -542,7 +349,7 @@ pub fn readings_export(readings: &[TelemetryReading], tz: &'static Tz) -> Export
 }
 
 /// The periods as a table, for export.
-pub fn points_export(points: &[TelemetryPoint], tz: &'static Tz) -> ExportTable {
+pub fn points_export(points: &[GridPoint], tz: &'static Tz) -> ExportTable {
     ExportTable {
         columns: ["Start", "End", "Energy (kWh)", "Export (kWh)", "Average Demand (kW)", "Readings"].iter().map(|column| column.to_string()).collect(),
         rows: points.iter()
@@ -562,8 +369,9 @@ pub fn points_export(points: &[TelemetryPoint], tz: &'static Tz) -> ExportTable 
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{COMPLETE_AFTER_SECONDS, DAY_SECONDS, HOUR_SECONDS, SERVER_HISTORY_SECONDS, TelemetryPeriod, TelemetryReading, aggregate,
-        day_hours, requests};
+    use super::{COMPLETE_AFTER_SECONDS, DAY_SECONDS, HOUR_SECONDS, SERVER_HISTORY_SECONDS, TelemetryReading, day_hours, requests};
+    use crate::period::Period;
+    use crate::power::grid::aggregate;
 
     fn reading(read_at: i64, demand: f64, consumption_delta: f64) -> TelemetryReading {
         TelemetryReading {
@@ -635,13 +443,13 @@ mod tests {
         let london = time_tz::timezones::db::europe::LONDON;
         let start = 1_790_000_000 - 1_790_000_000 % 60;
         let readings: Vec<TelemetryReading> = (0..12).map(|index| reading(start + index * 10, 1000.0 + index as f64, 2.0)).collect();
-        let minutes = aggregate(&readings, start, start + 180, TelemetryPeriod::Minute, london);
+        let minutes = aggregate(&readings, start, start + 180, Period::Minute, london);
         assert_eq!(minutes.len(), 3);
         assert_eq!((minutes[0].readings, minutes[0].energy), (6, 12.0));
         assert_eq!(minutes[0].demand, Some(1002.5));
         assert_eq!(minutes[1].demand, Some(1008.5));
         assert_eq!((minutes[2].readings, minutes[2].demand), (0, None));
-        let days = aggregate(&readings, start, start + 180, TelemetryPeriod::Day, london);
+        let days = aggregate(&readings, start, start + 180, Period::Day, london);
         assert_eq!(days.len(), 1);
         assert_eq!(days[0].energy, 24.0);
     }
@@ -658,18 +466,18 @@ mod tests {
             with_register(start + 40, 1012.0, 3.0),
             with_register(start + 50, 1015.0, 3.0),
         ];
-        let minute = aggregate(&readings, start, start + 60, TelemetryPeriod::Minute, london);
+        let minute = aggregate(&readings, start, start + 60, Period::Minute, london);
         // The first reading has no register reading before it, so uses its delta, then the register's 15 Wh.
         assert_eq!(minute[0].energy, 3.0 + 15.0);
         // At 10 seconds each reading lasts from the one before, so the one after the missing ones is 30 seconds long.
-        let periods = aggregate(&readings, start, start + 60, TelemetryPeriod::TenSeconds, london);
+        let periods = aggregate(&readings, start, start + 60, Period::TenSeconds, london);
         let energies: Vec<f64> = periods.iter().map(|period| period.energy).collect();
         assert_eq!(energies, [3.0, 3.0, 9.0, 3.0]);
         let lengths: Vec<i64> = periods.iter().map(|period| period.end - period.start).collect();
         assert_eq!(lengths, [10, 10, 30, 10]);
 
         // From the second reading, the first is only used for the register reading before it, and is not counted.
-        let from_second = aggregate(&readings, start + 10, start + 60, TelemetryPeriod::Day, london);
+        let from_second = aggregate(&readings, start + 10, start + 60, Period::Day, london);
         assert_eq!((from_second[0].energy, from_second[0].readings), (15.0, 3));
     }
 
@@ -688,9 +496,9 @@ mod tests {
         let start = 1_790_000_000 - 1_790_000_000 % 60;
         let exporting = |read_at: i64, export: f64| TelemetryReading { export: Some(export), ..reading(read_at, -2000.0, 0.0) };
         let readings = vec![exporting(start - 10, 500.0), exporting(start, 505.0), exporting(start + 40, 527.0)];
-        let minute = aggregate(&readings, start, start + 60, TelemetryPeriod::Minute, london);
+        let minute = aggregate(&readings, start, start + 60, Period::Minute, london);
         assert_eq!((minute[0].export, minute[0].demand), (27.0, Some(-2000.0)));
-        let periods = aggregate(&readings, start, start + 60, TelemetryPeriod::TenSeconds, london);
+        let periods = aggregate(&readings, start, start + 60, Period::TenSeconds, london);
         let exports: Vec<f64> = periods.iter().map(|period| period.export).collect();
         assert_eq!(exports, [5.0, 22.0]);
     }

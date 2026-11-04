@@ -3,6 +3,7 @@
 //! component  to be used in our app.
 
 pub mod app;
+pub mod category_filter;
 pub mod child_windows;
 pub mod color_panel;
 pub mod date_range_picker;
@@ -10,4 +11,5 @@ pub mod delete_profile;
 pub mod error_text;
 pub mod export;
 pub mod toggle_button;
+pub mod stacked_bar_graph;
 pub mod tooltips;

@@ -2,9 +2,13 @@
 
 Home has its pages listed down the left, which ![Hide the page list](icons/hide-pages.svg) at its top hides, and ![Show the page list](icons/show-pages.svg) shows again.
 
+## Electricity
+
+[Electricity](electricity.md), where the profile's electricity went, from the module which supplies it, Octopus or GloBird. It is the first page shown, unless the profile has neither yet.
+
 ## Modules
 
-Modules lists every module, and whether the active profile uses it. Each module connects to one supplier or device: [Octopus Energy](octopus/index.md), [myenergi](myenergi/index.md) and [Tesla](tesla/index.md). Click a module here, or its name in the bar at the top, to open it.
+Modules lists every module, and whether the active profile uses it. Each module connects to one supplier or device: [Octopus Energy](octopus/index.md), [myenergi](myenergi/index.md), [Tesla](tesla/index.md) and [GloBird](globird/index.md). Click a module here, or its name in the bar at the top, to open it.
 
 **Data Directory** is where the app keeps its data, the profiles and a copy of everything it has downloaded. **Build Info** is the version of the app, useful when reporting a problem.
 

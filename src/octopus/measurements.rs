@@ -17,11 +17,11 @@ use crate::data_set::{CancelToken, MonthlyFixedSlotDataSet, SlotSource};
 use crate::octopus::decimal::Decimal;
 use crate::octopus::graphql::{ElectricityFiltersInput, ReadingFrequencyType, UtilityFiltersInput};
 
-use super::electricity::MeterHalfHour;
+use crate::power::combine::MeterReading;
 use super::graphql::meter;
-use super::category_filter::{CategoryFilter, CategoryValues, KNOWN_LABELS, STANDING_CHARGE_LABEL};
-use super::stacked_bar_graph::{BarMenuItem, day_bands, StackedBarGraph, StackedBarMode, StackedBarPeriod, StackedBarPoint, StackedBarSeries, time_tick_label};
-use super::category_filter::SOLID;
+use crate::components::category_filter::{CategoryFilter, CategoryValues, STANDING_CHARGE_LABEL, order_labels};
+use crate::components::stacked_bar_graph::{BarMenuItem, day_bands, StackedBarGraph, StackedBarMode, StackedBarPeriod, StackedBarPoint, StackedBarSeries, time_tick_label};
+use crate::components::category_filter::SOLID;
 use super::trend_graph::{CATEGORY_LEGEND_COLOR, TrendGraph, TrendLegendItem, TrendLine, TrendSmoothing, cumulative_by_year, moving_average, range_years, year_positions};
 
 /// The readings in a period of a graph added together, e.g. a day.
@@ -56,18 +56,6 @@ fn ordered_labels<'a>(readings: impl IntoIterator<Item = &'a MeasurementsReading
     order_labels(readings.into_iter().flat_map(|reading| reading.consumption.keys().map(String::as_str)))
 }
 
-/// The distinct labels, the known ones first in their usual order, then any others in alphabetical order.
-pub(crate) fn order_labels<'a>(labels: impl IntoIterator<Item = &'a str>) -> Vec<String> {
-    let all: BTreeSet<&str> = labels.into_iter().collect();
-    let is_known = |label: &str| KNOWN_LABELS.iter().any(|(known, _)| *known == label);
-
-    KNOWN_LABELS.iter()
-        .map(|(label, _)| *label)
-        .filter(|label| all.contains(label))
-        .chain(all.iter().copied().filter(|label| !is_known(label)))
-        .map(String::from)
-        .collect()
-}
 
 /// Measurement readings for a meter over a period, cached in monthly buckets.
 pub struct MeasurementsDataSet {
@@ -170,10 +158,10 @@ impl MeasurementsDataSet {
     }
 
     /// The units of each label of each reading from start to end, leaving out readings with none, see is_partial.
-    pub fn half_hours(&self, start: &DateTime, end: &DateTime) -> Vec<MeterHalfHour> {
+    pub fn half_hours(&self, start: &DateTime, end: &DateTime) -> Vec<MeterReading> {
         self.readings(start, end)
             .filter(|reading| !reading.is_partial())
-            .map(|reading| MeterHalfHour {
+            .map(|reading| MeterReading {
                 start: reading.start.unix_timestamp(),
                 end: reading.end.unix_timestamp(),
                 units: reading.consumption.iter()

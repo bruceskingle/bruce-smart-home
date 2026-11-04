@@ -4,6 +4,7 @@
 //! The gateway only says what is happening now, but its meters' energy totals only ever increase, so the energy of
 //! any time between two snapshots is the difference between them.
 
+use crate::power::measured::SiteRegisters;
 use anyhow::anyhow;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -307,31 +308,9 @@ pub fn samples(cache_config: &CacheConfig, limit: usize) -> Vec<Sample> {
     snapshots.iter().take(limit).map(Sample::from_snapshot).collect()
 }
 
-/// The gateway's energy registers at a moment, in Wh, which only ever go up, so that the energy between two moments is
-/// their difference, for the Electricity page, see octopus/electricity.rs.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Registers {
-    /// When the gateway last read its meters, as a unix timestamp in seconds.
-    pub time: f64,
-    /// Imported from the grid through the gateway's site meter, which the zappi is outside of.
-    pub site_imported: f64,
-    /// Into the Powerwalls.
-    pub battery_imported: f64,
-    /// Made by the solar panels.
-    pub solar_exported: f64,
-    /// Used by the house.
-    pub load_imported: f64,
-    /// The power through the site meter from the grid, into the Powerwalls, and from the solar panels, in W, as the
-    /// gateway measured it, which is steadier than the registers' changes over a few seconds, see
-    /// octopus/electricity.rs's measured_split.
-    pub site_power: f64,
-    pub battery_power: f64,
-    pub solar_power: f64,
-}
-
-/// The registers of the snapshots in the day files from start to end, unix timestamps, in time order, see Registers.
+/// The registers of the snapshots in the day files from start to end, unix timestamps, in time order, see SiteRegisters.
 /// Only the day files, as snapshots in files of their own are minutes apart, too far apart to be used.
-pub fn registers(cache_config: &CacheConfig, start: i64, end: i64) -> Vec<Registers> {
+pub fn registers(cache_config: &CacheConfig, start: i64, end: i64) -> Vec<SiteRegisters> {
     // Only what is needed, as there are thousands a day.
     #[derive(serde::Deserialize)]
     struct Line {
@@ -377,9 +356,10 @@ pub fn registers(cache_config: &CacheConfig, start: i64, end: i64) -> Vec<Regist
                 continue;
             };
             if (start as f64..=end as f64).contains(&time) {
-                registers.push(Registers {
+                registers.push(SiteRegisters {
                     time,
                     site_imported: site.energy_imported,
+                    site_exported: site.energy_exported,
                     battery_imported: battery.energy_imported,
                     solar_exported: solar.energy_exported,
                     load_imported: load.energy_imported,

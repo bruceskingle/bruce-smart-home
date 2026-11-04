@@ -38,6 +38,7 @@ macro_rules! help_pages {
 static PAGES: &[HelpPage] = help_pages![
     "index.md",
     "home.md",
+    "electricity.md",
     "profile-size.md",
     "settings.md",
     "devices.md",
@@ -56,13 +57,14 @@ static PAGES: &[HelpPage] = help_pages![
     "octopus/meters.md",
     "octopus/meter.md",
     "octopus/home-mini.md",
-    "octopus/electricity.md",
     "octopus/ev-charging.md",
     "octopus/charging-sessions.md",
     "myenergi/index.md",
     "myenergi/login.md",
     "tesla/index.md",
     "tesla/login.md",
+    "globird/index.md",
+    "globird/login.md",
 ];
 
 macro_rules! help_icons {

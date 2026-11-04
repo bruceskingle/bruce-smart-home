@@ -14,12 +14,12 @@ use std::collections::BTreeSet;
 use crate::components::date_range_picker::{DateRangePicker, RangeSelection};
 use sparko_graphql::types::{Currency, DateTime};
 
-use crate::octopus::category_filter::{CategoryFilter, CategoryFilterMenu, SOLID};
+use crate::components::category_filter::{CategoryFilter, CategoryFilterMenu, SOLID};
 use crate::octopus::charging_session::{self, CATEGORIES, ChargingSession, energy_unit, readable};
 use crate::data_set::CancelToken;
 use crate::octopus::context::OctopusContext;
 use crate::octopus::decimal::Decimal;
-use crate::octopus::stacked_bar_graph::{BarClick, BarMenuItem, StackedBarGraph, StackedBarMode, StackedBarPeriod, day_bands, format_money};
+use crate::components::stacked_bar_graph::{BarClick, BarMenuItem, StackedBarGraph, StackedBarMode, StackedBarPeriod, day_bands, format_money};
 use crate::octopus::trend_graph::{TrendGraph, TrendLegendItem, TrendLine, TrendSmoothing, cumulative_by_year, moving_average, range_years, year_positions};
 
 /// The aggregations offered, sessions have no rates so there is no Rate.

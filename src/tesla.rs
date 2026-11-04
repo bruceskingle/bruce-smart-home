@@ -3,6 +3,7 @@
 //!
 //! For now it only takes snapshots into the cache and shows the latest, to see what the data is like.
 
+mod electricity;
 mod local;
 pub mod snapshot;
 
@@ -184,6 +185,16 @@ impl TeslaModule {
 
 #[async_trait(?Send)]
 impl Module for TeslaModule {
+    /// The grid's import and export through the gateway, for a profile with no supplier's.
+    fn electricity_source(&self) -> Option<Arc<dyn crate::power::ElectricitySource>> {
+        Some(Arc::new(electricity::TeslaElectricity { cache_config: self.context.cache_config.clone() }))
+    }
+
+    /// What the gateway measured of the site's use, which splits a supplier's import by use.
+    fn measurement_source(&self) -> Option<Arc<dyn crate::power::measured::MeasurementSource>> {
+        Some(Arc::new(electricity::TeslaMeasurements { cache_config: self.context.cache_config.clone() }))
+    }
+
     async fn fetch_latest_data(&self) -> anyhow::Result<()> {
         self.context.take_snapshot(None, &mut |message| println!("{message}")).await
     }

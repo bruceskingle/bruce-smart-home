@@ -14,12 +14,9 @@ mod meter;
 mod line_items;
 mod meter_agreement;
 mod measurements;
-mod electricity;
 mod fetch;
 mod logging_caller;
-pub(crate) mod stacked_bar_graph;
 mod trend_graph;
-mod category_filter;
 mod context;
 mod pages;
 mod flex_poll;
@@ -33,7 +30,7 @@ use async_trait::async_trait;
 use dioxus::prelude::*;
 
 use context::{OctopusContext, OctopusRoot};
-use pages::{AccountRow, BillsPage, ElectricityPage, EvChargingPage, MeasurementsPage, PropertiesPage};
+use pages::{AccountRow, BillsPage, EvChargingPage, MeasurementsPage, PropertiesPage};
 use serde::{Deserialize, Serialize};
 
 use time_tz::timezones;
@@ -255,6 +252,11 @@ impl Module for OctopusModule {
         self.capture.next_read(now, flex_poll::POLL_INTERVAL)
     }
 
+    /// Its meters and Home Mini put together, see pages/electricity.rs.
+    fn electricity_source(&self) -> Option<Arc<dyn crate::power::ElectricitySource>> {
+        Some(Arc::new(pages::OctopusElectricity { context: self.context.clone() }))
+    }
+
     fn cli_debug(&self) -> Result<(), anyhow::Error> {
         println!("Args: {:?}", self.octopus_args);
         println!("Octopus Module: account_id={}", self.context.account_id);
@@ -288,10 +290,6 @@ impl Module for OctopusModule {
                 path: "measurements",
             },
             PageInfo {
-                label: "Electricity",
-                path: "electricity",
-            },
-            PageInfo {
                 label: "EV Charging",
                 path: "ev",
             },
@@ -308,7 +306,6 @@ impl Module for OctopusModule {
             ("measurements", None) => "meters",
             ("measurements", Some("telemetry")) => "home-mini",
             ("measurements", Some(_)) => "meter",
-            ("electricity", _) => "electricity",
             ("ev", None) => "ev-charging",
             ("ev", Some(_)) => "charging-sessions",
             _ => "index",
@@ -481,11 +478,6 @@ impl Module for OctopusModule {
             "ev" => {
                 rsx! {
                     EvChargingPage { path }
-                }
-            },
-            "electricity" => {
-                rsx! {
-                    ElectricityPage { path }
                 }
             },
             _ => {

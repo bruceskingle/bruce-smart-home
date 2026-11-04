@@ -17,10 +17,12 @@ use crate::components::date_range_picker::{DateRangePicker, LocalSlot, RangeSele
 use crate::components::export::{ExportButton, ExportFormat, export_file_name, save_table};
 use crate::components::toggle_button::ToggleButton;
 use crate::data_set::CancelToken;
-use crate::octopus::category_filter::{CategoryFilter, CategoryFilterMenu, SOLID};
+use crate::components::category_filter::{CategoryFilter, CategoryFilterMenu, SOLID};
 use crate::octopus::context::OctopusContext;
-use crate::octopus::stacked_bar_graph::{BarClick, BarMenuItem, MAX_BARS, StackedBarGraph, StackedBarMode, StackedBarPoint, StackedBarSeries, day_bands, time_tick_label};
-use crate::octopus::telemetry::{self, TelemetryPeriod, TelemetryPoint, TelemetryReading};
+use crate::components::stacked_bar_graph::{BarClick, BarMenuItem, MAX_BARS, StackedBarGraph, StackedBarMode, StackedBarPoint, StackedBarSeries, day_bands, time_tick_label};
+use crate::octopus::telemetry::{self, TelemetryReading};
+use crate::power::grid::{self, GridPoint};
+use crate::period::Period;
 use crate::octopus::trend_graph::{TrendGraph, TrendLegendItem, TrendLine, TrendSmoothing, cumulative_by_year, moving_average, range_years,
     year_positions};
 use super::measurements::graphql_error_descriptions;
@@ -63,7 +65,7 @@ impl TelemetryMode {
     const ALL: [TelemetryMode; 2] = [TelemetryMode::Energy, TelemetryMode::Demand];
 
     /// The value of a period, in the units of the graph: kWh imported or average kW.
-    fn value(&self, point: &TelemetryPoint) -> f64 {
+    fn value(&self, point: &GridPoint) -> f64 {
         match self {
             TelemetryMode::Energy => point.energy / 1000.0,
             TelemetryMode::Demand => point.demand.unwrap_or_default() / 1000.0,
@@ -72,7 +74,7 @@ impl TelemetryMode {
 
     /// The imported and, as a negative value so that it is drawn below zero, exported value of a period, in the units
     /// of the graph. The average power is net, so it is one or the other.
-    fn values(&self, point: &TelemetryPoint) -> Vec<f64> {
+    fn values(&self, point: &GridPoint) -> Vec<f64> {
         match self {
             TelemetryMode::Energy => vec![point.energy / 1000.0, -point.export / 1000.0],
             TelemetryMode::Demand => {
@@ -121,13 +123,13 @@ pub fn Telemetry(account_id: String, esme_id: String, cad_id: String, billing_ti
         RangeSelection { start: LocalSlot { date: today, slot: 0 }, end: None }
     });
     let mut view = use_signal(|| TelemetryView::Graph);
-    let mut period = use_signal(|| TelemetryPeriod::HalfHour);
+    let mut period = use_signal(|| Period::HalfHour);
     let mut mode = use_signal(|| TelemetryMode::Energy);
     let mut smoothing = use_signal(|| TrendSmoothing::None);
     // The colours of the years in the trend graph.
     let filter = use_signal(CategoryFilter::default);
     // The range and period before each drill down or zoom in the graph, the latest last, for Zoom Out.
-    let mut history = use_signal(Vec::<(RangeSelection, TelemetryPeriod)>::new);
+    let mut history = use_signal(Vec::<(RangeSelection, Period)>::new);
     // A period whose days are fetched again however up to date they are, set by Reload. The fetch does not depend on it,
     // Reload restarts the fetch, so that it is only used once.
     let mut reload = use_signal(|| None::<(DateTime, DateTime)>);
@@ -171,17 +173,17 @@ pub fn Telemetry(account_id: String, esme_id: String, cad_id: String, billing_ti
     // The periods that would be too many bars or rows over the range can not be chosen, and the one shown is the
     // chosen one or, if that is too short, the shortest longer one that fits, so that zooming in shows the chosen one again.
     let most_shown = if view() == TelemetryView::Graph { MAX_BARS } else { MAX_SHOWN };
-    let fits = |option: TelemetryPeriod| option.seconds()
+    let fits = |option: Period| option.seconds()
         .is_none_or(|seconds| ((end.unix_timestamp() - start.unix_timestamp()) / seconds) as usize <= most_shown);
-    let shown_period = TelemetryPeriod::ALL.into_iter()
+    let shown_period = Period::ALL.into_iter()
         .find(|option| *option >= period() && fits(*option))
-        .unwrap_or(TelemetryPeriod::Month);
+        .unwrap_or(Period::Month);
     let readings: Option<Arc<Vec<TelemetryReading>>> = match &*readings_resource.read() {
         Some(Ok(readings)) => Some(readings.clone()),
         _ => None,
     };
     let points = readings.as_ref()
-        .map(|readings| telemetry::aggregate(readings, start.unix_timestamp(), end.unix_timestamp(), shown_period, tz))
+        .map(|readings| grid::aggregate(readings, start.unix_timestamp(), end.unix_timestamp(), shown_period, tz))
         .unwrap_or_default();
 
     // Double clicking a bar shows it in more detail, at the next shorter period.
@@ -327,7 +329,7 @@ pub fn Telemetry(account_id: String, esme_id: String, cad_id: String, billing_ti
             // The trend is of the daily totals.
             if view() != TelemetryView::Trend {
                 span { class: "view-toggle",
-                    for option in TelemetryPeriod::ALL {
+                    for option in Period::ALL {
                         ToggleButton {
                             label: option.to_string(),
                             active: shown_period == option,
@@ -436,8 +438,8 @@ fn too_many(count: usize) -> Element {
 }
 
 /// A row for each period with readings.
-fn readings_table(points: &[TelemetryPoint], tz: &'static Tz) -> Element {
-    let rows: Vec<&TelemetryPoint> = points.iter().filter(|point| point.readings > 0).collect();
+fn readings_table(points: &[GridPoint], tz: &'static Tz) -> Element {
+    let rows: Vec<&GridPoint> = points.iter().filter(|point| point.readings > 0).collect();
     if rows.len() > MAX_SHOWN {
         return too_many(rows.len());
     }
@@ -513,7 +515,7 @@ fn readings_table(points: &[TelemetryPoint], tz: &'static Tz) -> Element {
 }
 
 /// A bar for each period, of the energy or average demand.
-fn readings_graph(points: &[TelemetryPoint], start: &DateTime, end: &DateTime, period: TelemetryPeriod, mode: TelemetryMode, tz: &'static Tz,
+fn readings_graph(points: &[GridPoint], start: &DateTime, end: &DateTime, period: Period, mode: TelemetryMode, tz: &'static Tz,
     on_drill: impl FnMut((i64, i64)) + 'static, on_zoom: impl FnMut((i64, i64)) + 'static, menu: Vec<BarMenuItem>) -> Element
 {
     if points.len() > MAX_SHOWN {
@@ -539,15 +541,15 @@ fn readings_graph(points: &[TelemetryPoint], start: &DateTime, end: &DateTime, p
         .filter_map(|point| {
             let (point_start, point_end) = (local(point.start)?, local(point.end)?);
             let ((tick_label, tick_rank), period_label) = match period {
-                TelemetryPeriod::Day => (
+                Period::Day => (
                     (Some(point_start.format(&day_format).unwrap_or_default()), 0),
                     point_start.format(&date_format).unwrap_or_default(),
                 ),
-                TelemetryPeriod::Week => (
+                Period::Week => (
                     (Some(format!("Week of {}", point_start.format(&day_format).unwrap_or_default())), 0),
                     format!("Week of {}", point_start.format(&date_format).unwrap_or_default()),
                 ),
-                TelemetryPeriod::Month => (
+                Period::Month => (
                     (Some(point_start.format(&month_format).unwrap_or_default()), 0),
                     point_start.format(&long_month_format).unwrap_or_default(),
                 ),
@@ -599,7 +601,7 @@ fn readings_graph(points: &[TelemetryPoint], start: &DateTime, end: &DateTime, p
 fn trend(readings: &[TelemetryReading], start: &DateTime, end: &DateTime, mode: TelemetryMode, smoothing: TrendSmoothing,
     filter: &CategoryFilter, tz: &'static Tz) -> Element
 {
-    let points = telemetry::aggregate(readings, start.unix_timestamp(), end.unix_timestamp(), TelemetryPeriod::Day, tz);
+    let points = grid::aggregate(readings, start.unix_timestamp(), end.unix_timestamp(), Period::Day, tz);
     let positions = year_positions(points.iter().map(|point| (point.start, point.end)), tz)?;
     let point_years: Vec<i32> = positions.iter().map(|(year, _)| *year).collect();
     let times: Vec<i64> = points.iter().map(|point| point.start).collect();

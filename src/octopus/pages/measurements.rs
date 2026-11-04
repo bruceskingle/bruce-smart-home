@@ -9,7 +9,7 @@ use crate::components::date_range_picker::{DateRangePicker, RangeSelection};
 use crate::components::export::{ExportButton, ExportFormat, export_file_name, save_table};
 use crate::components::toggle_button::ToggleButton;
 use crate::data_set::CancelToken;
-use crate::octopus::category_filter::{CategoryFilter, CategoryFilterMenu};
+use crate::components::category_filter::{CategoryFilter, CategoryFilterMenu};
 use crate::octopus::trend_graph::{TrendSmoothing, range_years};
 use crate::octopus::context::OctopusContext;
 use crate::octopus::measurements::MeasurementsDataSet;
@@ -18,7 +18,7 @@ use crate::octopus::meter_point::MeterPointDataSet;
 use crate::octopus::smart_device::SmartDeviceDataSet;
 use crate::octopus::property::{PropertyDataSet, smart_device_network_table};
 use super::telemetry::Telemetry;
-use crate::octopus::stacked_bar_graph::{BarClick, BarMenuItem, MAX_BARS, StackedBarMode, StackedBarPeriod};
+use crate::components::stacked_bar_graph::{BarClick, BarMenuItem, MAX_BARS, StackedBarMode, StackedBarPeriod};
 
 /// Each GraphQL error from the server in error, as its message, its description, which is often advice about the
 /// message, and its code, e.g. "Unable to find matching device for this request. Ensure the device id is correct.
