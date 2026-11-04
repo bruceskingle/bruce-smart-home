@@ -1,0 +1,78 @@
+{
+ "data": [
+  {
+   "chargeCategory": "SOLAR",
+   "chargeType": null,
+   "date": "2026/11/01",
+   "amount": -0.2,
+   "quantity": 6.71,
+   "isMeterReadMissingOnDate": false
+  },
+  {
+   "chargeCategory": "USAGE",
+   "chargeType": null,
+   "date": "2026/11/01",
+   "amount": 6.39,
+   "quantity": 26.0,
+   "isMeterReadMissingOnDate": false
+  },
+  {
+   "chargeCategory": "SUPPLY",
+   "chargeType": null,
+   "date": "2026/11/01",
+   "amount": 1.31,
+   "quantity": 0.0,
+   "isMeterReadMissingOnDate": false
+  },
+  {
+   "chargeCategory": "SOLAR",
+   "chargeType": null,
+   "date": "2026/11/02",
+   "amount": -0.02,
+   "quantity": 0.79,
+   "isMeterReadMissingOnDate": false
+  },
+  {
+   "chargeCategory": "USAGE",
+   "chargeType": null,
+   "date": "2026/11/02",
+   "amount": 6.07,
+   "quantity": 30.43,
+   "isMeterReadMissingOnDate": false
+  },
+  {
+   "chargeCategory": "SUPPLY",
+   "chargeType": null,
+   "date": "2026/11/02",
+   "amount": 1.31,
+   "quantity": 0.0,
+   "isMeterReadMissingOnDate": false
+  },
+  {
+   "chargeCategory": "SOLAR",
+   "chargeType": null,
+   "date": "2026/11/03",
+   "amount": -0.31,
+   "quantity": 10.24,
+   "isMeterReadMissingOnDate": false
+  },
+  {
+   "chargeCategory": "USAGE",
+   "chargeType": null,
+   "date": "2026/11/03",
+   "amount": 4.04,
+   "quantity": 19.82,
+   "isMeterReadMissingOnDate": false
+  },
+  {
+   "chargeCategory": "SUPPLY",
+   "chargeType": null,
+   "date": "2026/11/03",
+   "amount": 1.31,
+   "quantity": 0.0,
+   "isMeterReadMissingOnDate": false
+  }
+ ],
+ "message": null,
+ "success": true
+}

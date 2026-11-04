@@ -1,0 +1,22 @@
+{
+ "data": [
+  {
+   "meterReadType": "SMART",
+   "serialNumber": "559647",
+   "suffix": null,
+   "serialStatus": "Removed",
+   "registerId": null,
+   "suffixStatus": null
+  },
+  {
+   "meterReadType": "SMART",
+   "serialNumber": "IN483763573",
+   "suffix": null,
+   "serialStatus": "Energized",
+   "registerId": null,
+   "suffixStatus": null
+  }
+ ],
+ "message": null,
+ "success": true
+}

@@ -1,0 +1,9 @@
+{
+ "data": {
+  "balance": -200.03,
+  "maxRefundableAmount": 0.0,
+  "showRefundableAmount": false
+ },
+ "message": "Get account balance detail succeeded",
+ "success": true
+}

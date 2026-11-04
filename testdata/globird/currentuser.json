@@ -1,0 +1,53 @@
+{
+ "data": {
+  "emailAddress": "customer@example.com",
+  "hasUnlinkedAccount": false,
+  "isImpersonatedUser": false,
+  "featureFlags": {
+   "callbackDisabled": true,
+   "isNeedMoreHelpDisabled": true
+  },
+  "accounts": [
+   {
+    "accountId": 29902414,
+    "accountNumber": "29902414",
+    "services": [
+     {
+      "accountServiceId": 328452,
+      "siteIdentifier": "83503305378",
+      "siteAddress": "1 Example Street, Sydney NSW 2000",
+      "postCode": "2000",
+      "streetAddress": "1 Example Street",
+      "suburb": null,
+      "state": "NSW",
+      "status": "Switched",
+      "allAccountServiceIds": [
+       328452
+      ],
+      "concessionAddress": "1 Example Street, Sydney NSW 2000",
+      "serviceType": "Power"
+     },
+     {
+      "accountServiceId": 5712446,
+      "siteIdentifier": "13746783900",
+      "siteAddress": "1 Example Street, Sydney NSW 2000",
+      "postCode": "2000",
+      "streetAddress": "1 Example Street",
+      "suburb": null,
+      "state": "NSW",
+      "status": "PendingSwitchResults",
+      "allAccountServiceIds": [
+       719021,
+       5712446
+      ],
+      "concessionAddress": "1 Example Street, Sydney NSW 2000",
+      "serviceType": "Gas"
+     }
+    ],
+    "accountAddress": "1 Example Street, Sydney NSW 2000"
+   }
+  ]
+ },
+ "message": null,
+ "success": true
+}
