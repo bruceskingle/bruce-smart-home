@@ -1,5 +1,5 @@
-# Added to sdkconfig.defaults by ESP-IDF when building for an ESP32-S3, i.e. the Waveshare ESP32-S3-RLCD-4.2, whose
-# ESP32-S3-WROOM-1-N16R8 has 16 MB of flash, and 8 MB of octal PSRAM, which malloc uses too, so that the HTTPS
+# Added to sdkconfig.defaults by ESP-IDF when building for an ESP32-S3, i.e. the Waveshare ESP32-S3-RLCD-4.2 or the Guition
+# JC3248W535C, whose ESP32-S3 N16R8 has 16 MB of flash, and 8 MB of octal PSRAM, which malloc uses too, so that the HTTPS
 # connections and records have room, as the CYD's RAM does not give them.
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_SPIRAM=y

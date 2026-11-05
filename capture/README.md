@@ -25,6 +25,7 @@ From this directory, with the ESP Rust toolchain installed (see sparko-embedded-
   target/riscv32imac-esp-espidf/release/marco-sparko-capture`.
 - For the RLCD: `MCU=esp32s3 cargo build --release --target xtensa-esp32s3-espidf --no-default-features --features
   wave-esp32s3-rlcd-42`, then `espflash flash --port /dev/cu.usbmodem... target/xtensa-esp32s3-espidf/release/marco-sparko-capture`.
+- For the Guition JC3248W535C, the same with `--features guition-jc3248w535c`.
 - `python3 log.py [port]` shows a device's log without restarting it (needs pyserial). Not `espflash monitor`, which
   restarts it, or with `--no-reset` leaves it stopped in its bootloader. The CYD's port is `/dev/cu.usbserial-*`, its
   USB chip's, the Waveshare's `/dev/cu.usbmodem*`, the chip's own USB.

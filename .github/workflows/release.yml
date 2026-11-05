@@ -166,7 +166,8 @@ jobs:
           fi
 
       # That the .dmg and the app in it are signed, by a Developer ID, and if notarized, that the tickets are stapled to
-      # both and Gatekeeper accepts them, as it would on a user's Mac when they are downloaded.
+      # both and Gatekeeper accepts them, as it would on a user's Mac when they are downloaded. stapler asks Apple for
+      # the ticket, a request which the runners' network sometimes drops, so it is tried up to three times.
       - name: Check the app is signed and notarized
         if: runner.os == 'macOS' && env.SIGNED == 'true'
         run: |
@@ -177,9 +178,16 @@ jobs:
           app=$(ls -d "$mount"/*.app | head -1)
           codesign --verify --deep --strict --verbose=2 "$app"
           codesign --display --verbose=2 "$app" 2>&1 | grep -E "Authority|TeamIdentifier|Timestamp|Runtime"
+          validate() {
+            for attempt in 1 2 3; do
+              xcrun stapler validate "$1" && return 0
+              sleep 20
+            done
+            return 1
+          }
           if [ "$NOTARIZED" = true ]; then
-            xcrun stapler validate "$dmg"
-            xcrun stapler validate "$app"
+            validate "$dmg"
+            validate "$app"
             spctl --assess --type execute --verbose=2 "$app"
             spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
           fi

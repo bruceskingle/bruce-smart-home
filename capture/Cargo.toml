@@ -41,9 +41,13 @@ esp-idf-sys = { version = "0.37.2", features = ["binstart"] }
 default = ["cyd-esp32-28"]
 cyd-esp32-28 = ["sparko-esp-idf/board-cyd-esp32-28"]
 # The platform needs its IMU support, ahrs, for the board's motion sensor.
-wave-esp32c6-touch-147 = ["sparko-esp-idf/board-wave-esp32c6-touch-147", "sparko-esp-idf/ahrs"]
+wave-esp32c6-touch-147 = ["sparko-esp-idf/board-wave-esp32c6-touch-147", "sparko-esp-idf/ahrs", "touch"]
 # A Waveshare ESP32-S3-RLCD-4.2, whose KEY button shows the status.
 wave-esp32s3-rlcd-42 = ["sparko-esp-idf/board-wave-esp32s3-rlcd-42", "sparko-esp-idf/key-button"]
+# A Guition JC3248W535C, whose BOOT button shows the status.
+guition-jc3248w535c = ["sparko-esp-idf/board-guition-jc3248w535c", "sparko-esp-idf/boot-button", "touch"]
+# A board with a touch screen, a swipe of which shows the status, see screen.rs.
+touch = []
 
 [build-dependencies]
 embuild = "0.33"

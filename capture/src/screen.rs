@@ -101,7 +101,7 @@ impl Panel {
                 shown: None,
                 clock_shown: None,
                 status_overlay: false,
-                #[cfg(feature = "wave-esp32c6-touch-147")]
+                #[cfg(feature = "touch")]
                 swipe: None,
             };
             initializer.add_task(Box::new(screen), crate::board::SCREEN_SCHEDULE)?;
@@ -133,8 +133,8 @@ struct Screen {
     /// Whether the status is being shown, as an overlay, see run.
     status_overlay: bool,
     /// Kept, as the touch driver only keeps a weak reference to it, see Swipe.
-    #[cfg(feature = "wave-esp32c6-touch-147")]
-    swipe: Option<Arc<dyn sparko_embedded_std::listener::Listener<sparko_esp_idf::touch::axs5106l::TouchPoint>>>,
+    #[cfg(feature = "touch")]
+    swipe: Option<Arc<dyn sparko_embedded_std::listener::Listener<sparko_esp_idf::touch::TouchPoint>>>,
 }
 
 impl Screen {
@@ -168,7 +168,7 @@ impl Screen {
     }
 
     /// Listens for swipes, on a board with a touch screen, once the platform is running.
-    #[cfg(feature = "wave-esp32c6-touch-147")]
+    #[cfg(feature = "touch")]
     fn listen(&mut self, sparko: &Esp32Platform) {
         if self.swipe.is_none() {
             let swipe: Arc<dyn sparko_embedded_std::listener::Listener<_>> = Arc::new(Swipe::new(self.panel.clone()));
@@ -177,7 +177,7 @@ impl Screen {
         }
     }
 
-    #[cfg(not(feature = "wave-esp32c6-touch-147"))]
+    #[cfg(not(feature = "touch"))]
     fn listen(&mut self, _sparko: &Esp32Platform) {}
 }
 
@@ -332,14 +332,14 @@ impl ScheduledTask<Esp32Platform> for Screen {
 /// Shows the status, see Panel::show_status, when the screen is swiped: touched, and the touch moved far enough,
 /// quickly enough, in any direction. The touch driver says only where the screen is touched, as often as it reads it,
 /// so a touch which has not moved for a while is taken to be a new one.
-#[cfg(feature = "wave-esp32c6-touch-147")]
+#[cfg(feature = "touch")]
 struct Swipe {
     panel: Arc<Panel>,
     /// Where and when the touch started, and when it was last moved, and whether it has made a swipe yet.
     touch: Mutex<Option<(i32, i32, Instant, bool)>>,
 }
 
-#[cfg(feature = "wave-esp32c6-touch-147")]
+#[cfg(feature = "touch")]
 impl Swipe {
     /// How far a touch must move to be a swipe, in pixels, and the longest gap between readings of one touch.
     const DISTANCE: i32 = 50;
@@ -350,9 +350,9 @@ impl Swipe {
     }
 }
 
-#[cfg(feature = "wave-esp32c6-touch-147")]
-impl sparko_embedded_std::listener::Listener<sparko_esp_idf::touch::axs5106l::TouchPoint> for Swipe {
-    fn on_event(&self, point: &sparko_esp_idf::touch::axs5106l::TouchPoint) {
+#[cfg(feature = "touch")]
+impl sparko_embedded_std::listener::Listener<sparko_esp_idf::touch::TouchPoint> for Swipe {
+    fn on_event(&self, point: &sparko_esp_idf::touch::TouchPoint) {
         let (x, y) = (point.x as i32, point.y as i32);
         let now = Instant::now();
         let mut touch = self.touch.lock().unwrap();
