@@ -1,23 +1,16 @@
-//! What a site's own devices measured of where its energy went, e.g. a Tesla gateway's energy registers, which a
-//! supplier's module, e.g. octopus/electricity.rs, uses to split its readings of the grid's import by what it was used
-//! for, see Measurements, without knowing where they are from.
-//!
-//! The split needs the grid's import measured outside the gateway, e.g. by the Octopus Home Mini, as the car's charger
-//! may be outside the gateway's site meter: then the car's import is the grid's less the gateway's site meter's, the
-//! batteries' what they took in less what the solar panels made, and the rest the house's.
+//! What a site's own devices measured, e.g. a Tesla gateway's energy registers, as channels, e.g. `tesla:site`, which
+//! the site's topology places, see power::topology, to split the grid's import by what it was used for, see Split,
+//! without the modules knowing where their channels are.
 
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-const HALF_HOUR: i64 = 1800;
+pub(crate) const HALF_HOUR: i64 = 1800;
 
-/// A half hour is measured, see split, if the gateway's registers were read at least this often through it, in
+/// A half hour is measured, see power::topology, if the gateway's registers were read at least this often through it, in
 /// seconds. A capture device reads them every 10 seconds.
 const MAX_REGISTERS_GAP: f64 = 60.0;
-/// Less of the car's or the Powerwalls' measured import than this in a half hour, in kWh, is the house's, as it is only
-/// the Home Mini and the gateway being read at slightly different moments, e.g. a few Wh in a half hour without either.
-const MEASUREMENT_NOISE: f64 = 0.02;
 
 /// A site's energy registers at a moment, in Wh, which only ever go up, so that the energy between two moments is their
 /// difference, as a Tesla gateway reads them.
@@ -31,19 +24,50 @@ pub struct SiteRegisters {
     pub site_exported: f64,
     /// Into the batteries.
     pub battery_imported: f64,
+    /// Out of the batteries.
+    pub battery_exported: f64,
     /// Made by the solar panels.
     pub solar_exported: f64,
     /// Used by the house.
     pub load_imported: f64,
     /// The power through the site meter from the grid, into the batteries, and from the solar panels, in W, as the
-    /// gateway measured it, which is steadier than the registers' changes over a few seconds, see split.
+    /// gateway measured it, which is steadier than the registers' changes over a few seconds, see power::topology.
     pub site_power: f64,
     pub battery_power: f64,
     pub solar_power: f64,
 }
 
-/// What a site's devices measured, which splits the grid's import by use, see the module comment.
+/// A channel's energy over a span of time, in kWh, into its circuit, import, and out of it, export, e.g. a battery's
+/// charge and discharge, or what solar panels made.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Flow {
+    pub import: f64,
+    pub export: f64,
+}
+
+/// What a module's devices measured, e.g. the Tesla gateway's meters, as channels, each one place in the site's
+/// topology, see power::topology.
 pub trait Measurements {
+    /// What measured it, as the Electricity page shows where a period is from, e.g. Tesla.
+    fn name(&self) -> String;
+
+    /// The channels it measures, e.g. `tesla:site`.
+    fn channels(&self) -> Vec<String>;
+
+    /// Whether its channels were measured all through the half hour starting at half_hour.
+    fn complete(&self, half_hour: i64) -> bool;
+
+    /// A channel's energy from start to end, None if it is not one of its channels or was not measured then.
+    fn energy(&self, channel: &str, start: i64, end: i64) -> Option<Flow>;
+
+    /// A channel's average power from start to end, in W, into its circuit, negative out of it, e.g. while solar
+    /// panels make, which is steadier than its energy's changes over a few seconds, see power::topology.
+    fn power(&self, channel: &str, start: i64, end: i64) -> Option<f64>;
+}
+
+/// What splits the grid's import by what it was used for, which combine is given without knowing how, see
+/// power::topology::TopologySplit.
+pub trait Split {
     /// What measured it, as the Electricity page shows where a period is from, e.g. Tesla.
     fn name(&self) -> String;
 
@@ -59,10 +83,31 @@ pub trait MeasurementSource {
     fn load(&self, start: i64, end: i64) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn Measurements>>>>>;
 }
 
-/// Measurements from a site's energy registers, in time order, by what read them, e.g. Tesla.
+/// The Tesla gateway's meters' channels, see RegisterMeasurements.
+pub const SITE_CHANNEL: &str = "tesla:site";
+pub const BATTERY_CHANNEL: &str = "tesla:battery";
+pub const SOLAR_CHANNEL: &str = "tesla:solar";
+pub const LOAD_CHANNEL: &str = "tesla:load";
+
+/// Measurements from a site's energy registers, in time order, by what read them, e.g. Tesla, whose channels are the
+/// gateway's meters: the site meter, the batteries, the solar panels, and the load, which is the house's as the
+/// gateway works it out.
 pub struct RegisterMeasurements {
     pub name: String,
     pub registers: Vec<SiteRegisters>,
+}
+
+/// A register's fields of a channel: its import's, its export's, and its power into its circuit, if it has one.
+type Fields = (fn(&SiteRegisters) -> f64, fn(&SiteRegisters) -> f64, Option<fn(&SiteRegisters) -> f64>);
+
+fn channel_fields(channel: &str) -> Option<Fields> {
+    Some(match channel {
+        SITE_CHANNEL => (|registers| registers.site_imported, |registers| registers.site_exported, Some(|registers| registers.site_power)),
+        BATTERY_CHANNEL => (|registers| registers.battery_imported, |registers| registers.battery_exported, Some(|registers| registers.battery_power)),
+        SOLAR_CHANNEL => (|_| 0.0, |registers| registers.solar_exported, Some(|registers| -registers.solar_power)),
+        LOAD_CHANNEL => (|registers| registers.load_imported, |_| 0.0, None),
+        _ => return None,
+    })
 }
 
 impl Measurements for RegisterMeasurements {
@@ -70,8 +115,21 @@ impl Measurements for RegisterMeasurements {
         self.name.clone()
     }
 
-    fn split(&self, kwh: &[f64], demand: &[Option<f64>], bounds: &[(i64, i64)]) -> Option<Vec<(f64, f64, f64)>> {
-        split(kwh, demand, bounds, &self.registers)
+    fn channels(&self) -> Vec<String> {
+        [SITE_CHANNEL, BATTERY_CHANNEL, SOLAR_CHANNEL, LOAD_CHANNEL].map(String::from).to_vec()
+    }
+
+    fn complete(&self, half_hour: i64) -> bool {
+        registers_complete(&self.registers, half_hour)
+    }
+
+    fn energy(&self, channel: &str, start: i64, end: i64) -> Option<Flow> {
+        let (import, export, _) = channel_fields(channel)?;
+        Some(Flow { import: register_kwh(&self.registers, start, end, import)?, export: register_kwh(&self.registers, start, end, export)? })
+    }
+
+    fn power(&self, channel: &str, start: i64, end: i64) -> Option<f64> {
+        power(&self.registers, start, end, channel_fields(channel)?.2?)
     }
 }
 
@@ -108,7 +166,7 @@ const SMOOTHING: usize = 5;
 /// the ends, so that a load which is on for only a reading or two, which the Home Mini and the gateway, being read up to
 /// 10 seconds apart, see at different moments, is not taken for the car's or the Powerwalls', which only change
 /// slowly, and is the house's instead. Steps, e.g. the car starting, are kept.
-fn smoothed(values: &[f64]) -> Vec<f64> {
+pub(crate) fn smoothed(values: &[f64]) -> Vec<f64> {
     (0..values.len())
         .map(|index| {
             let mut window: Vec<f64> = values[index.saturating_sub(SMOOTHING / 2)..(index + SMOOTHING / 2 + 1).min(values.len())].to_vec();
@@ -120,7 +178,7 @@ fn smoothed(values: &[f64]) -> Vec<f64> {
 
 /// total shared between points in proportion to weights, or if they are all 0, to room, no point getting more than its
 /// room, what does not fit shared by those with room left.
-fn share(total: f64, weights: &[f64], room: &[f64]) -> Vec<f64> {
+pub(crate) fn share(total: f64, weights: &[f64], room: &[f64]) -> Vec<f64> {
     let weights = if weights.iter().sum::<f64>() > 0.0 { weights } else { room };
     let sum: f64 = weights.iter().sum();
     if sum <= 0.0 {
@@ -151,51 +209,9 @@ fn power(registers: &[SiteRegisters], start: i64, end: i64, field: fn(&SiteRegis
         .map(field)
 }
 
-/// What each of a half hour's points' import, kwh, from and to the times of bounds, with the Home Mini's average power,
-/// demand, was used for, as (the car, the Powerwalls, the house), from the gateway's registers, see the module comment,
-/// or None if they were not read all through it. Each is exact for the half hour, from its registers' readings at its
-/// start and end, and is shared between its points by the same differences of the power readings over each. Not of the
-/// registers' changes over each, which are as steady, as the Powerwalls charge at a steady power, but jump about by
-/// several hundred W over 10 seconds, as the Home Mini and the gateway are read at different moments.
-fn split(kwh: &[f64], demand: &[Option<f64>], bounds: &[(i64, i64)], registers: &[SiteRegisters]) -> Option<Vec<(f64, f64, f64)>> {
-    let half_hour = bounds.first()?.0 - bounds.first()?.0.rem_euclid(HALF_HOUR);
-    if !registers_complete(registers, half_hour) {
-        return None;
-    }
-    let site = |start, end| register_kwh(registers, start, end, |registers| registers.site_imported);
-    // Into the Powerwalls from the grid, as what the solar panels made goes into them first.
-    let battery = |start, end| Some((register_kwh(registers, start, end, |registers| registers.battery_imported)?
-        - register_kwh(registers, start, end, |registers| registers.solar_exported)?).max(0.0));
-
-    let total: f64 = kwh.iter().sum();
-    let noise = |kwh: f64| if kwh < MEASUREMENT_NOISE { 0.0 } else { kwh };
-    let ev_total = noise((total - site(half_hour, half_hour + HALF_HOUR)?).clamp(0.0, total));
-    let battery_total = noise(battery(half_hour, half_hour + HALF_HOUR)?.min(total - ev_total));
-    // The power of each, in W, smoothed, then times its length, as a point's share is in proportion to its energy.
-    let seconds: Vec<f64> = bounds.iter().map(|(start, end)| (end - start) as f64).collect();
-    let ev_power: Vec<f64> = kwh.iter().zip(demand).zip(bounds).zip(&seconds)
-        .map(|(((kwh, demand), (start, end)), seconds)| {
-            let home_mini = demand.unwrap_or(kwh * 3_600_000.0 / seconds.max(1.0));
-            Some((home_mini - power(registers, *start, *end, |registers| registers.site_power)?).max(0.0))
-        })
-        .collect::<Option<_>>()?;
-    let ev_weights: Vec<f64> = smoothed(&ev_power).iter().zip(&seconds).map(|(power, seconds)| power * seconds).collect();
-    let ev = share(ev_total, &ev_weights, kwh);
-    let battery_power: Vec<f64> = bounds.iter()
-        .map(|(start, end)| Some((power(registers, *start, *end, |registers| registers.battery_power)?
-            - power(registers, *start, *end, |registers| registers.solar_power)?).max(0.0)))
-        .collect::<Option<_>>()?;
-    let battery_weights: Vec<f64> = smoothed(&battery_power).iter().zip(&seconds).map(|(power, seconds)| power * seconds).collect();
-    let room: Vec<f64> = kwh.iter().zip(&ev).map(|(kwh, ev)| (kwh - ev).max(0.0)).collect();
-    let battery = share(battery_total, &battery_weights, &room);
-    Some(kwh.iter().zip(ev).zip(battery).map(|((kwh, ev), battery)| (ev, battery, (kwh - ev - battery).max(0.0))).collect())
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-
-    const DAY: i64 = 1_793_232_000;
 
     /// The gateway's registers every 10 seconds from start up to end, with the site importing site_watts, the
     /// Powerwalls taking in battery_watts and the solar panels making nothing.
@@ -208,6 +224,7 @@ pub(crate) mod tests {
                     site_imported: 1000.0 + site_watts * hours,
                     site_exported: 500.0,
                     battery_imported: 2000.0 + battery_watts * hours,
+                    battery_exported: 100.0,
                     solar_exported: 3000.0,
                     load_imported: 4000.0,
                     site_power: site_watts,
@@ -216,26 +233,6 @@ pub(crate) mod tests {
                 }
             })
             .collect()
-    }
-
-    #[test]
-    fn the_car_is_the_home_minis_import_less_the_gateways_and_the_powerwalls_what_they_took_in() {
-        // A half hour of 10 second points, the Home Mini importing 14 kW, the gateway 7 kW, of which the Powerwalls 5 kW.
-        let bounds: Vec<(i64, i64)> = (0..180).map(|index| (DAY + index * 10, DAY + index * 10 + 10)).collect();
-        let kwh = vec![14000.0 * 10.0 / 3_600_000.0; 180];
-        let demand = vec![Some(14000.0); 180];
-        let uses = split(&kwh, &demand, &bounds, &registers(DAY - 20, DAY + 1820, 7000.0, 5000.0)).unwrap();
-        let total = |pick: fn(&(f64, f64, f64)) -> f64| uses.iter().map(pick).sum::<f64>();
-        assert!((total(|uses| uses.0) - 3.5).abs() < 1e-6, "the car 7 kW for half an hour");
-        assert!((total(|uses| uses.1) - 2.5).abs() < 1e-6, "the Powerwalls 5 kW");
-        assert!((total(|uses| uses.2) - 1.0).abs() < 1e-6, "the house the rest, 2 kW");
-        assert!(uses.iter().zip(&kwh).all(|(uses, kwh)| (uses.0 + uses.1 + uses.2 - kwh).abs() < 1e-9));
-        // Not measured if the registers were not read all through it.
-        let mut gappy = registers(DAY - 20, DAY + 1820, 7000.0, 5000.0);
-        gappy.retain(|registers| !(DAY as f64 + 600.0..DAY as f64 + 700.0).contains(&registers.time));
-        assert!(split(&kwh, &demand, &bounds, &gappy).is_none());
-        // Shared by the steady power readings, so the same each point.
-        assert!(uses.iter().all(|point| (point.0 - uses[0].0).abs() < 1e-9 && (point.1 - uses[0].1).abs() < 1e-9));
     }
 
     #[test]

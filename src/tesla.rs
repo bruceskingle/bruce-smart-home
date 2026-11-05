@@ -195,6 +195,17 @@ impl Module for TeslaModule {
         Some(Arc::new(electricity::TeslaMeasurements { cache_config: self.context.cache_config.clone() }))
     }
 
+    /// The gateway's meters.
+    fn channels(&self) -> Vec<crate::power::topology::Channel> {
+        use crate::power::measured::{BATTERY_CHANNEL, LOAD_CHANNEL, SITE_CHANNEL, SOLAR_CHANNEL};
+        [
+            (SITE_CHANNEL, "The gateway's site meter, its grid CT clamp"),
+            (BATTERY_CHANNEL, "The Powerwalls, charging and discharging"),
+            (SOLAR_CHANNEL, "The solar panels"),
+            (LOAD_CHANNEL, "The house, as the gateway works it out from its meters"),
+        ].map(|(id, description)| crate::power::topology::Channel { id: id.to_string(), description: description.to_string() }).to_vec()
+    }
+
     async fn fetch_latest_data(&self) -> anyhow::Result<()> {
         self.context.take_snapshot(None, &mut |message| println!("{message}")).await
     }

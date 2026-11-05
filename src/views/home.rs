@@ -34,6 +34,7 @@ pub fn Home(
     use_effect(move || {
         let topic = match page() {
             "electricity" => "electricity.md",
+            "site" => "site.md",
             "devices" => "devices.md",
             "climate" => "climate.md",
             _ => "home.md",
@@ -234,6 +235,7 @@ pub fn Home(
                     on_select: move |path: &'static str| page.set(path),
                     match page() {
                         "electricity" => rsx! { super::electricity::ElectricityPage {} },
+                        "site" => rsx! { super::SitePage {} },
                         "polling" => rsx! { PollingPage {} },
                         "devices" => rsx! { super::Devices {} },
                         "climate" => rsx! { super::ClimatePage {} },
@@ -246,8 +248,9 @@ pub fn Home(
 }
 
 /// The pages of Home.
-const HOME_PAGES: [PageInfo; 5] = [
+const HOME_PAGES: [PageInfo; 6] = [
     PageInfo { label: "Electricity", path: "electricity" },
+    PageInfo { label: "Site", path: "site" },
     PageInfo { label: "Modules", path: "modules" },
     PageInfo { label: "Polling", path: "polling" },
     PageInfo { label: "Devices", path: "devices" },

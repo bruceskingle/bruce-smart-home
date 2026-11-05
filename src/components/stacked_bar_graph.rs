@@ -90,6 +90,8 @@ pub struct StackedBarPoint {
     /// of the labels fit, those with the highest ranks are shown.
     pub tick_rank: u8,
     pub period_label: String,
+    /// More about the point, for a line of the tooltip under period_label, e.g. where its values are from.
+    pub detail: Option<String>,
     /// The value of each series, in the order of the graph's series, bottom first.
     pub values: Vec<f64>,
 }
@@ -520,7 +522,9 @@ pub fn StackedBarGraph(
                     rows.push((line.label.clone(), line.color.clone(), format_value(value)));
                 }
             }
-            (tooltip_x, point.period_label.clone(), rows, format_value(totals[index]))
+            // The rows start lower if there is a line of detail under the period.
+            let top = TOP + if point.detail.is_some() { 14.0 } else { 0.0 };
+            (tooltip_x, point.period_label.clone(), point.detail.clone(), top, rows, format_value(totals[index]))
         })
     });
 
@@ -694,14 +698,17 @@ pub fn StackedBarGraph(
                     rect { class: "stacked-selection", x: selection_x, y: TOP, width: selection_width, height: plot_height }
                 }
 
-                if let Some((tx, period, rows, total)) = tooltip {
+                if let Some((tx, period, detail, top, rows, total)) = tooltip {
                     g { class: "stacked-tooltip",
-                        rect { class: "stacked-tooltip-background", x: tx, y: TOP, width: TOOLTIP_WIDTH, height: 42.0 + rows.len() as f64 * 14.0, rx: 4 }
+                        rect { class: "stacked-tooltip-background", x: tx, y: TOP, width: TOOLTIP_WIDTH, height: top - TOP + 42.0 + rows.len() as f64 * 14.0, rx: 4 }
                         text { class: "stacked-tooltip-period", x: tx + TOOLTIP_TEXT_X, y: TOP + 16.0, "{period}" }
-                        text { class: "stacked-tooltip-value", x: tx + TOOLTIP_TEXT_X, y: TOP + 34.0, "Total: {total}" }
+                        if let Some(detail) = detail {
+                            text { class: "stacked-tooltip-value", x: tx + TOOLTIP_TEXT_X, y: TOP + 30.0, "{detail}" }
+                        }
+                        text { class: "stacked-tooltip-value", x: tx + TOOLTIP_TEXT_X, y: top + 34.0, "Total: {total}" }
                         for (index, (label, color, value)) in rows.iter().enumerate() {
-                            rect { class: "stacked-legend-swatch", fill: "{color}", x: tx + 8.0, y: TOP + 43.0 + index as f64 * 14.0, width: 10.0, height: 10.0 }
-                            text { class: "stacked-tooltip-value", x: tx + TOOLTIP_TEXT_X, y: TOP + 52.0 + index as f64 * 14.0, "{label}: {value}" }
+                            rect { class: "stacked-legend-swatch", fill: "{color}", x: tx + 8.0, y: top + 43.0 + index as f64 * 14.0, width: 10.0, height: 10.0 }
+                            text { class: "stacked-tooltip-value", x: tx + TOOLTIP_TEXT_X, y: top + 52.0 + index as f64 * 14.0, "{label}: {value}" }
                         }
                     }
 

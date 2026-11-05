@@ -565,6 +565,7 @@ fn readings_graph(points: &[GridPoint], start: &DateTime, end: &DateTime, period
                 ),
             };
             Some(StackedBarPoint {
+                detail: None,
                 start: point.start,
                 end: point.end,
                 tick_label,

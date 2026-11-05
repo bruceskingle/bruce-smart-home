@@ -280,6 +280,11 @@ pub trait Module {
     fn measurement_source(&self) -> Option<std::sync::Arc<dyn power::measured::MeasurementSource>> {
         None
     }
+    /// The places the module measures, which the site's topology places, see power::topology, e.g. the billing
+    /// meter, or a gateway's meters.
+    fn channels(&self) -> Vec<power::topology::Channel> {
+        Vec::new()
+    }
     /// Fetches the latest data of every page, as if each was shown with the last FETCH_DAYS days, printing its progress,
     /// for --fetch. Data which is already cached and up to date is not fetched again.
     async fn fetch_latest_data(&self) -> anyhow::Result<()>;

@@ -421,6 +421,10 @@ pub struct Settings {
     /// The capture devices this profile has adopted, see capture_device.rs, saved by update_capture_devices.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub capture_devices: Vec<crate::capture_device::DeviceProfile>,
+    /// Where in the site the modules' channels measure, set on the Site page and saved by update_topology, see
+    /// power::topology. Until it is set, the grid's import is not split by use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topology: Option<crate::power::topology::Circuit>,
 }
 
 /// Saves the settings of the profile.
@@ -430,13 +434,15 @@ pub fn update_settings(profile_name: &str, settings: &Settings) -> anyhow::Resul
     let profile = profile_file.iter_mut()
         .find(|profile| profile_names_equal(&profile.name, profile_name))
         .ok_or_else(|| anyhow!("No such profile \"{}\"", profile_name))?;
-    // Whether the help is shown is saved by update_help_settings, from any window, and the capture devices by
-    // update_capture_devices, so they are not overwritten here.
+    // Whether the help is shown is saved by update_help_settings, from any window, the capture devices by
+    // update_capture_devices, and the topology by update_topology, so they are not overwritten here.
     let help = profile.settings.help.clone();
     let capture_devices = std::mem::take(&mut profile.settings.capture_devices);
+    let topology = profile.settings.topology.take();
     profile.settings = settings.clone();
     profile.settings.help = help;
     profile.settings.capture_devices = capture_devices;
+    profile.settings.topology = topology;
     serde_json::to_writer_pretty(private_file::create_private_file(&MarcoSparkoContext::get_file_path()?)?, &profile_file)?;
     Ok(())
 }
@@ -449,6 +455,18 @@ pub fn update_capture_devices(profile_name: &str, devices: &[crate::capture_devi
         .find(|profile| profile_names_equal(&profile.name, profile_name))
         .ok_or_else(|| anyhow!("No such profile \"{}\"", profile_name))?;
     profile.settings.capture_devices = devices.to_vec();
+    serde_json::to_writer_pretty(private_file::create_private_file(&MarcoSparkoContext::get_file_path()?)?, &profile_file)?;
+    Ok(())
+}
+
+/// Saves the site's topology, see power::topology, or clears it if it is None.
+pub fn update_topology(profile_name: &str, topology: Option<&crate::power::topology::Circuit>) -> anyhow::Result<()> {
+    let file = fs::File::open(&MarcoSparkoContext::get_file_path()?)?;
+    let mut profile_file: ProfileFile = serde_json::from_reader(file)?;
+    let profile = profile_file.iter_mut()
+        .find(|profile| profile_names_equal(&profile.name, profile_name))
+        .ok_or_else(|| anyhow!("No such profile \"{}\"", profile_name))?;
+    profile.settings.topology = topology.cloned();
     serde_json::to_writer_pretty(private_file::create_private_file(&MarcoSparkoContext::get_file_path()?)?, &profile_file)?;
     Ok(())
 }

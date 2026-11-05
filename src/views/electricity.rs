@@ -20,6 +20,8 @@ use crate::components::toggle_button::ToggleButton;
 use crate::data_set::CancelToken;
 use crate::period::Period;
 use crate::power::measured::{MeasurementSource, Measurements};
+use crate::power::topology::TopologySplit;
+use crate::profile::Settings as ProfileSettings;
 use crate::power::{self, EXPORT_LABEL, Electricity, ElectricityPoint, ElectricitySource, EvComparison, LoadedElectricity, MEASURED_EV_LABEL, OCTOPUS_EV_LABEL};
 use crate::components::app::Route;
 use crate::components::error_text::ErrorText;
@@ -123,19 +125,22 @@ fn half_hour_range(start: i64, end: i64, tz: &'static Tz) -> Option<RangeSelecti
     RangeSelection::from_unix_timestamps(start, end.max(start + HALF_HOUR), tz)
 }
 
-/// What was loaded for the range shown: each source's electricity, and what measured its use, if anything did.
+/// What was loaded for the range shown: each source's electricity, and what measured its use.
 struct Loaded {
     electricity: Vec<Arc<dyn LoadedElectricity>>,
-    measurements: Option<Arc<dyn Measurements>>,
+    measurements: Vec<Arc<dyn Measurements>>,
 }
 
 /// The electricity of sources, put together, see power::electricity, the first of which, e.g. a supplier's, gives the
-/// timezone, the periods and the like, split by use by measurements if there are any, under the heading title, with a
-/// range picker, the period, a table or a graph of energy or power, a filter of the labels shown, Reload and Export.
+/// timezone, the periods and the like, split by use by measurements if there are any, placed by the site's topology,
+/// see power::topology, under the heading title, with a range picker, the period, a table or a graph of energy or
+/// power, a filter of the labels shown, Reload and Export.
 #[component]
 pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn ElectricitySource>>,
-    measurements: Option<SharedProp<dyn MeasurementSource>>) -> Element
+    measurements: Vec<SharedProp<dyn MeasurementSource>>) -> Element
 {
+    let settings = use_context::<Signal<ProfileSettings>>();
+    let topology = settings.read().topology.clone();
     let source = sources[0].clone();
     let tz = source.0.timezone();
     let periods = source.0.periods();
@@ -175,10 +180,11 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
                     electricity.push(source.0.load(start, end, reload_period, progress, token.clone()).await?);
                 }
                 // The half hours either side too, as a split may need them.
-                let measurements = match measurements {
-                    Some(measurements) => Some(measurements.0.load(start.unix_timestamp() - 1800, end.unix_timestamp() + 1800).await?),
-                    None => None,
-                };
+                let mut loaded = Vec::new();
+                for measurements in &measurements {
+                    loaded.push(measurements.0.load(start.unix_timestamp() - 1800, end.unix_timestamp() + 1800).await?);
+                }
+                let measurements = loaded;
                 if reload_period.is_some() {
                     reload.set(None);
                 }
@@ -204,7 +210,10 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
     };
     let electricity = readings.as_ref().map(|readings| {
         let loaded: Vec<&dyn LoadedElectricity> = readings.electricity.iter().map(|loaded| loaded.as_ref()).collect();
-        power::electricity(&loaded, readings.measurements.as_deref(), start.unix_timestamp(), end.unix_timestamp(), shown_period, tz)
+        let split = topology.clone().filter(|_| !readings.measurements.is_empty())
+            .map(|topology| TopologySplit { topology, measurements: readings.measurements.clone() });
+        power::electricity(&loaded, split.as_ref().map(|split| split as &dyn power::measured::Split), start.unix_timestamp(),
+            end.unix_timestamp(), shown_period, tz)
     });
     // The next shorter period to drill down to, if the source has it.
     let shorter = shown_period.shorter().filter(|shorter| periods.contains(shorter));
@@ -293,6 +302,12 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
             }
             for loaded in readings.iter().flat_map(|readings| readings.electricity.iter()) {
                 {loaded.notes(electricity)}
+            }
+            if topology.is_none() && !measurements.is_empty() {
+                p {
+                    "The import is not split into the car's, the batteries' and the house's until the site's topology is "
+                    "set, on the Site page."
+                }
             }
         },
         (Some(Ok(_)), None) => rsx! {},
@@ -603,7 +618,8 @@ fn electricity_graph(electricity: &Electricity, start: &DateTime, end: &DateTime
                 end: point.end,
                 tick_label,
                 tick_rank,
-                period_label: format!("{period_label} ({})", point_sources(point)),
+                period_label,
+                detail: Some(format!("From {}", point_sources(point))).filter(|_| !point.sources.is_empty()),
                 values: shown.iter().map(|category| category.values[index]).collect(),
             })
         })
@@ -630,21 +646,23 @@ fn electricity_graph(electricity: &Electricity, start: &DateTime, end: &DateTime
     }
 }
 
-/// What Home's Electricity page found in the profile's modules, see ElectricityPage.
-struct Found {
+/// What Home's Electricity and Site pages found in the profile's modules, see ElectricityPage.
+pub(crate) struct Found {
     /// The sources, suppliers' first, see SourceKind.
     sources: Vec<Arc<dyn ElectricitySource>>,
-    measurements: Option<Arc<dyn MeasurementSource>>,
+    measurements: Vec<Arc<dyn MeasurementSource>>,
+    /// The places they measure, see power::topology.
+    pub(crate) channels: Vec<crate::power::topology::Channel>,
     /// The modules which are not logged in yet, which may have electricity to show.
-    not_ready: Vec<String>,
+    pub(crate) not_ready: Vec<String>,
     /// The modules, kept while their sources are used.
     _modules: Vec<Box<dyn crate::Module + Send>>,
 }
 
 /// Builds each of the profile's modules, as when its own pages are shown, see views/module.rs, for their electricity
-/// and measurements.
-async fn find(context: Arc<MarcoSparkoContext>, registrations: ModuleRegistrations) -> anyhow::Result<Found> {
-    let mut found = Found { sources: Vec::new(), measurements: None, not_ready: Vec::new(), _modules: Vec::new() };
+/// measurements and channels.
+pub(crate) async fn find(context: Arc<MarcoSparkoContext>, registrations: ModuleRegistrations) -> anyhow::Result<Found> {
+    let mut found = Found { sources: Vec::new(), measurements: Vec::new(), channels: Vec::new(), not_ready: Vec::new(), _modules: Vec::new() };
     for module_id in context.profile.active_profile.modules.keys() {
         let factory = registrations.module_factory(module_id, &context).await?;
         if !factory.is_ready().await? {
@@ -653,7 +671,8 @@ async fn find(context: Arc<MarcoSparkoContext>, registrations: ModuleRegistratio
         }
         let module = factory.build().await?;
         found.sources.extend(module.electricity_source());
-        found.measurements = found.measurements.or_else(|| module.measurement_source());
+        found.measurements.extend(module.measurement_source());
+        found.channels.extend(module.channels());
         found._modules.push(module);
     }
     found.sources.sort_by_key(|source| source.kind());
@@ -688,7 +707,7 @@ pub fn ElectricityPage() -> Element {
             ElectricityExplorer {
                 title: "Electricity",
                 sources: sources.iter().cloned().map(SharedProp).collect::<Vec<_>>(),
-                measurements: measurements.clone().map(SharedProp),
+                measurements: measurements.iter().cloned().map(SharedProp).collect::<Vec<_>>(),
             }
             {not_ready(waiting)}
         },

@@ -150,6 +150,14 @@ impl Module for GlobirdModule {
         Some(Arc::new(electricity::GlobirdElectricity { context: self.context.clone(), register: None }))
     }
 
+    /// The billing meter, its import and export registers.
+    fn channels(&self) -> Vec<crate::power::topology::Channel> {
+        vec![crate::power::topology::Channel {
+            id: String::from("globird:electricity"),
+            description: String::from("The electricity meter GloBird bills from"),
+        }]
+    }
+
     fn cli_debug(&self) -> anyhow::Result<()> {
         println!("GloBird Module");
         Ok(())
@@ -185,7 +193,7 @@ impl Module for GlobirdModule {
                             key: "{register}",
                             title: "Register {register} ({direction})",
                             sources: vec![SharedProp(source)],
-                            measurements: None,
+                            measurements: Vec::new(),
                         }
                     }
                 },

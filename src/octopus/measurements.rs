@@ -241,6 +241,7 @@ impl MeasurementsDataSet {
         let points = aggregated.into_iter()
             .enumerate()
             .map(|(index, point)| StackedBarPoint {
+                detail: None,
                 start: point.start,
                 end: point.end,
                 tick_label: point.tick_label,

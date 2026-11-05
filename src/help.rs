@@ -39,6 +39,7 @@ static PAGES: &[HelpPage] = help_pages![
     "index.md",
     "home.md",
     "electricity.md",
+    "site.md",
     "profile-size.md",
     "settings.md",
     "devices.md",

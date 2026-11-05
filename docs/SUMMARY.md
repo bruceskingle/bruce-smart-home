@@ -19,6 +19,7 @@
 - [Help](help/index.md)
     - [Home](help/home.md)
         - [Electricity](help/electricity.md)
+        - [Site](help/site.md)
     - [Profile](help/profile-size.md)
     - [Settings](help/settings.md)
     - [Capture Devices](help/devices.md)

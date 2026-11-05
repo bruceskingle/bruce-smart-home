@@ -9,6 +9,7 @@
 pub mod combine;
 pub mod grid;
 pub mod measured;
+pub mod topology;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -20,7 +21,7 @@ use time_tz::Tz;
 
 use crate::components::error_text::ErrorText;
 use crate::data_set::CancelToken;
-use measured::Measurements;
+use measured::Split;
 use crate::period::Period;
 
 pub const EXPORT_LABEL: &str = "Export";
@@ -31,8 +32,8 @@ pub const MEASURED_EV_LABEL: &str = "Measured EV, half hourly";
 
 /// The electricity from start to end, as unix timestamps, in periods of period, put together from what the modules
 /// gave, see combine::combine: the meters' readings of the first which has any, e.g. a supplier's, the grid readings of
-/// the first which has any, and the import split by use by measurements, if there are any.
-pub fn electricity(loaded: &[&dyn LoadedElectricity], measurements: Option<&dyn Measurements>, start: i64, end: i64,
+/// the first which has any, and the import split by use by split, if there is one, see topology::TopologySplit.
+pub fn electricity(loaded: &[&dyn LoadedElectricity], measurements: Option<&dyn Split>, start: i64, end: i64,
     period: Period, tz: &'static Tz) -> Electricity
 {
     let empty = SiteData::default();

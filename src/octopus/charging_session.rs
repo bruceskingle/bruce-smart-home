@@ -366,6 +366,7 @@ pub fn graph_points(sessions: &[&ChargingSession], start: &DateTime, end: &DateT
                 let mut values = vec![0.0; sessions.len()];
                 values[index] = session.energy_kwh();
                 StackedBarPoint {
+                    detail: None,
                     start: session_start.unix_timestamp(),
                     end: session_end.unix_timestamp(),
                     tick_label,
@@ -418,6 +419,7 @@ pub fn graph_points(sessions: &[&ChargingSession], start: &DateTime, end: &DateT
             ),
         };
         points.push(StackedBarPoint {
+            detail: None,
             start: from,
             end: to,
             tick_label: Some(tick_label),

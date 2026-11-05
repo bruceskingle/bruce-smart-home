@@ -16,7 +16,7 @@ Show it as a **Table** or **Graph**, see [using the graphs](graphs.md). In the g
 
 ## Measured or Octopus's split
 
-Where the Tesla gateway was read all through a half hour, what the import was used for is **measured**: the car's is the Home Mini's import less the gateway's, as the zappi is outside the gateway's meter, the Powerwalls' is what they took in less what the solar panels made, and the rest is the house's. Over a night's charging the car's measured import was within 0.2% of the zappi's own total. The Source column says **Tesla** for these.
+Where the Tesla gateway was read all through a half hour, and the [Site](site.md) page says where it measures, what the import was used for is **measured**. E.g. where the zappi is outside the gateway's meter, the car's is the Home Mini's import less the gateway's, the Powerwalls' is what they took in less what the solar panels made, and the rest is the house's. Until the Site page is set, the import is split by rate only. Over a night's charging the car's measured import was within 0.2% of the zappi's own total. The Source column says **Tesla** for these.
 
 Elsewhere, e.g. before a capture device was reading the gateway, the car's share is what Octopus says, from the meter's EV labels, drawn as a block at the charger's power within each half hour, which is an estimate.
 

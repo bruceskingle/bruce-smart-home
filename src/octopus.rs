@@ -257,6 +257,14 @@ impl Module for OctopusModule {
         Some(Arc::new(pages::OctopusElectricity { context: self.context.clone() }))
     }
 
+    /// The billing meter, whose half hours and Home Mini readings are one place, see power::topology.
+    fn channels(&self) -> Vec<crate::power::topology::Channel> {
+        vec![crate::power::topology::Channel {
+            id: String::from("octopus:electricity"),
+            description: String::from("The electricity meter Octopus bills from, and its Home Mini's readings"),
+        }]
+    }
+
     fn cli_debug(&self) -> Result<(), anyhow::Error> {
         println!("Args: {:?}", self.octopus_args);
         println!("Octopus Module: account_id={}", self.context.account_id);

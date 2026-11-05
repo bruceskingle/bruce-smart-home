@@ -18,10 +18,10 @@
 //! tariff's cheap times are not known the import is UNMETERED_LABEL.
 //!
 //! Where the site's devices measured a half hour too, e.g. a capture device reading a Tesla gateway's registers every few
-//! seconds, the half hour's import is split by what it was used for instead, see power::measured, which combine is
-//! given without knowing where it is from: the car's is
-//! the Home Mini's import less the gateway's, as the zappi is outside the gateway's meter, the Powerwalls' what they took
-//! in less what the solar panels made, and the rest the house's, each in the rates of the meter's labels. That is
+//! seconds, the half hour's import is split by what it was used for instead, by the site's topology, see
+//! power::topology, which combine is given without knowing how: e.g. where the zappi is outside the gateway's meter the
+//! car's is the Home Mini's import less the gateway's, the Powerwalls' what they took in less what the solar panels
+//! made, and the rest the house's, each in the rates of the meter's labels. That is
 //! measured, unlike the meter's EV labels, which Octopus models, e.g. as the same energy every half hour of a charge,
 //! which is kept for each point to compare, see ElectricityPoint::ev_comparison. Over a night of charging the car's was
 //! within 0.2% of the zappi's own total.
@@ -36,7 +36,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use time_tz::{OffsetDateTimeExt, Tz};
 
 use super::{Electricity, ElectricityPoint, EvComparison, is_ev};
-use super::measured::Measurements;
+use super::measured::Split;
 
 use crate::components::category_filter::order_labels;
 use super::grid::{self, GridPoint, GridReading, READING_SECONDS};
@@ -385,7 +385,7 @@ fn charging_half_hours(readings: &[GridReading], watts: f64) -> std::collections
 /// The electricity from start to end, as unix timestamps, in periods of period, from the import and export meters'
 /// half hours, the Home Mini's readings and the Tesla gateway's registers, see the module comment. Periods shorter than a half hour are only made from
 /// the Home Mini's readings, half hours which only the meters have are shown as a half hour.
-pub fn combine(import: &[MeterReading], export: &[MeterReading], readings: &[GridReading], grid_name: &str, measurements: Option<&dyn Measurements>,
+pub fn combine(import: &[MeterReading], export: &[MeterReading], readings: &[GridReading], grid_name: &str, measurements: Option<&dyn Split>,
     start: i64, end: i64, period: Period, estimate: &Estimate, tz: &'static Tz) -> Electricity
 {
     let import_meter: BTreeMap<i64, &MeterReading> = import.iter().map(|half_hour| (half_hour.start, half_hour)).collect();
@@ -577,16 +577,24 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::power::EXPORT_LABEL;
+    use std::sync::Arc;
+
     use crate::power::measured::RegisterMeasurements;
+    use crate::power::topology::TopologySplit;
     use super::{CheapTimes, Estimate, LOW_ESTIMATED_LABEL, MeterReading, Placement, STANDARD_ESTIMATED_LABEL,
         UNMETERED_LABEL, combine, complete_half_hours, shaped_by_power, split_half_hour};
     use crate::power::grid::GridPoint;
     use crate::power::grid::GridReading;
     use crate::period::Period;
 
-    /// The gateway's registers, see power::measured::tests::registers, as the Tesla module gives them.
-    fn tesla(start: i64, end: i64, site_watts: f64, battery_watts: f64) -> RegisterMeasurements {
-        RegisterMeasurements { name: String::from("Tesla"), registers: crate::power::measured::tests::registers(start, end, site_watts, battery_watts) }
+    /// The gateway's registers, see power::measured::tests::registers, as the Tesla module gives them, placed by the
+    /// first household's topology, with the car's charger beside the gateway.
+    fn tesla(start: i64, end: i64, site_watts: f64, battery_watts: f64) -> TopologySplit {
+        let registers = crate::power::measured::tests::registers(start, end, site_watts, battery_watts);
+        TopologySplit {
+            topology: crate::power::topology::tests::beside_the_gateway(),
+            measurements: vec![Arc::new(RegisterMeasurements { name: String::from("Tesla"), registers })],
+        }
     }
 
     const LONDON: &time_tz::Tz = time_tz::timezones::db::europe::LONDON;

@@ -30,6 +30,9 @@ pub use settings::Settings;
 mod devices;
 
 pub mod electricity;
+
+mod site;
+pub use site::SitePage;
 pub use devices::Devices;
 
 mod climate;

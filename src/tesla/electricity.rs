@@ -112,11 +112,15 @@ mod tests {
 
     #[test]
     fn the_site_meters_import_is_split_into_the_houses_and_the_powerwalls() {
-        // The site importing 7 kW, of which the Powerwalls 5 kW, for an hour, the solar panels making nothing.
+        // The site importing 7 kW, of which the Powerwalls 5 kW, for an hour, the solar panels making nothing, with the
+        // gateway at the grid connection, as there is nothing else to measure the grid.
         let start = 1_793_232_000;
         let registers = crate::power::measured::tests::registers(start - 20, start + 3620, 7000.0, 5000.0);
-        let measurements = RegisterMeasurements { name: String::from(NAME), registers: registers.clone() };
-        let shown = combine(&[], &[], &grid(&registers), NAME, Some(&measurements), start, start + 3600, Period::HalfHour,
+        let measurements: Vec<Arc<dyn Measurements>> = vec![Arc::new(RegisterMeasurements { name: String::from(NAME), registers: registers.clone() })];
+        let mut topology = crate::power::topology::tests::beside_the_gateway();
+        topology.children.remove(0);
+        let split = crate::power::topology::TopologySplit { topology, measurements };
+        let shown = combine(&[], &[], &grid(&registers), NAME, Some(&split), start, start + 3600, Period::HalfHour,
             &Estimate::default(), time_tz::timezones::db::UTC);
         assert_eq!(shown.labels, ["Home", "Battery"]);
         assert_eq!(shown.points.len(), 2);

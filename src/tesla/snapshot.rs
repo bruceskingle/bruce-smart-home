@@ -361,6 +361,7 @@ pub fn registers(cache_config: &CacheConfig, start: i64, end: i64) -> Vec<SiteRe
                     site_imported: site.energy_imported,
                     site_exported: site.energy_exported,
                     battery_imported: battery.energy_imported,
+                    battery_exported: battery.energy_exported,
                     solar_exported: solar.energy_exported,
                     load_imported: load.energy_imported,
                     site_power: site.instant_power,
