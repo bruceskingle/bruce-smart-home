@@ -8,6 +8,7 @@
 
 pub mod combine;
 pub mod grid;
+pub mod check;
 pub mod measured;
 pub mod topology;
 

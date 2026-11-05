@@ -71,7 +71,8 @@ pub const LABELS: [(&str, &str); 16] = [
     (BATTERY, "#9b51e0"),
 ];
 
-/// What the import was used for, the start of each label of the measured split, see power::measured, e.g. EV Low Rate.
+/// The start of the labels of the house's, the car's and the batteries' import, e.g. EV Low Rate, see
+/// topology::label_prefix.
 const HOUSE: &str = "Home";
 const EV: &str = "EV";
 const BATTERY: &str = "Battery";
@@ -356,14 +357,15 @@ fn rates(units: &BTreeMap<String, f64>) -> Option<Vec<(String, f64)>> {
     Some(rates.into_iter().collect())
 }
 
-/// The labels of a point measured to have been used for (the car, the Powerwalls, the house), see power::measured, in
-/// the rates, with the share at each, and with suffix, e.g. (estimated), each kind as KIND RATE SUFFIX, or KIND SUFFIX
-/// for a rate which is not known, "".
-fn measured_labels((ev, battery, house): (f64, f64, f64), rates: &[(String, f64)], suffix: &str) -> BTreeMap<String, f64> {
+/// The labels of a point measured to have been used for each category, e.g. the car and the batteries, see
+/// power::topology, in the rates, with the share at each, and with suffix, e.g. (estimated), each as PREFIX RATE SUFFIX,
+/// e.g. EV Low Rate, see topology::label_prefix, or PREFIX SUFFIX for a rate which is not known, "".
+fn measured_labels(uses: &BTreeMap<String, f64>, rates: &[(String, f64)], suffix: &str) -> BTreeMap<String, f64> {
     let mut labels = BTreeMap::new();
     for (rate, share) in rates {
-        for (kind, kwh) in [(EV, ev), (BATTERY, battery), (HOUSE, house)] {
-            if kwh > 0.0 {
+        for (category, kwh) in uses {
+            if *kwh > 0.0 {
+                let kind = super::topology::label_prefix(category);
                 let label = if rate.is_empty() { format!("{kind}{suffix}") } else { format!("{kind} {rate}{suffix}") };
                 *labels.entry(label).or_default() += kwh * share;
             }
@@ -437,11 +439,11 @@ pub fn combine(import: &[MeterReading], export: &[MeterReading], readings: &[Gri
         let reading = import_meter.get(&half_hour).filter(|reading| reading.total() > 0.0);
         let demand: Vec<Option<f64>> = half_hour_points.iter().map(|point| point.demand).collect();
         let measured = measurements.and_then(|measurements| measurements.split(&kwh, &demand, &bounds));
-        let measured_ev: f64 = measured.iter().flatten().map(|(ev, _, _)| ev).sum();
+        let measured_ev: f64 = measured.iter().flatten().filter_map(|uses| uses.get(super::topology::CAR)).sum();
         let reading_rates = reading.and_then(|reading| rates(&reading.units));
         let (labels, octopus_ev): (Vec<BTreeMap<String, f64>>, Option<f64>) = match (reading, &measured, reading_rates) {
             (Some(reading), Some(measured), Some(rates)) => (
-                measured.iter().map(|uses| measured_labels(*uses, &rates, "")).collect(),
+                measured.iter().map(|uses| measured_labels(uses, &rates, "")).collect(),
                 Some(reading.units.iter().filter(|(label, _)| is_ev(label)).map(|(_, units)| units).sum()),
             ),
             (Some(reading), _, _) => (split_half_hour(&kwh, &seconds, &reading.units, estimate.charger_watts, placement), None),
@@ -450,10 +452,10 @@ pub fn combine(import: &[MeterReading], export: &[MeterReading], readings: &[Gri
                 let labels = match (low, measured) {
                     (Some(low), Some(measured)) => {
                         let rate = [(String::from(if low { "Low Rate" } else { "Standard Rate" }), 1.0)];
-                        measured.iter().map(|uses| measured_labels(*uses, &rate, " (estimated)")).collect()
+                        measured.iter().map(|uses| measured_labels(uses, &rate, " (estimated)")).collect()
                     },
                     // Neither billed nor estimated, e.g. a site with no supplier's readings, so only by use.
-                    (None, Some(measured)) => measured.iter().map(|uses| measured_labels(*uses, &[(String::new(), 1.0)], "")).collect(),
+                    (None, Some(measured)) => measured.iter().map(|uses| measured_labels(uses, &[(String::new(), 1.0)], "")).collect(),
                     _ => {
                         let label = match low {
                             Some(true) => LOW_ESTIMATED_LABEL,

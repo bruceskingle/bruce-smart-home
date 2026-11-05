@@ -1,48 +1,134 @@
 //! A site's topology: where in the house each module's channels measure, as a tree of circuits from the grid
-//! connection down, a setting of the profile, as it differs from house to house, see docs/PowerSchema.md. E.g. in one
-//! house the car's charger is outside the Tesla gateway, so the car's import is the grid's less the gateway's site
-//! meter's; in another the gateway's grid clamp is at the grid connection, as installers fit it, and the car is behind
-//! it. The modules only say what their channels are, see Channel, and the topology, which the user sets on the Site
-//! page, splits the grid's import by use from them, see TopologySplit.
+//! connection through the circuits each feeds, a setting of the profile, as it differs from house to house, see
+//! docs/PowerSchema.md. E.g. in one house the car's charger is outside the Tesla gateway, so the car's import is the
+//! grid's less the gateway's site meter's; in another the gateway's grid clamp is at the grid connection, as installers
+//! fit it, and the car is behind it. The modules only say what their channels are, see Channel, and the topology, which
+//! the user sets on the Site page, splits the grid's import by what it was used for, the categories of its loads, e.g.
+//! the car or the house, see TopologySplit.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
 use super::measured::{HALF_HOUR, Measurements, Split, share, smoothed};
 
-/// What a circuit is for, which decides what its share of the grid's import is labelled, e.g. EV Low Rate.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// The categories every profile has, see Use::Load, which the user can add to, see profile::Settings::categories: the
+/// car's charger, the house's own loads, and loads which are not known, e.g. the rest of what a board feeds which its
+/// measured circuits do not take.
+pub const CAR: &str = "Car";
+pub const HOUSE: &str = "House";
+pub const UNKNOWN: &str = "Unknown";
+pub const BUILT_IN_CATEGORIES: [&str; 3] = [CAR, HOUSE, UNKNOWN];
+/// The category of the batteries' share of the import, which is not a load's, see Use::Battery.
+pub const BATTERY: &str = "Battery";
+
+/// What a circuit is: one of the kinds which energy goes through differently, or a load, which takes it, of a
+/// category, which labels its share of the import, e.g. Car for EV Low Rate. Saved as the kind's name, e.g. "board",
+/// or the category's, e.g. "Car" or "Hot water"; "car" and "house" are the Car and House categories, as they were
+/// kinds once.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
 pub enum Use {
     /// The grid connection, the top of the tree.
     Grid,
     /// A board, or a gateway, which other circuits are fed from.
     Board,
-    /// A car's charger.
-    Car,
-    /// A home battery, e.g. Powerwalls.
+    /// A home battery, e.g. Powerwalls, which takes energy and gives it back.
     Battery,
     /// Solar panels, which make energy rather than take it.
     Solar,
-    /// The house's own loads.
-    #[default]
-    House,
+    /// A load of the category, e.g. Car, House or Hot water.
+    Load(String),
+}
+
+impl Default for Use {
+    fn default() -> Self {
+        Use::house()
+    }
+}
+
+/// The kinds, which a category can not be named, see is_valid_category.
+const KINDS: [(&str, Use); 4] = [("grid", Use::Grid), ("board", Use::Board), ("battery", Use::Battery), ("solar", Use::Solar)];
+
+impl From<String> for Use {
+    fn from(name: String) -> Use {
+        let lower = name.to_lowercase();
+        if let Some((_, kind)) = KINDS.iter().find(|(kind, _)| *kind == lower) {
+            return kind.clone();
+        }
+        match lower.as_str() {
+            "car" => Use::car(),
+            "house" => Use::house(),
+            _ => Use::Load(name),
+        }
+    }
+}
+
+impl From<Use> for String {
+    fn from(use_: Use) -> String {
+        match use_ {
+            Use::Load(category) => category,
+            kind => KINDS.iter().find(|(_, known)| *known == kind).map(|(name, _)| name.to_string()).unwrap_or_default(),
+        }
+    }
 }
 
 impl Use {
-    pub const ALL: [Use; 6] = [Use::Grid, Use::Board, Use::Car, Use::Battery, Use::Solar, Use::House];
+    pub fn car() -> Use {
+        Use::Load(String::from(CAR))
+    }
 
-    pub fn label(self) -> &'static str {
+    pub fn house() -> Use {
+        Use::Load(String::from(HOUSE))
+    }
+
+    pub fn unknown() -> Use {
+        Use::Load(String::from(UNKNOWN))
+    }
+
+    /// What it is called on the Site page, e.g. Board or gateway, or the category.
+    pub fn label(&self) -> &str {
         match self {
             Use::Grid => "Grid",
             Use::Board => "Board or gateway",
-            Use::Car => "Car",
             Use::Battery => "Battery",
             Use::Solar => "Solar",
-            Use::House => "House",
+            Use::Load(category) => category,
         }
+    }
+
+    /// The category of its share of the import, None if it takes none, e.g. solar panels, or a board, whose share is
+    /// its circuits'.
+    pub fn category(&self) -> Option<&str> {
+        match self {
+            Use::Battery => Some(BATTERY),
+            Use::Load(category) => Some(category),
+            _ => None,
+        }
+    }
+
+    /// The kinds, and a load of each category, for choosing one.
+    pub fn all(categories: &[String]) -> Vec<Use> {
+        [Use::Grid, Use::Board, Use::Battery, Use::Solar].into_iter()
+            .chain(categories.iter().map(|category| Use::Load(category.clone())))
+            .collect()
+    }
+}
+
+/// Whether a new category can be called name: not empty, and not a kind's name, which it would be read back as.
+pub fn is_valid_category(name: &str) -> bool {
+    let name = name.trim();
+    !name.is_empty() && !KINDS.iter().any(|(kind, _)| kind.eq_ignore_ascii_case(name))
+}
+
+/// The start of the labels of a category's share of the import, e.g. EV for EV Low Rate, which are the car's and the
+/// house's as Octopus's labels have them.
+pub fn label_prefix(category: &str) -> &str {
+    match category {
+        CAR => "EV",
+        HOUSE => "Home",
+        other => other,
     }
 }
 
@@ -81,16 +167,16 @@ impl Circuit {
     /// the channels which measure the house, as the rest is what the others do not take. Where the car's charger
     /// really is, only the user knows, see docs/PowerSchema.md.
     pub fn suggested(channels: &[Channel]) -> Circuit {
-        let ids = |use_: Use| -> Vec<&str> { channels.iter().filter(|channel| channel.use_ == use_).map(|channel| channel.id.as_str()).collect() };
-        let mut fed: Vec<Circuit> = [(Use::Battery, "Battery"), (Use::Solar, "Solar"), (Use::Car, "Car")].into_iter()
-            .flat_map(|(use_, name)| ids(use_).into_iter().map(move |id| Circuit::new(name, use_, &[id], vec![])))
+        let ids = |use_: &Use| -> Vec<&str> { channels.iter().filter(|channel| channel.use_ == *use_).map(|channel| channel.id.as_str()).collect() };
+        let mut fed: Vec<Circuit> = [(Use::Battery, "Battery"), (Use::Solar, "Solar"), (Use::car(), "Car")].into_iter()
+            .flat_map(|(use_, name)| ids(&use_).into_iter().map(move |id| Circuit::new(name, use_.clone(), &[id], vec![])).collect::<Vec<_>>())
             .collect();
-        fed.push(Circuit::new("House", Use::House, &[], vec![]));
-        let children = match ids(Use::Board).first() {
+        fed.push(Circuit::new("House", Use::house(), &[], vec![]));
+        let children = match ids(&Use::Board).first() {
             Some(board) => vec![Circuit::new("Gateway", Use::Board, &[board], fed)],
             None => fed,
         };
-        Circuit::new("Grid", Use::Grid, &ids(Use::Grid), children)
+        Circuit::new("Grid", Use::Grid, &ids(&Use::Grid), children)
     }
 
     /// What is wrong with it, as the Site page says, nothing if it can split the import: the top is the grid, each
@@ -115,6 +201,26 @@ impl Circuit {
         ids
     }
 
+    /// The categories of its loads and those of every circuit it feeds.
+    pub fn categories(&self) -> BTreeSet<String> {
+        let mut categories: BTreeSet<String> = self.use_.category().map(String::from).into_iter().collect();
+        for child in &self.children {
+            categories.extend(child.categories());
+        }
+        categories
+    }
+
+    /// The category of the first load without a channel, the rest of what feeds it, in the order of the tree.
+    fn first_rest(&self) -> Option<&str> {
+        self.children.iter().find_map(|child| {
+            if child.channels.is_empty() && child.children.is_empty() && matches!(child.use_, Use::Load(_)) {
+                child.use_.category()
+            } else {
+                child.first_rest()
+            }
+        })
+    }
+
     fn check(&self, top: bool, seen: &mut BTreeSet<String>, problems: &mut Vec<String>) {
         if !top && self.use_ == Use::Grid {
             problems.push(format!("{} is the grid, which can only be the top circuit.", self.name));
@@ -135,35 +241,27 @@ impl Circuit {
     }
 }
 
-/// Less of the car's or a battery's import than this in a half hour, in kWh, is the house's, as it is only the grid
-/// meter and the site's devices being read at slightly different moments, e.g. a few Wh in a half hour without either.
+/// Less of a category's import than this in a half hour, in kWh, e.g. the car's, is the rest's, see
+/// TopologySplit::rest, as it is only the grid meter and the site's devices being read at slightly different moments,
+/// e.g. a few Wh in a half hour without either.
 const MEASUREMENT_NOISE: f64 = 0.02;
 
-/// The grid's import split by use, from measurements placed by a topology: each circuit's share of its parent's is
-/// what its channel measured, a battery's less what solar panels on the same board made, as they charge it first, and
-/// one without a channel has the rest, e.g. the car outside the gateway has the grid's less the gateway's. The share
-/// of the car's and the batteries' circuits are the car's and the batteries', and the rest the house's.
+/// The grid's import split by category, from measurements placed by a topology: each circuit's share of its parent's
+/// is what its channel measured, a battery's less what solar panels on the same board made, as they charge it first,
+/// and one without a channel has the rest, e.g. the car outside the gateway has the grid's less the gateway's. Each
+/// load's share is its category's, and the batteries' are Battery's.
 pub struct TopologySplit {
     pub topology: Circuit,
     pub measurements: Vec<Arc<dyn Measurements>>,
 }
 
-/// The car's and the batteries' shares of a half hour, in kWh, and their power each point, in W, see TopologySplit.
+/// Each category's share of a half hour, in kWh, and its power each point, in W, see TopologySplit.
 #[derive(Default)]
-struct Shares {
-    car: f64,
-    car_power: Vec<f64>,
-    battery: f64,
-    battery_power: Vec<f64>,
-}
+struct Shares(BTreeMap<String, (f64, Vec<f64>)>);
 
 impl Shares {
-    fn add(&mut self, use_: Use, kwh: f64, power: &[f64]) {
-        let (total, sum) = match use_ {
-            Use::Car => (&mut self.car, &mut self.car_power),
-            Use::Battery => (&mut self.battery, &mut self.battery_power),
-            _ => return,
-        };
+    fn add(&mut self, category: &str, kwh: f64, power: &[f64]) {
+        let (total, sum) = self.0.entry(category.to_string()).or_insert_with(|| (0.0, vec![0.0; power.len()]));
         *total += kwh;
         for (sum, power) in sum.iter_mut().zip(power) {
             *sum += power.max(0.0);
@@ -178,6 +276,16 @@ struct Measured {
 }
 
 impl TopologySplit {
+    /// The category which has what is left of each point's import, after the others' shares are placed by their
+    /// power: the house's, as it is what is left once the car and the batteries are known, otherwise the first load
+    /// which is the rest of what feeds it, otherwise the house's still, though it has none.
+    fn rest(&self) -> String {
+        if self.topology.categories().contains(HOUSE) {
+            return String::from(HOUSE);
+        }
+        self.topology.first_rest().unwrap_or(HOUSE).to_string()
+    }
+
     /// What the first of a circuit's channels which is measured measured from half_hour, and its power through each
     /// of bounds, None if none of them is.
     fn measured(&self, circuit: &Circuit, half_hour: i64, bounds: &[(i64, i64)]) -> Option<Measured> {
@@ -193,11 +301,19 @@ impl TopologySplit {
     }
 
     /// Shares circuit's share of the import, kwh, with power its power through each point, between its children, and
-    /// adds the car's and the batteries' to shares, None if it can not be split, as two children are not measured.
-    fn allot(&self, circuit: &Circuit, kwh: f64, power: &[f64], half_hour: i64, bounds: &[(i64, i64)], shares: &mut Shares) -> Option<()> {
+    /// adds each load's and battery's to shares, each less than MEASUREMENT_NOISE as none unless it is rest's, None if
+    /// it can not be split, as two children are not measured.
+    fn allot(&self, circuit: &Circuit, kwh: f64, power: &[f64], half_hour: i64, bounds: &[(i64, i64)], rest_category: &str,
+        shares: &mut Shares) -> Option<()>
+    {
+        let noise = |circuit: &Circuit, kwh: f64| {
+            let quiet = circuit.children.is_empty() && circuit.use_.category().is_some_and(|category| category != rest_category);
+            if quiet && kwh < MEASUREMENT_NOISE { 0.0 } else { kwh }
+        };
         if circuit.children.is_empty() {
-            let kwh = if matches!(circuit.use_, Use::Car | Use::Battery) && kwh < MEASUREMENT_NOISE { 0.0 } else { kwh };
-            shares.add(circuit.use_, kwh, power);
+            if let Some(category) = circuit.use_.category() {
+                shares.add(category, noise(circuit, kwh), power);
+            }
             return Some(());
         }
         let measured: Vec<Option<Measured>> = circuit.children.iter().map(|child| self.measured(child, half_hour, bounds)).collect();
@@ -205,7 +321,7 @@ impl TopologySplit {
         let mut solar = 0.0;
         let mut solar_power = vec![0.0; bounds.len()];
         for (child, measured) in circuit.children.iter().zip(&measured) {
-            if let (Use::Solar, Some(measured)) = (child.use_, measured) {
+            if let (Use::Solar, Some(measured)) = (&child.use_, measured) {
                 solar += measured.flow.export - measured.flow.import;
                 for (sum, power) in solar_power.iter_mut().zip(&measured.power) {
                     *sum -= power;
@@ -216,7 +332,7 @@ impl TopologySplit {
         let mut demands: Vec<(usize, f64, Vec<f64>)> = Vec::new();
         let mut unmeasured = None;
         for (index, (child, measured)) in circuit.children.iter().zip(&measured).enumerate() {
-            match (child.use_, measured) {
+            match (&child.use_, measured) {
                 (Use::Solar, _) => {},
                 (Use::Battery, Some(measured)) => {
                     let demand = (measured.flow.import - solar).max(0.0);
@@ -234,14 +350,13 @@ impl TopologySplit {
         let rest = match unmeasured {
             Some(index) => {
                 let child = &circuit.children[index];
-                let rest = (kwh - measured_total).clamp(0.0, kwh);
-                let rest = if child.children.is_empty() && matches!(child.use_, Use::Car | Use::Battery) && rest < MEASUREMENT_NOISE { 0.0 } else { rest };
+                let rest = noise(child, (kwh - measured_total).clamp(0.0, kwh));
                 let others: Vec<f64> = (0..bounds.len())
                     .map(|point| power[point] - circuit.children.iter().zip(&measured)
                         .filter_map(|(_, measured)| measured.as_ref().map(|measured| measured.power[point]))
                         .sum::<f64>())
                     .collect();
-                self.allot(child, rest, &others, half_hour, bounds, shares)?;
+                self.allot(child, rest, &others, half_hour, bounds, rest_category, shares)?;
                 rest
             },
             None => 0.0,
@@ -249,7 +364,7 @@ impl TopologySplit {
         let left = kwh - rest;
         for (index, demand, power) in &demands {
             let share = if measured_total > 0.0 { left * demand / measured_total } else { left / demands.len() as f64 };
-            self.allot(&circuit.children[*index], share, power, half_hour, bounds, shares)?;
+            self.allot(&circuit.children[*index], share, power, half_hour, bounds, rest_category, shares)?;
         }
         Some(())
     }
@@ -260,10 +375,12 @@ impl Split for TopologySplit {
         self.measurements.iter().map(|measurements| measurements.name()).collect::<Vec<_>>().join(", ")
     }
 
-    /// Each use's share of the half hour, exact from the channels' energy over it, shared between its points by their
-    /// power, smoothed, rather than by their energy, which jumps about by several hundred W over 10 seconds, as the
-    /// grid meter and the site's devices are read at different moments.
-    fn split(&self, kwh: &[f64], demand: &[Option<f64>], bounds: &[(i64, i64)]) -> Option<Vec<(f64, f64, f64)>> {
+    /// Each category's share of the half hour, exact from the channels' energy over it, shared between its points by
+    /// their power, smoothed, rather than by their energy, which jumps about by several hundred W over 10 seconds, as
+    /// the grid meter and the site's devices are read at different moments. The car's is placed first, then the
+    /// batteries', then the others' by name, each in what is left of each point, and the rest's, see rest, has what is
+    /// left after them.
+    fn split(&self, kwh: &[f64], demand: &[Option<f64>], bounds: &[(i64, i64)]) -> Option<Vec<BTreeMap<String, f64>>> {
         let half_hour = bounds.first()?.0 - bounds.first()?.0.rem_euclid(HALF_HOUR);
         // Only the measurements of the topology's channels, as e.g. a zappi's gaps do not matter if it is not placed.
         let used = self.topology.channel_ids();
@@ -277,15 +394,32 @@ impl Split for TopologySplit {
         let grid_power: Vec<f64> = kwh.iter().zip(demand).zip(&seconds)
             .map(|((kwh, demand), seconds)| demand.unwrap_or(kwh * 3_600_000.0 / seconds.max(1.0)))
             .collect();
-        let mut shares = Shares { car_power: vec![0.0; kwh.len()], battery_power: vec![0.0; kwh.len()], ..Shares::default() };
+        let rest_category = self.rest();
+        let mut shares = Shares::default();
         let total: f64 = kwh.iter().sum();
-        self.allot(&self.topology, total, &grid_power, half_hour, bounds, &mut shares)?;
+        self.allot(&self.topology, total, &grid_power, half_hour, bounds, &rest_category, &mut shares)?;
 
         let weights = |power: &[f64]| -> Vec<f64> { smoothed(power).iter().zip(&seconds).map(|(power, seconds)| power * seconds).collect() };
-        let car = share(shares.car.min(total), &weights(&shares.car_power), kwh);
-        let room: Vec<f64> = kwh.iter().zip(&car).map(|(kwh, car)| (kwh - car).max(0.0)).collect();
-        let battery = share(shares.battery.min(total - shares.car.min(total)), &weights(&shares.battery_power), &room);
-        Some(kwh.iter().zip(car).zip(battery).map(|((kwh, car), battery)| (car, battery, (kwh - car - battery).max(0.0))).collect())
+        let mut order: Vec<&String> = shares.0.keys().filter(|category| **category != rest_category).collect();
+        order.sort_by_key(|category| (category.as_str() != CAR, category.as_str() != BATTERY, category.as_str()));
+        let mut points: Vec<BTreeMap<String, f64>> = vec![BTreeMap::new(); kwh.len()];
+        let mut room: Vec<f64> = kwh.to_vec();
+        let mut placed_total = 0.0;
+        for category in order {
+            let (category_total, power) = &shares.0[category];
+            let category_total = category_total.min(total - placed_total);
+            placed_total += category_total;
+            for ((point, kwh), room) in points.iter_mut().zip(share(category_total, &weights(power), &room)).zip(room.iter_mut()) {
+                if kwh > 0.0 {
+                    point.insert(category.clone(), kwh);
+                }
+                *room = (*room - kwh).max(0.0);
+            }
+        }
+        for (point, room) in points.iter_mut().zip(room) {
+            point.insert(rest_category.clone(), room);
+        }
+        Some(points)
     }
 }
 
@@ -300,11 +434,11 @@ pub(crate) mod tests {
     /// The first household's topology: the car's charger beside the Tesla gateway, outside its site meter.
     pub(crate) fn beside_the_gateway() -> Circuit {
         Circuit::new("Grid", Use::Grid, &["octopus:electricity"], vec![
-            Circuit::new("Car", Use::Car, &[], vec![]),
+            Circuit::new("Car", Use::car(), &[], vec![]),
             Circuit::new("Gateway", Use::Board, &[SITE_CHANNEL], vec![
                 Circuit::new("Battery", Use::Battery, &[BATTERY_CHANNEL], vec![]),
                 Circuit::new("Solar", Use::Solar, &[SOLAR_CHANNEL], vec![]),
-                Circuit::new("House", Use::House, &[], vec![]),
+                Circuit::new("House", Use::house(), &[], vec![]),
             ]),
         ])
     }
@@ -319,8 +453,16 @@ pub(crate) mod tests {
         (bounds, vec![14000.0 * 10.0 / 3_600_000.0; 180], vec![Some(14000.0); 180])
     }
 
-    fn totals(uses: &[(f64, f64, f64)]) -> (f64, f64, f64) {
-        uses.iter().fold((0.0, 0.0, 0.0), |sum, uses| (sum.0 + uses.0, sum.1 + uses.1, sum.2 + uses.2))
+    /// The car's, the batteries' and the house's totals of a split.
+    fn totals(uses: &[BTreeMap<String, f64>]) -> (f64, f64, f64) {
+        let total = |category: &str| uses.iter().filter_map(|uses| uses.get(category)).sum::<f64>();
+        (total(CAR), total(BATTERY), total(HOUSE))
+    }
+
+    /// Each point's (car, batteries, house).
+    fn points(uses: &[BTreeMap<String, f64>]) -> Vec<(f64, f64, f64)> {
+        let get = |uses: &BTreeMap<String, f64>, category: &str| uses.get(category).copied().unwrap_or_default();
+        uses.iter().map(|uses| (get(uses, CAR), get(uses, BATTERY), get(uses, HOUSE))).collect()
     }
 
     #[test]
@@ -330,8 +472,9 @@ pub(crate) mod tests {
         let measurements = tesla(registers(DAY - 20, DAY + 1820, 7000.0, 5000.0));
         let topology = beside_the_gateway();
         let split = TopologySplit { topology: topology.clone(), measurements };
-        let uses = split.split(&kwh, &demand, &bounds).unwrap();
-        let (car, battery, house) = totals(&uses);
+        let split_uses = split.split(&kwh, &demand, &bounds).unwrap();
+        let (car, battery, house) = totals(&split_uses);
+        let uses = points(&split_uses);
         assert!((car - 3.5).abs() < 1e-6, "the car 7 kW for half an hour, {car}");
         assert!((battery - 2.5).abs() < 1e-6, "the Powerwalls 5 kW, {battery}");
         assert!((house - 1.0).abs() < 1e-6, "the house the rest, 2 kW, {house}");
@@ -354,7 +497,7 @@ pub(crate) mod tests {
         let topology = Circuit::new("Grid", Use::Grid, &["octopus:electricity", SITE_CHANNEL], vec![
             Circuit::new("Battery", Use::Battery, &[BATTERY_CHANNEL], vec![]),
             Circuit::new("Solar", Use::Solar, &[SOLAR_CHANNEL], vec![]),
-            Circuit::new("House", Use::House, &[], vec![]),
+            Circuit::new("House", Use::house(), &[], vec![]),
         ]);
         let split = TopologySplit { topology, measurements };
         let (car, battery, house) = totals(&split.split(&kwh, &demand, &bounds).unwrap());
@@ -380,14 +523,14 @@ pub(crate) mod tests {
             channel(SITE_CHANNEL, Use::Board),
             channel(BATTERY_CHANNEL, Use::Battery),
             channel(SOLAR_CHANNEL, Use::Solar),
-            channel("tesla:load", Use::House),
+            channel("tesla:load", Use::house()),
         ];
         let mut expected = beside_the_gateway();
         expected.children.remove(0);
         assert_eq!(Circuit::suggested(&channels), expected);
-        channels.extend([channel("myenergi:Z1", Use::Car), channel("myenergi:Z1:grid", Use::Grid)]);
+        channels.extend([channel("myenergi:Z1", Use::car()), channel("myenergi:Z1:grid", Use::Grid)]);
         expected.channels.push(String::from("myenergi:Z1:grid"));
-        expected.children[0].children.insert(2, Circuit::new("Car", Use::Car, &["myenergi:Z1"], vec![]));
+        expected.children[0].children.insert(2, Circuit::new("Car", Use::car(), &["myenergi:Z1"], vec![]));
         assert_eq!(Circuit::suggested(&channels), expected);
     }
 
@@ -441,7 +584,19 @@ pub(crate) mod tests {
 
     #[test]
     fn it_is_saved_as_json_with_use_and_no_empty_lists() {
-        let json = serde_json::to_value(Circuit::new("House", Use::House, &[], vec![])).unwrap();
-        assert_eq!(json, serde_json::json!({"name": "House", "use": "house"}));
+        let json = serde_json::to_value(Circuit::new("House", Use::house(), &[], vec![])).unwrap();
+        assert_eq!(json, serde_json::json!({"name": "House", "use": "House"}));
+        let json = serde_json::to_value(Circuit::new("Gateway", Use::Board, &["tesla:site"], vec![])).unwrap();
+        assert_eq!(json, serde_json::json!({"name": "Gateway", "use": "board", "channels": ["tesla:site"]}));
+    }
+
+    #[test]
+    fn the_car_and_the_house_saved_as_kinds_are_read_as_categories() {
+        let read = |use_: &str| serde_json::from_value::<Use>(serde_json::json!(use_)).unwrap();
+        assert_eq!(read("car"), Use::car());
+        assert_eq!(read("house"), Use::house());
+        assert_eq!(read("Hot water"), Use::Load(String::from("Hot water")));
+        assert_eq!(read("battery"), Use::Battery);
+        assert!(!is_valid_category("Solar") && is_valid_category("Hot water"));
     }
 }

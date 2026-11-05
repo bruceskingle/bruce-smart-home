@@ -38,7 +38,7 @@ The buttons at the top right:
 
 - ![Help](icons/help.svg) shows or hides this help.
 - ![Log](icons/log.svg) shows or hides [the log](log.md) along the bottom of the window.
-- ![Profile](icons/profile.svg) and the profile's name is the profile menu, which changes between [profiles](profile-size.md), or creates a new one.
+- ![Profile](icons/profile.svg) and the profile's name is the profile menu, which changes between [profiles](profile-size.md), creates a new one, or copies, renames or deletes one.
 - ![Settings](icons/settings.svg) opens the [settings](settings.md).
 
 See the [help contents](index.md) for everything else.

@@ -359,7 +359,7 @@ fn MeasurementsConsumption(props: MeasurementsConsumptionProps) -> Element {
     let mut smoothing = use_signal(|| TrendSmoothing::None);
 
     // The colour and visibility of each category in the graphs, kept here so it survives range changes.
-    let category_filter = use_signal(CategoryFilter::default);
+    let category_filter = crate::components::category_filter::use_category_filter();
 
     // The data loaded by MeasurementsDetail for the applied range, None until it has loaded.
     let exportable = use_signal(|| None::<Arc<MeasurementsDataSet>>);

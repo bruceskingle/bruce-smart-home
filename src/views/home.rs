@@ -228,18 +228,23 @@ pub fn Home(
                 }
             };
 
+            // Keyed by the profile, so that a page made for another, e.g. the Site page with its topology being edited,
+            // is made again for this one when the profile changes while it is shown.
+            let profile_key = profile.name.clone();
             rsx! {
                 SidebarLayout {
                     pages: HOME_PAGES.to_vec(),
                     active: page(),
                     on_select: move |path: &'static str| page.set(path),
-                    match page() {
-                        "electricity" => rsx! { super::electricity::ElectricityPage {} },
-                        "site" => rsx! { super::SitePage {} },
-                        "polling" => rsx! { PollingPage {} },
-                        "devices" => rsx! { super::Devices {} },
-                        "climate" => rsx! { super::ClimatePage {} },
-                        _ => modules_page,
+                    div { key: "{profile_key}", class: "home-page",
+                        match page() {
+                            "electricity" => rsx! { super::electricity::ElectricityPage {} },
+                            "site" => rsx! { super::SitePage {} },
+                            "polling" => rsx! { PollingPage {} },
+                            "devices" => rsx! { super::Devices {} },
+                            "climate" => rsx! { super::ClimatePage {} },
+                            _ => modules_page,
+                        }
                     }
                 }
             }

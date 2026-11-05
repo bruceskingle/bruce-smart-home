@@ -203,7 +203,7 @@ impl Module for TeslaModule {
             (SITE_CHANNEL, "The gateway's site meter, its grid CT clamp", Use::Board),
             (BATTERY_CHANNEL, "The Powerwalls, charging and discharging", Use::Battery),
             (SOLAR_CHANNEL, "The solar panels", Use::Solar),
-            (LOAD_CHANNEL, "The house, as the gateway works it out from its meters", Use::House),
+            (LOAD_CHANNEL, "The house, as the gateway works it out from its meters", Use::house()),
         ].map(|(id, description, use_)| Channel { id: id.to_string(), description: description.to_string(), use_ }).to_vec()
     }
 

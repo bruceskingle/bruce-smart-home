@@ -337,6 +337,95 @@ pub fn delete_profile(profile_name: &str, active_profile: &str) -> anyhow::Resul
     Ok(())
 }
 
+/// The name a new profile is to have, trimmed, if it is valid and no profile has it.
+fn new_profile_name<'a>(profiles: &ProfileFile, name: &'a str) -> anyhow::Result<&'a str> {
+    let name = name.trim();
+    if !is_valid_profile_name(name) {
+        return Err(anyhow!("A profile's name must be letters, digits and underscores"));
+    }
+    if profiles.iter().any(|profile| profile_names_equal(&profile.name, name)) {
+        return Err(anyhow!("A profile named \"{}\" already exists", name));
+    }
+    Ok(name)
+}
+
+/// The path of one of a profile's files, path, as another profile's, e.g. n2-octopus as n3-octopus, as the profile's
+/// name ends at the first hyphen, see is_valid_profile_name, or its log, e.g. n2.log as n3.log.
+fn renamed(path: &Path, from: &str, to: &str) -> anyhow::Result<PathBuf> {
+    let file_name = path.file_name().and_then(|name| name.to_str()).ok_or_else(|| anyhow!("{} has no name", path.display()))?;
+    let rest = file_name.strip_prefix(from).ok_or_else(|| anyhow!("{} is not of profile {from}", path.display()))?;
+    Ok(path.with_file_name(format!("{to}{rest}")))
+}
+
+/// Renames a profile, which is not the active one, as the app has its files open: its entry in the profile file, its
+/// cached data and logins, and its log.
+pub fn rename_profile(from: &str, to: &str, active_profile: &str) -> anyhow::Result<()> {
+    if profile_names_equal(from, active_profile) {
+        return Err(anyhow!("The active profile \"{}\" cannot be renamed, change to another one first", from));
+    }
+    let mut profiles: ProfileFile = serde_json::from_reader(fs::File::open(&MarcoSparkoContext::get_file_path()?)?)?;
+    let to = new_profile_name(&profiles, to)?;
+    let profile = profiles.iter_mut()
+        .find(|profile| profile_names_equal(&profile.name, from))
+        .ok_or_else(|| anyhow!("No such profile \"{}\"", from))?;
+    // As it is saved, as the match is not case sensitive.
+    let from = profile.name.clone();
+    let usage = profile_cache_usage(&from)?;
+    let logs = crate::logging::log_files(&from)?;
+    for path in usage.data_dirs.iter().chain(&usage.token_files).chain(logs.iter().filter(|log| log.exists())) {
+        fs::rename(path, renamed(path, &from, to)?)?;
+    }
+    profile.name = to.to_string();
+    serde_json::to_writer_pretty(private_file::create_private_file(&MarcoSparkoContext::get_file_path()?)?, &profiles)?;
+    Ok(())
+}
+
+/// Copies a directory and everything in it, keeping the files' permissions, as the cached data is private.
+fn copy_dir(from: &Path, to: &Path) -> anyhow::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else if entry.file_type()?.is_file() {
+            fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
+}
+
+/// Copies a profile, its settings and its cached data, but not its log, as a new profile to. An offline copy only shows
+/// what was copied, as the source was when it was copied, see Profile::as_of, without fetching anything, so it has
+/// neither the source's logins, the token files, nor its capture devices, which it would otherwise manage as the
+/// source does; another copy has both, and fetches as the source does.
+pub fn copy_profile(from: &str, to: &str, offline: bool) -> anyhow::Result<()> {
+    let mut profiles: ProfileFile = serde_json::from_reader(fs::File::open(&MarcoSparkoContext::get_file_path()?)?)?;
+    let to = new_profile_name(&profiles, to)?;
+    let source = profiles.iter()
+        .find(|profile| profile_names_equal(&profile.name, from))
+        .ok_or_else(|| anyhow!("No such profile \"{}\"", from))?
+        .clone();
+    let usage = profile_cache_usage(&source.name)?;
+    for dir in &usage.data_dirs {
+        copy_dir(dir, &renamed(dir, &source.name, to)?)?;
+    }
+    if !offline {
+        for file in &usage.token_files {
+            fs::copy(file, renamed(file, &source.name, to)?)?;
+        }
+    }
+    let mut copy = Profile { name: to.to_string(), ..source };
+    if offline {
+        copy.offline = true;
+        copy.as_of = copy.as_of.or_else(|| Some(crate::clock::now_utc().unix_timestamp()));
+        copy.settings.capture_devices = Vec::new();
+    }
+    profiles.push(copy);
+    serde_json::to_writer_pretty(private_file::create_private_file(&MarcoSparkoContext::get_file_path()?)?, &profiles)?;
+    Ok(())
+}
+
 /// A number of bytes for display, e.g. 12.3 MB
 pub fn format_size(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
@@ -425,6 +514,23 @@ pub struct Settings {
     /// power::topology. Until it is set, the grid's import is not split by use.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub topology: Option<crate::power::topology::Circuit>,
+    /// The categories of loads added on the Site page, besides the built-in ones, see power::topology::Use::Load, saved
+    /// by update_settings_with.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub categories: Vec<String>,
+    /// The colours chosen for graphs' labels, e.g. "EV Low Rate", and for categories, e.g. "Hot water", which are the
+    /// defaults of their labels, as CSS colours, saved by update_settings_with, see category_filter.rs.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub colours: BTreeMap<String, String>,
+}
+
+impl Settings {
+    /// The categories a load can be, the built-in ones, then those added, see categories.
+    pub fn all_categories(&self) -> Vec<String> {
+        crate::power::topology::BUILT_IN_CATEGORIES.iter().map(|category| category.to_string())
+            .chain(self.categories.iter().cloned())
+            .collect()
+    }
 }
 
 /// Saves the settings of the profile.
@@ -435,14 +541,19 @@ pub fn update_settings(profile_name: &str, settings: &Settings) -> anyhow::Resul
         .find(|profile| profile_names_equal(&profile.name, profile_name))
         .ok_or_else(|| anyhow!("No such profile \"{}\"", profile_name))?;
     // Whether the help is shown is saved by update_help_settings, from any window, the capture devices by
-    // update_capture_devices, and the topology by update_topology, so they are not overwritten here.
+    // update_capture_devices, the topology by update_topology, and the categories and colours by update_settings_with,
+    // so they are not overwritten here.
     let help = profile.settings.help.clone();
     let capture_devices = std::mem::take(&mut profile.settings.capture_devices);
     let topology = profile.settings.topology.take();
+    let categories = std::mem::take(&mut profile.settings.categories);
+    let colours = std::mem::take(&mut profile.settings.colours);
     profile.settings = settings.clone();
     profile.settings.help = help;
     profile.settings.capture_devices = capture_devices;
     profile.settings.topology = topology;
+    profile.settings.categories = categories;
+    profile.settings.colours = colours;
     serde_json::to_writer_pretty(private_file::create_private_file(&MarcoSparkoContext::get_file_path()?)?, &profile_file)?;
     Ok(())
 }
@@ -457,6 +568,20 @@ pub fn update_capture_devices(profile_name: &str, devices: &[crate::capture_devi
     profile.settings.capture_devices = devices.to_vec();
     serde_json::to_writer_pretty(private_file::create_private_file(&MarcoSparkoContext::get_file_path()?)?, &profile_file)?;
     Ok(())
+}
+
+/// Changes the profile's settings as saved with change, and saves them, e.g. a colour chosen, leaving the rest as they
+/// are saved, which may be newer than the settings the page has, returning them as they are now.
+pub fn update_settings_with(profile_name: &str, change: impl FnOnce(&mut Settings)) -> anyhow::Result<Settings> {
+    let file = fs::File::open(&MarcoSparkoContext::get_file_path()?)?;
+    let mut profile_file: ProfileFile = serde_json::from_reader(file)?;
+    let profile = profile_file.iter_mut()
+        .find(|profile| profile_names_equal(&profile.name, profile_name))
+        .ok_or_else(|| anyhow!("No such profile \"{}\"", profile_name))?;
+    change(&mut profile.settings);
+    let settings = profile.settings.clone();
+    serde_json::to_writer_pretty(private_file::create_private_file(&MarcoSparkoContext::get_file_path()?)?, &profile_file)?;
+    Ok(settings)
 }
 
 /// Saves the site's topology, see power::topology, or clears it if it is None.
@@ -500,7 +625,9 @@ impl Profile {
 mod tests {
     use std::fs;
 
-    use super::{cache_usage_in, format_size};
+    use std::path::Path;
+
+    use super::{cache_usage_in, copy_dir, format_size, renamed};
 
     #[test]
     fn cache_usage_is_split_by_plugin_and_leaves_out_other_profiles() {
@@ -521,6 +648,26 @@ mod tests {
         let mut token_files = usage.token_files;
         token_files.sort();
         assert_eq!(token_files, [dir.join("p-octopus.json"), dir.join("p-other.json")]);
+    }
+
+    #[test]
+    fn a_profiles_files_are_renamed_from_the_start_of_their_names() {
+        let dir = Path::new("/cache");
+        assert_eq!(renamed(&dir.join("n2-octopus"), "n2", "home").unwrap(), dir.join("home-octopus"));
+        assert_eq!(renamed(&dir.join("n2.log.old"), "n2", "home").unwrap(), dir.join("home.log.old"));
+        assert!(renamed(&dir.join("other-octopus"), "n2", "home").is_err());
+    }
+
+    #[test]
+    fn a_directory_is_copied_with_everything_in_it() {
+        let dir = std::env::temp_dir().join(format!("marco-sparko-copy-{}", std::process::id()));
+        fs::create_dir_all(dir.join("from/2026/November")).unwrap();
+        fs::write(dir.join("from/2026/November/3#snapshots"), "data").unwrap();
+        fs::write(dir.join("from/top"), "top").unwrap();
+        copy_dir(&dir.join("from"), &dir.join("to")).unwrap();
+        let copied = (fs::read_to_string(dir.join("to/2026/November/3#snapshots")).unwrap(), fs::read_to_string(dir.join("to/top")).unwrap());
+        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(copied, (String::from("data"), String::from("top")));
     }
 
     #[test]

@@ -127,7 +127,7 @@ pub fn Telemetry(account_id: String, esme_id: String, cad_id: String, billing_ti
     let mut mode = use_signal(|| TelemetryMode::Energy);
     let mut smoothing = use_signal(|| TrendSmoothing::None);
     // The colours of the years in the trend graph.
-    let filter = use_signal(CategoryFilter::default);
+    let filter = crate::components::category_filter::use_category_filter();
     // The range and period before each drill down or zoom in the graph, the latest last, for Zoom Out.
     let mut history = use_signal(Vec::<(RangeSelection, Period)>::new);
     // A period whose days are fetched again however up to date they are, set by Reload. The fetch does not depend on it,

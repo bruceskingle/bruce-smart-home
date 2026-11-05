@@ -152,7 +152,7 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
     let mut view = use_signal(|| ElectricityView::Graph);
     let mut period = use_signal(|| if periods.contains(&Period::HalfHour) { Period::HalfHour } else { periods[0] });
     let mut mode = use_signal(|| ElectricityMode::Energy);
-    let filter = use_signal(CategoryFilter::default);
+    let filter = crate::components::category_filter::use_category_filter();
     // The range and period before each drill down or zoom in the graph, the latest last, for Zoom Out.
     let mut history = use_signal(Vec::<(RangeSelection, Period)>::new);
     // A period which is fetched again however up to date it is, set by Reload, see Telemetry.
@@ -649,8 +649,8 @@ fn electricity_graph(electricity: &Electricity, start: &DateTime, end: &DateTime
 /// What Home's Electricity and Site pages found in the profile's modules, see ElectricityPage.
 pub(crate) struct Found {
     /// The sources, suppliers' first, see SourceKind.
-    sources: Vec<Arc<dyn ElectricitySource>>,
-    measurements: Vec<Arc<dyn MeasurementSource>>,
+    pub(crate) sources: Vec<Arc<dyn ElectricitySource>>,
+    pub(crate) measurements: Vec<Arc<dyn MeasurementSource>>,
     /// The places they measure, see power::topology.
     pub(crate) channels: Vec<crate::power::topology::Channel>,
     /// The modules which are not logged in yet, which may have electricity to show.

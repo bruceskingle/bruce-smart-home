@@ -1,5 +1,7 @@
 //! The categories of measurement shown in graphs, e.g. the standing charge or the consumption at one rate, with the
-//! colour, line style and visibility chosen for each, and the colour chosen for each year in the trend graph.
+//! colour, line style and visibility chosen for each, and the colour chosen for each year in the trend graph. The
+//! colours chosen are saved with the profile, see profile::Settings::colours, and are the defaults of every graph's
+//! after, as are those of the site's categories, e.g. Hot water for Hot water Low Rate, see category_colour.
 
 use std::collections::BTreeMap;
 
@@ -29,6 +31,72 @@ pub fn order_labels<'a>(labels: impl IntoIterator<Item = &'a str>) -> Vec<String
 
 /// Default colours for labels which are not known, see crate::known_labels, used in turn.
 const OTHER_COLORS: [&str; 6] = ["#f2c94c", "#bb6bd9", "#2dd4bf", "#f472b6", "#a3e635", "#60a5fa"];
+
+/// The colours of the built-in categories and the batteries', see power::topology, unless others are chosen.
+const CATEGORY_COLORS: [(&str, &str); 4] = [
+    (crate::power::topology::CAR, "#4f6bff"),
+    (crate::power::topology::HOUSE, "#46ee43"),
+    (crate::power::topology::UNKNOWN, "#8a8a99"),
+    (crate::power::topology::BATTERY, "#9b51e0"),
+];
+
+/// The colour of a category of the site's loads, e.g. Car or Hot water: the one chosen, see profile::Settings::colours,
+/// or a built-in category's, or one of the palette's, by where it is in categories, e.g. the profile's, see
+/// profile::Settings::all_categories.
+pub fn category_colour(category: &str, saved: &BTreeMap<String, String>, categories: &[String]) -> String {
+    saved.get(category).cloned()
+        .or_else(|| CATEGORY_COLORS.iter().find(|(known, _)| *known == category).map(|(_, color)| color.to_string()))
+        .unwrap_or_else(|| {
+            let index = categories.iter().position(|known| known == category).unwrap_or(0);
+            OTHER_COLORS[index % OTHER_COLORS.len()].to_string()
+        })
+}
+
+/// The default colour of a label from its category, e.g. Hot water's for Hot water Low Rate, see
+/// topology::label_prefix, from colours, by category, None if it is not one of theirs.
+fn category_label_colour<'a>(label: &str, colours: impl IntoIterator<Item = (&'a str, &'a str)>) -> Option<String> {
+    colours.into_iter().find_map(|(category, color)| {
+        let prefix = crate::power::topology::label_prefix(category);
+        (label == prefix || label.starts_with(&format!("{prefix} "))).then(|| color.to_string())
+    })
+}
+
+/// A filter whose colours are the defaults saved with the active profile, see profile::Settings::colours, for a page's
+/// graph.
+pub fn use_category_filter() -> Signal<CategoryFilter> {
+    let settings = try_use_context::<Signal<crate::profile::Settings>>();
+    use_signal(move || CategoryFilter::with_saved(settings.map(|settings| settings.peek().colours.clone()).unwrap_or_default()))
+}
+
+/// Where the active profile's colours are saved, see save_colour: its name, and its settings, which the pages share.
+#[derive(Clone, Copy)]
+pub struct ColourStore {
+    context: Option<Signal<Option<std::sync::Arc<crate::MarcoSparkoContext>>>>,
+    settings: Option<Signal<crate::profile::Settings>>,
+}
+
+/// Where the active profile's colours are saved, from a component.
+pub fn use_colour_store() -> ColourStore {
+    ColourStore { context: try_use_context(), settings: try_use_context() }
+}
+
+impl ColourStore {
+    /// Saves the colour chosen for a label or category with the active profile, so that it is the default from now on,
+    /// in every graph, see use_category_filter.
+    pub fn save(self, label: &str, color: &str) {
+        let Some(profile_name) = self.context.and_then(|context| context.peek().as_ref().map(|context| context.profile.active_profile.name.clone())) else {
+            return;
+        };
+        match crate::profile::update_settings_with(&profile_name, |settings| { settings.colours.insert(label.to_string(), color.to_string()); }) {
+            Ok(saved) => {
+                if let Some(mut settings) = self.settings {
+                    settings.write().colours = saved.colours;
+                }
+            },
+            Err(error) => crate::log_error!("Failed to save the colour of {label}: {error:#}"),
+        }
+    }
+}
 
 /// The line styles of categories in the trend graph, as a name and an SVG stroke-dasharray, used in turn by default.
 pub const LINE_STYLES: [(&str, &str); 6] = [
@@ -62,6 +130,8 @@ pub struct CategoryStyle {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CategoryFilter {
     styles: BTreeMap<String, CategoryStyle>,
+    /// The colours saved with the profile, by label or category, see use_category_filter.
+    saved: BTreeMap<String, String>,
     dashes: BTreeMap<String, String>,
     year_colors: BTreeMap<i32, String>,
     total: CategoryStyle,
@@ -72,6 +142,7 @@ impl Default for CategoryFilter {
     fn default() -> Self {
         Self {
             styles: BTreeMap::new(),
+            saved: BTreeMap::new(),
             dashes: BTreeMap::new(),
             year_colors: BTreeMap::new(),
             total: CategoryStyle { color: String::from(TOTAL_COLOR), visible: false },
@@ -81,6 +152,11 @@ impl Default for CategoryFilter {
 }
 
 impl CategoryFilter {
+    /// A filter whose default colours are saved, by label or category, see use_category_filter.
+    pub fn with_saved(saved: BTreeMap<String, String>) -> Self {
+        Self { saved, ..Self::default() }
+    }
+
     /// The style of each of the given categories, in the same order.
     pub fn styles(&self, categories: &[String]) -> Vec<CategoryStyle> {
         let mut other_colors = OTHER_COLORS.iter().cycle();
@@ -88,18 +164,21 @@ impl CategoryFilter {
             .map(|label| {
                 // Work out the default for every category so that the palette colours do not depend on which have
                 // been changed.
-                let default_color = if label == STANDING_CHARGE_LABEL {
-                    STANDING_CHARGE_COLOR
+                // A category's colour chosen, e.g. on the Site page, comes before the label's usual one, e.g. Car's
+                // for EV Low Rate's, and a built-in category's after it, e.g. Unknown's for Unknown Low Rate.
+                let known = if label == STANDING_CHARGE_LABEL {
+                    Some(String::from(STANDING_CHARGE_COLOR))
                 }
                 else {
-                    crate::known_labels()
-                        .find(|(known, _)| known == label)
-                        .map(|(_, color)| *color)
-                        .unwrap_or_else(|| other_colors.next().unwrap())
+                    category_label_colour(label, self.saved.iter().map(|(category, color)| (category.as_str(), color.as_str())))
+                        .or_else(|| crate::known_labels().find(|(known, _)| known == label).map(|(_, color)| color.to_string()))
+                        .or_else(|| category_label_colour(label, CATEGORY_COLORS.iter().copied()))
                 };
+                let default_color = known.unwrap_or_else(|| String::from(*other_colors.next().unwrap()));
+                let default_color = self.saved.get(label).cloned().unwrap_or(default_color);
                 self.styles.get(label)
                     .cloned()
-                    .unwrap_or_else(|| CategoryStyle { color: String::from(default_color), visible: true })
+                    .unwrap_or_else(|| CategoryStyle { color: default_color, visible: true })
             })
             .collect()
     }
@@ -195,6 +274,7 @@ impl CategoryFilter {
 pub fn CategoryFilterMenu(filter: Signal<CategoryFilter>, categories: Vec<String>, years: Vec<i32>, trend: bool, disabled: bool,
     #[props(default)] visibility_only: bool) -> Element {
     let mut menu_open = use_signal(|| false);
+    let store = use_colour_store();
     let styles = filter.read().styles(&categories);
     let dashes = filter.read().dashes(&categories);
     let year_colors = filter.read().year_colors(&years);
@@ -240,8 +320,9 @@ pub fn CategoryFilterMenu(filter: Signal<CategoryFilter>, categories: Vec<String
                                 {color_picker(&label, style.color.clone(), {
                                     let label = label.clone();
                                     let style = style.clone();
-                                    move |color| {
+                                    move |color: String| {
                                         let mut filter = filter;
+                                        store.save(&label, &color);
                                         filter.write().set_style(&label, CategoryStyle { color, ..style.clone() });
                                     }
                                 })}
@@ -351,6 +432,19 @@ mod tests {
 
     fn labels(labels: &[&str]) -> Vec<String> {
         labels.iter().map(|label| label.to_string()).collect()
+    }
+
+    #[test]
+    fn a_categorys_colour_is_its_labels_unless_one_is_chosen() {
+        let saved = std::collections::BTreeMap::from([
+            (String::from("Hot water"), String::from("#123456")),
+            (String::from("Car"), String::from("#abcdef")),
+            (String::from("EV Standard Rate"), String::from("#fedcba")),
+        ]);
+        let filter = CategoryFilter::with_saved(saved);
+        let colors: Vec<String> = filter.styles(&labels(&["Hot water Low Rate", "EV Low Rate", "EV Standard Rate", "Unknown Low Rate", "Other"]))
+            .into_iter().map(|style| style.color).collect();
+        assert_eq!(colors, ["#123456", "#abcdef", "#fedcba", "#8a8a99", "#f2c94c"]);
     }
 
     #[test]

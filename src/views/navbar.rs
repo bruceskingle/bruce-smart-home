@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{ MarcoSparkoContext, UpgradeRequested, components::{app::Route, delete_profile::DeleteProfileDialog}, profile::{Settings, profile_names_equal}};
+use crate::{ MarcoSparkoContext, UpgradeRequested, components::{app::Route, copy_profile::CopyProfileDialog, delete_profile::DeleteProfileDialog, rename_profile::RenameProfileDialog}, profile::{Settings, profile_names_equal}};
 use crate::views::help_panel::HelpPanel;
 use crate::views::log_panel::LogPanel;
 use crate::components::error_text::ErrorText;
@@ -31,9 +31,11 @@ pub fn Navbar() -> Element {
     let mut new_profile_generation = use_signal(|| 0u32);
     let mut new_profile_name = use_signal(String::new);
     let mut new_profile_error = use_signal(|| None::<String>);
-    // The profile whose ... menu is open, and the profile being deleted.
+    // The profile whose ... menu is open, and the profiles being deleted, renamed and copied.
     let mut profile_actions_open = use_signal(|| None::<String>);
     let mut delete_profile = use_signal(|| None::<String>);
+    let mut rename_profile = use_signal(|| None::<String>);
+    let mut copy_profile = use_signal(|| None::<String>);
 
     // The active profile's settings, for the Settings page and the log panel, which follow the profile when it changes.
     let mut settings = use_context_provider(|| Signal::new(context.profile.active_profile.settings.clone()));
@@ -250,24 +252,50 @@ pub fn Navbar() -> Element {
                                     }
                                 },
                                 span { "{&name}" }
-                                // The active profile cannot be deleted, so it has no actions.
-                                if !profile_names_equal(&name, &context.profile.active_profile.name) {
-                                    span { class: "profile-actions",
-                                        button {
-                                            class: "profile-actions-toggle",
-                                            title: "Profile actions",
-                                            onclick: {
-                                                let name = name.clone();
-                                                move |event: MouseEvent| {
-                                                    event.stop_propagation();
-                                                    let open = profile_actions_open.read().as_ref() == Some(&name);
-                                                    profile_actions_open.set(if open { None } else { Some(name.clone()) });
-                                                }
-                                            },
-                                            "…"
-                                        }
-                                        if profile_actions_open.read().as_ref() == Some(&name) {
-                                            div { class: "profile-actions-menu",
+                                // The active profile can only be copied, as the app has its files open, and its size seen.
+                                span { class: "profile-actions",
+                                    button {
+                                        class: "profile-actions-toggle",
+                                        title: "Profile actions",
+                                        onclick: {
+                                            let name = name.clone();
+                                            move |event: MouseEvent| {
+                                                event.stop_propagation();
+                                                let open = profile_actions_open.read().as_ref() == Some(&name);
+                                                profile_actions_open.set(if open { None } else { Some(name.clone()) });
+                                            }
+                                        },
+                                        "…"
+                                    }
+                                    if profile_actions_open.read().as_ref() == Some(&name) {
+                                        div { class: "profile-actions-menu",
+                                            div {
+                                                class: "menu-item",
+                                                onclick: {
+                                                    let name = name.clone();
+                                                    move |event: MouseEvent| {
+                                                        event.stop_propagation();
+                                                        menu_open.set(false);
+                                                        profile_actions_open.set(None);
+                                                        navigator.push(Route::ProfileSize { name: name.clone() });
+                                                    }
+                                                },
+                                                "Size..."
+                                            }
+                                            div {
+                                                class: "menu-item",
+                                                onclick: {
+                                                    let name = name.clone();
+                                                    move |event: MouseEvent| {
+                                                        event.stop_propagation();
+                                                        menu_open.set(false);
+                                                        profile_actions_open.set(None);
+                                                        copy_profile.set(Some(name.clone()));
+                                                    }
+                                                },
+                                                "Copy..."
+                                            }
+                                            if !profile_names_equal(&name, &context.profile.active_profile.name) {
                                                 div {
                                                     class: "menu-item",
                                                     onclick: {
@@ -276,10 +304,10 @@ pub fn Navbar() -> Element {
                                                             event.stop_propagation();
                                                             menu_open.set(false);
                                                             profile_actions_open.set(None);
-                                                            navigator.push(Route::ProfileSize { name: name.clone() });
+                                                            rename_profile.set(Some(name.clone()));
                                                         }
                                                     },
-                                                    "Size..."
+                                                    "Rename..."
                                                 }
                                                 div {
                                                     class: "menu-item",
@@ -327,6 +355,12 @@ pub fn Navbar() -> Element {
 
         if let Some(name) = delete_profile.read().clone() {
             DeleteProfileDialog { name, on_close: move |_| delete_profile.set(None) }
+        }
+        if let Some(name) = rename_profile.read().clone() {
+            RenameProfileDialog { name, on_close: move |_| rename_profile.set(None) }
+        }
+        if let Some(name) = copy_profile.read().clone() {
+            CopyProfileDialog { name, on_close: move |_| copy_profile.set(None) }
         }
 
         div { class: "app-body",

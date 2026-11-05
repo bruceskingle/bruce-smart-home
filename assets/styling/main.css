@@ -604,6 +604,27 @@ h6 {
     margin: 0 0 4px 0;
 }
 
+/* The profile menu's Copy and Rename dialogs, as wide whatever their text, which wraps. */
+.profile-dialog {
+    width: 28rem;
+    max-width: 90vw;
+}
+
+/* Notes in one place, one over the other, of which only one is shown, so that what holds them is as tall as the
+   tallest whichever it is. */
+.stacked-notes {
+    display: grid;
+}
+
+.stacked-notes > * {
+    grid-area: 1 / 1;
+    margin: 0;
+}
+
+.stacked-notes > .hidden {
+    visibility: hidden;
+}
+
 /* The buttons for the period before and after the date range, either side of it. */
 .range-pager {
     display: inline-flex;
@@ -1669,6 +1690,8 @@ tr.minute-row td {
 /* Home's Site page: the site's topology as a diagram, see views/site.rs, and the list of its circuits to edit. */
 .topology-scroll {
     overflow-x: auto;
+    /* Its own height, not squeezed by what is below it in the page's column, which as a scroll box it would be. */
+    flex-shrink: 0;
     margin: 0.5rem 0 1rem;
 }
 
@@ -1731,4 +1754,24 @@ tr.minute-row td {
 
 .topology-actions button, .topology-buttons button {
     margin-right: 0.4rem;
+}
+
+.topology-checks td, .topology-checks th {
+    padding: 0.2rem 0.6rem;
+    vertical-align: top;
+    text-align: left;
+}
+
+/* Home's page, keyed by the profile, see views/home.rs, which leaves the layout to the page inside it. */
+.home-page {
+    display: contents;
+}
+
+.category-editor td {
+    padding: 0.15rem 0.6rem 0.15rem 0;
+    vertical-align: middle;
+}
+
+.category-editor .muted {
+    color: var(--muted);
 }

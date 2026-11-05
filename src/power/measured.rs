@@ -72,9 +72,9 @@ pub trait Split {
     fn name(&self) -> String;
 
     /// What each of a half hour's points' import, kwh, from and to the times of bounds, with the grid meter's average
-    /// power, demand, was used for, as (the car, the batteries, the house), or None if it was not measured all through
-    /// the half hour.
-    fn split(&self, kwh: &[f64], demand: &[Option<f64>], bounds: &[(i64, i64)]) -> Option<Vec<(f64, f64, f64)>>;
+    /// power, demand, was used for, in kWh by category, e.g. Car, Battery and House, see power::topology, or None if
+    /// it was not measured all through the half hour.
+    fn split(&self, kwh: &[f64], demand: &[Option<f64>], bounds: &[(i64, i64)]) -> Option<Vec<std::collections::BTreeMap<String, f64>>>;
 }
 
 /// Where a module's measurements come from, e.g. the Tesla module's capture device's snapshots.

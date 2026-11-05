@@ -57,7 +57,7 @@ pub fn channels(cache_config: &CacheConfig) -> Vec<Channel> {
             let mut channels = vec![Channel {
                 id: charging_channel(&serial),
                 description: format!("What zappi {serial} charged the car with"),
-                use_: Use::Car,
+                use_: Use::car(),
             }];
             if grid {
                 channels.push(Channel {

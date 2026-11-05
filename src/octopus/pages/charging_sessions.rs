@@ -53,7 +53,7 @@ pub fn ChargingSessions(account_id: String, device_id: String, device_name: Stri
     let mut period = use_signal(|| StackedBarPeriod::Day);
     let mut smoothing = use_signal(|| TrendSmoothing::None);
     // Which categories of session are shown, in the table and the graphs, and the colours of the years in the trend.
-    let filter = use_signal(CategoryFilter::default);
+    let filter = crate::components::category_filter::use_category_filter();
     // The range and period before each drill down or zoom in the graph, the latest last, for Zoom Out.
     let mut history = use_signal(Vec::<(RangeSelection, StackedBarPeriod)>::new);
     // A period whose months are fetched again however up to date they are, set by Reload, in case the cache is wrong.

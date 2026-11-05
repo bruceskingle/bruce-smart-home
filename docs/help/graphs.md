@@ -20,7 +20,7 @@ Hold the mouse over a bar to see its figures.
 
 ## Categories
 
-Where the bars are split into parts, such as rates or kinds of charging, ![Categories](icons/categories.svg) **Categories** lists them. Each can be hidden, or given a different colour, and it shows the total of each.
+Where the bars are split into parts, such as rates or kinds of charging, ![Categories](icons/categories.svg) **Categories** lists them. Each can be hidden, or given a different colour, and it shows the total of each. A colour chosen is kept with the profile, and is that category's colour in every graph from then on.
 
 ## Trend
 

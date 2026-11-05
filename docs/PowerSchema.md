@@ -233,7 +233,23 @@ Unlike the NSPanel's, which is drawn for one house, it would be drawn from the s
    to 2 minutes are filled with the average of the minutes either side, which makes 94% of the first household's
    half hours since October usable, against a third without. The suggested topology now comes from what each channel
    usually measures, e.g. a zappi's charging the car, so the topology code names no module.
-4. The checks, over the cached days, then the suggestions.
+4. The checks, over the cached days, then the suggestions. Done, `power/check.rs`, on the Site page, over the last 7
+   days, of the topology as it is edited. Each channel is its net import each half hour, and the checks are
+   conservation: what a measured circuit feeds adds up to it, two channels on one circuit agree, and the rest is never
+   less than none. The suggestions are what the data says whatever the topology: channels which are the same, or one
+   the other reversed, and channels which are the sum of two or three others, to within 5%. On the first household's
+   data the zappi's grid clamp is the same as `tesla:site` to 0.8%, and the gateway's site is its battery, load and
+   solar together, to 0.8%. Then a verdict, whether the topology looks right, each check within 10% and the rest less
+   than none in no more than 2% of its half hours, and if not, a topology from the relations, which is offered if it
+   fits: the same channels one circuit, a sum's circuit feeding its parts', each fed from the smallest sum it is in, a
+   house channel in a sum the rest, unplaced channels fed from the grid, with the rest where the circuits fed do not
+   add up, and the current topology's names kept.
+4a. Categories, done: a circuit is one of the kinds which energy goes through differently, the grid, a board, a
+   battery and solar panels, or a load of a category, Car, House and Unknown built in, and others the user adds on the
+   Site page, e.g. Hot water, saved with the profile. The split gives each category's share, labelled with its prefix,
+   EV for the car and Home for the house, as Octopus's labels have them, or its name, e.g. Hot water Low Rate. Colours
+   chosen, for categories on the Site page and for labels in the graphs' Categories menus, are saved with the profile,
+   a category's being the default of its labels'.
 5. The live flow display, from the topology and the latest readings.
 6. Graphs of where the energy came from and where it went, beside the Electricity graph, which mixes the two and is
    hard to read, as the first household's Home Assistant energy dashboard shows them: sources, the grid, the solar
