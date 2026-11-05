@@ -47,6 +47,9 @@ use, costs and bills from Octopus Energy, and what its Tesla Powerwalls and myen
 - Before a request which changes a device, e.g. its settings, a restart, a release or a factory reset, check its state
   in the same command, e.g. `GET /api/info` says it is adopted, and stop if it is not as assumed: a "negative test" of a
   released device once wiped its Wi-Fi settings.
+- Before flashing, check the board on the port is the one meant, by its MAC address, which is the device's ID in the
+  app, e.g. `espflash board-info --port <port>`, which writes nothing but restarts it: the port names say only where a
+  board is plugged in, and several boards may be.
 - Flash or restart the devices one at a time, waiting until each polls again, so that one is always capturing, and
   away from the Octopus poll times, :29, :30, :59 and :00 past the hour.
 - A device without an SD card keeps its records in memory, which a restart loses, so before flashing or restarting

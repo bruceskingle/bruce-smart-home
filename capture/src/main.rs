@@ -1,7 +1,7 @@
 //! A Capture Device: an ESP32 which polls what Marco Sparko needs while the computer it runs on sleeps, keeps it, and
 //! gives it to the app, which reads it from the device's /api/capture/... pages: the Tesla gateway, see tesla.rs,
-//! myenergi's zappi, see myenergi.rs, and Octopus's smart charging, see octopus.rs, on a CYD, whose screen shows the
-//! clock with the latest numbers below it, a Waveshare ESP32-C6-Touch-LCD-1.47, whose small screen shows a graph of
+//! myenergi's zappi, see myenergi.rs, and Octopus's smart charging, see octopus.rs, on a CYD, whose screen shows a graph
+//! of the gateway's power, as it has too little memory for the internet polls, a Waveshare ESP32-C6-Touch-LCD-1.47, whose small screen shows a graph of
 //! the gateway's power, and the device's status when it is swiped, or a Waveshare ESP32-S3-RLCD-4.2, whose black and
 //! white screen shows the clock and numbers, and the status when KEY is pressed, see board and screen.rs.
 
@@ -28,34 +28,23 @@ use sparko_esp_idf::Esp32Platform;
 mod board {
     use std::sync::Arc;
 
-    use embedded_graphics::prelude::{Point, Size};
-    use embedded_graphics::primitives::Rectangle;
     use sparko_embedded_std::DisplayOrientation;
     use sparko_esp_idf::Esp32PlatformBuilder;
-    use sparko_esp_idf::features::analog_clock::AnalogClock;
 
     use crate::screen::Panel;
 
-    /// 240 by 320, 8 lines of numbers under the clock, and no graph, see screen.rs, redrawn every other second.
-    pub const ORIENTATION: DisplayOrientation = DisplayOrientation::Rotate0;
-    pub const CLOCK_HEIGHT: u32 = 160;
-    pub const GRAPH: bool = false;
-    pub const SCREEN_SCHEDULE: &str = "*/2 * * * * *";
+    /// 320 by 240, on its side, the way up it stands, with its USB port on the right (Rotate90 has it on the left): the
+    /// graph of the gateway's power, with a small digital clock, as the Waveshare's, see screen.rs, which ticks every
+    /// second, or until there is a graph, the lines of numbers. Without its internet polls, which it has too little
+    /// memory for alongside the app's HTTPS requests, it is mostly a display of the graph.
+    pub const ORIENTATION: DisplayOrientation = DisplayOrientation::Rotate270;
+    pub const CLOCK_HEIGHT: u32 = 0;
+    pub const GRAPH: bool = true;
+    pub const SCREEN_SCHEDULE: &str = "* * * * * *";
 
-    /// The clock, and the screen's orientation.
+    /// The screen's orientation.
     pub fn configure(builder: Esp32PlatformBuilder, _panel: &Arc<Panel>) -> anyhow::Result<Esp32PlatformBuilder> {
-        builder
-            .with_feature(Box::new(
-                AnalogClock::builder()
-                    .with_layout(|bounding_box: &Rectangle| {
-                        Rectangle::new(
-                            Point::new(bounding_box.top_left.x + 1, bounding_box.top_left.y + 1),
-                            Size::new(bounding_box.size.width - 2, CLOCK_HEIGHT - 2),
-                        )
-                    })
-                    .build()?,
-            ))?
-            .with_display_orientation(ORIENTATION)
+        builder.with_display_orientation(ORIENTATION)
     }
 
     /// Nothing, as the board has no speaker.
@@ -102,7 +91,7 @@ mod board {
 
     use crate::screen::Panel;
 
-    /// 398 by 298, black and white, as the CYD: the clock, with 11 lines of numbers under it, in the board's smaller
+    /// 398 by 298, black and white: the clock, with 11 lines of numbers under it, in the board's smaller
     /// console font, as the graph's series would all be black, redrawn every other second, as the display is updated
     /// at most every 200 ms anyway.
     pub const CLOCK_HEIGHT: u32 = 130;
