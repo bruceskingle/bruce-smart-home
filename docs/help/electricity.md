@@ -12,7 +12,13 @@ The meters' readings arrive a few days later. Until they do, the rate is estimat
 
 On an Intelligent Octopus tariff, charging the car outside the cheap times is at the cheap rate too, and the estimates allow for that.
 
+The times are the site's, as the line under the heading says, e.g. "Times in Australia/Sydney (AEDT)" for GloBird, as the tariff's times are, and each tooltip says the zone, as it changes when the clocks do.
+
 Show it as a **Table** or **Graph**, see [using the graphs](graphs.md). In the graph, **Energy** shows kWh and **Power** the average kW. Short periods, down to 10 seconds, use the Home Mini's readings where there are all of a half hour's.
+
+## Flows
+
+Where the site's [topology](site.md) is set and its devices measured, e.g. by a [capture device](devices.md) reading a Tesla gateway, **Flows** shows two graphs instead: **Where it came from**, the grid, the solar panels and the Powerwalls discharging, and **Where it went**, each kind of load, e.g. the car (**EV**) and the house (**Home**), the Powerwalls charging, and export. Unlike the Graph, which only splits what came from the grid, these include what the solar panels and the Powerwalls gave the house, so they show what each load used. Each half hour is worked out from the topology, as the [checks](site.md#checks) are, and periods of a day or longer add them up. Periods down to a minute are shown, each worked out from the Home Mini's readings and the devices' over it, e.g. the tumble dryer's heater switching on and off, which the Powerwalls follow. Half hours the devices did not measure all through, e.g. before there was a capture device, have only the grid's import, as **Not measured**, and export. The shortest period is a minute, as the zappi's records are of minutes. Drag across the graphs to zoom in, and double click a bar to see it in more detail, as on the Graph.
 
 ## Measured or Octopus's split
 

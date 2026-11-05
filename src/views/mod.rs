@@ -33,6 +33,9 @@ pub mod electricity;
 
 mod site;
 pub use site::SitePage;
+
+mod live;
+pub use live::LivePage;
 pub use devices::Devices;
 
 mod climate;

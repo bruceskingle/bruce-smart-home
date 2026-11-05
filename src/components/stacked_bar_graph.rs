@@ -622,10 +622,27 @@ pub fn StackedBarGraph(
                 ),
                 view_box: "0 0 {width} {height}",
                 role: "img",
-                onmouseleave: move |_| {
-                    hovered.set(None);
-                    hovered_series.set(None);
-                    dragged.set(None);
+                // A drag which leaves past either end of the plot zooms from where it started to that end, as the button
+                // is let go outside the graph, which it does not hear; one which leaves above or below is given up.
+                onmouseleave: {
+                    let periods = periods.clone();
+                    move |event: MouseEvent| {
+                        hovered.set(None);
+                        hovered_series.set(None);
+                        if let (Some((from, _)), Some(on_zoom)) = (dragged.take(), on_zoom) {
+                            let x = event.element_coordinates().x;
+                            let to = if x <= LEFT {
+                                Some(0)
+                            } else if x >= width - RIGHT {
+                                Some(periods.len().saturating_sub(1))
+                            } else {
+                                None
+                            };
+                            if let Some(to) = to.filter(|to| *to != from && *to < periods.len()) {
+                                on_zoom.call((periods[from.min(to)].0, periods[from.max(to)].1));
+                            }
+                        }
+                    }
                 },
                 // Each tick is a keyed group, as unkeyed items of more than one element can leave old labels behind when the
                 // number of ticks changes.

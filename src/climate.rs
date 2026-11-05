@@ -104,11 +104,15 @@ fn parse(time: &str) -> Option<OffsetDateTime> {
 fn save(dir: &Path, device: &DeviceProfile, records: &[Value]) -> anyhow::Result<usize> {
     let mut files: BTreeMap<PathBuf, Vec<(String, Saved)>> = BTreeMap::new();
     let mut name = None;
+    // Records which are not periods, e.g. another feature's on a damaged SD card, counted, with the first, for one
+    // warning, rather than one each, which can be hundreds a read.
+    let mut not_periods = (0, None);
     for record in records {
         let field = |key: &str| record.get(key).and_then(Value::as_str);
         let (Some(series), Some(start), Some(end), Some(value)) =
             (field("series"), field("start"), field("end"), record.get("value").and_then(Value::as_f64)) else {
-            crate::log_warning!("A temperature or humidity record from {} is not a period, {record}", device.id);
+            not_periods.0 += 1;
+            not_periods.1.get_or_insert(record);
             continue;
         };
         let Some(start_time) = parse(start) else { continue };
@@ -117,6 +121,9 @@ fn save(dir: &Path, device: &DeviceProfile, records: &[Value]) -> anyhow::Result
             .or_default()
             .push((start.to_string(), Saved { end: end.to_string(), value, open }));
         name = field("capturedBy").or(name);
+    }
+    if let (count, Some(first)) = not_periods {
+        crate::log_warning!("{count} of the temperature and humidity records from {} are not periods, e.g. {first}", device.id);
     }
     let mut changed = 0;
     for (path, periods) in files {
@@ -239,15 +246,14 @@ impl Module for ClimateReader {
         self.capture.next_read(now, POLL_INTERVAL)
     }
 
-    /// Reads each device's periods since the end of the latest saved of it, saving them a device at a time, as reading
-    /// and writing a day's file for each period would be slow when catching up.
+    /// Reads each device's periods since the end of the latest saved of it, its own, as each device's are its own, so
+    /// that a device with none, e.g. one without a sensor, does not make the others give all they have, saving them a
+    /// device at a time, as reading and writing a day's file for each period would be slow when catching up.
     async fn poll(&self, _slot: Option<OffsetDateTime>) -> anyhow::Result<String> {
         let dir = dir(&self.profile_name)?;
         let devices = crate::capture_device::adopted_devices(&self.profile_name);
-        // The earliest of the devices', so that none misses any; those already saved are not saved again.
-        let since = devices.iter().map(|device| latest_end(&dir, &device.id)).min().flatten();
         let mut read: Vec<(DeviceProfile, Vec<Value>)> = Vec::new();
-        let takes = self.capture.read(&devices, since, &mut |device, record| {
+        let takes = self.capture.read_each(&devices, &|device| latest_end(&dir, &device.id), &mut |device, record| {
             match read.last_mut() {
                 Some((last, records)) if last.id == device.id => records.push(record.clone()),
                 _ => read.push((device.clone(), vec![record.clone()])),

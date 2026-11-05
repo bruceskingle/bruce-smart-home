@@ -1780,3 +1780,48 @@ tr.minute-row td {
 .device-battery {
     max-width: 40rem;
 }
+
+/* The time zone of a page's times, e.g. the Electricity page's, see views/electricity.rs. */
+.timezone {
+    color: var(--muted);
+    margin-top: -0.5rem;
+}
+
+/* Home's Live page, see views/live.rs: dots moving along a line in the direction the energy flows, a dot every 16
+   units, moved on by one gap each animation, whose duration the page sets by the power, and back along it, reverse, for
+   energy coming out of a circuit, e.g. solar panels making. */
+.topology-line.flow {
+    stroke-width: 4;
+    stroke-dasharray: 2 14;
+    stroke-linecap: round;
+    animation-name: topology-flow;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+}
+
+.topology-line.flow.reverse {
+    animation-direction: reverse;
+}
+
+@keyframes topology-flow {
+    to {
+        stroke-dashoffset: -16;
+    }
+}
+
+.live-power {
+    font-size: 14px;
+    fill: #d0d0d0;
+}
+
+/* When a circuit's power on the Live page is of, if it is older than the rest, e.g. the zappi's latest minute. */
+.live-older {
+    fill: var(--muted);
+    font-size: 12px;
+}
+
+/* Shows the page, which the window's head hides until this stylesheet has loaded, see app.rs INITIAL_HEAD, so that it is
+   not seen without its styles as the app starts. */
+#main {
+    visibility: visible;
+}

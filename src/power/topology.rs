@@ -580,6 +580,10 @@ pub(crate) mod tests {
         fn power(&self, channel: &str, _start: i64, _end: i64) -> Option<f64> {
             (channel == self.channel).then_some(self.watts)
         }
+
+        fn latest(&self) -> Option<i64> {
+            None
+        }
     }
 
     #[test]

@@ -12,7 +12,7 @@ Buttons such as **30min**, **Day**, **Week** and **Month** choose how long each 
 
 ## Zooming
 
-- **Drag across bars** to zoom in to them.
+- **Drag across bars** to zoom in to them. Dragging past either end of the graph zooms in from where the drag started to that end; leaving it above or below gives up the drag.
 - **Double click a bar** to see it in more detail, with shorter bars.
 - **Right click** for a menu: **Zoom Out** goes back to where you were before zooming in, **Previous** and **Next** move to the range before or after, and **Reload this bar** downloads its data again.
 

@@ -6,6 +6,10 @@ Home has its pages listed down the left, which ![Hide the page list](icons/hide-
 
 [Electricity](electricity.md), where the profile's electricity went, from the module which supplies it, Octopus or GloBird. It is the first page shown, unless the profile has neither yet.
 
+## Live
+
+[Live](live.md), what each circuit of the site is taking or giving now, with dots moving the way the energy flows.
+
 ## Site
 
 [Site](site.md), where in the house each module measures, which the Electricity page needs to split the import into the car's, the batteries' and the house's.

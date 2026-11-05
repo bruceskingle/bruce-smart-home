@@ -36,6 +36,8 @@ const HALF_HOUR: i64 = 1800;
 enum ElectricityView {
     Table,
     Graph,
+    /// Where the energy came from and where it went, see power::flows, where the site's topology places measurements.
+    Flows,
 }
 
 impl std::fmt::Display for ElectricityView {
@@ -43,6 +45,7 @@ impl std::fmt::Display for ElectricityView {
         match self {
             ElectricityView::Table => write!(f, "Table"),
             ElectricityView::Graph => write!(f, "Graph"),
+            ElectricityView::Flows => write!(f, "Flows"),
         }
     }
 }
@@ -198,7 +201,7 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
     let (start, end) = range().to_date_times(tz).map_err(|error| anyhow!(error))?;
     // As on the Home Mini page, periods which would be too many bars or rows can not be chosen, and the one shown is the
     // chosen one or the shortest longer one which fits.
-    let most_shown = if view() == ElectricityView::Graph { MAX_BARS } else { MAX_SHOWN };
+    let most_shown = if view() == ElectricityView::Table { MAX_SHOWN } else { MAX_BARS };
     let fits = |option: Period| option.seconds()
         .is_none_or(|seconds| ((end.unix_timestamp() - start.unix_timestamp()) / seconds) as usize <= most_shown);
     let shown_period = periods.iter().copied()
@@ -215,17 +218,40 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
         power::electricity(&loaded, split.as_ref().map(|split| split as &dyn power::measured::Split), start.unix_timestamp(),
             end.unix_timestamp(), shown_period, tz)
     });
+    // Where it came from and went, with the topology, of half hours at the shortest, see power::flows.
+    let can_flow = topology.is_some() && readings.as_ref().is_some_and(|readings| !readings.measurements.is_empty());
+    // Of minutes at the shortest, as the zappi's records are.
+    let flow_period = shown_period.max(Period::Minute);
+    let flows = (view() == ElectricityView::Flows).then(|| {
+        let (Some(topology), Some(readings)) = (topology.as_ref(), readings.as_ref()) else { return Vec::new() };
+        let loaded: Vec<&dyn LoadedElectricity> = readings.electricity.iter().map(|loaded| loaded.as_ref()).collect();
+        // The grid's readings of the period, or of half hours, which flows adds up into it.
+        let detail = flow_period.min(Period::HalfHour);
+        let electricity = power::electricity(&loaded, None, start.unix_timestamp(), end.unix_timestamp(), detail, tz);
+        let grid: Vec<power::flows::GridReading> = electricity.points.iter()
+            .map(|point| power::flows::GridReading { start: point.start, end: point.end, import: point.import.iter().sum(), export: point.export })
+            .collect();
+        power::flows::flows(topology, &readings.measurements, &grid, flow_period, tz)
+    });
     // The next shorter period to drill down to, if the source has it.
     let shorter = shown_period.shorter().filter(|shorter| periods.contains(shorter));
     let comparison = electricity.as_ref().and_then(|electricity| ev_comparison(&electricity.points));
     // The import labels and export, if there is any, e.g. not on the page of one meter register, and Octopus's split
     // of the car's import if there is any to compare, for the categories menu.
-    let categories: Vec<String> = electricity.as_ref()
-        .map(|electricity| electricity.labels.iter().cloned()
-            .chain(has_export(electricity).then(|| String::from(EXPORT_LABEL)))
-            .chain(comparison.map(|_| String::from(OCTOPUS_EV_LABEL)))
-            .collect())
-        .unwrap_or_default();
+    let categories: Vec<String> = match &flows {
+        Some(flows) => {
+            let (sources, uses) = flow_labels(flows);
+            let mut all = sources;
+            all.extend(uses.into_iter().filter(|label| label != power::flows::BATTERY));
+            all
+        },
+        None => electricity.as_ref()
+            .map(|electricity| electricity.labels.iter().cloned()
+                .chain(has_export(electricity).then(|| String::from(EXPORT_LABEL)))
+                .chain(comparison.map(|_| String::from(OCTOPUS_EV_LABEL)))
+                .collect())
+            .unwrap_or_default(),
+    };
 
     let on_drill = move |(bar_start, bar_end): (i64, i64)| {
         let Some(next) = shorter else {
@@ -299,6 +325,9 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
             match view() {
                 ElectricityView::Table => electricity_table(electricity, compares_ev, tz),
                 ElectricityView::Graph => electricity_graph(electricity, &start, &end, shown_period, shorter.is_some(), mode(), &filter.read(), tz, on_drill, on_zoom, menu),
+                ElectricityView::Flows => flows_graphs(flows.as_deref().unwrap_or_default(), &start, &end, flow_period, &filter.read(), tz,
+                    shorter.is_some().then(|| EventHandler::new(on_drill)),
+                    (end.unix_timestamp() - start.unix_timestamp() > HALF_HOUR).then(|| EventHandler::new(on_zoom))),
             }
             for loaded in readings.iter().flat_map(|readings| readings.electricity.iter()) {
                 {loaded.notes(electricity)}
@@ -313,15 +342,24 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
         (Some(Ok(_)), None) => rsx! {},
     };
 
+    // The site's time zone, which the times are in, see ElectricitySource::timezone, e.g. Sydney's for GloBird's.
+    let zone = {
+        use time_tz::TimeZone;
+        format!("Times in {} ({})", tz.name(), zone_name(crate::clock::now_utc().unix_timestamp(), tz))
+    };
+
     rsx! {
         h1 { "{title}" }
+        p { class: "timezone", "{zone}" }
         for warning in warnings {
             p { class: "invalid", "{warning}" }
         }
         div { class: "date-range date-range-row",
             DateRangePicker { range, timezone: tz }
             span { class: "view-toggle",
-                for option in [ElectricityView::Table, ElectricityView::Graph] {
+                for option in [ElectricityView::Table, ElectricityView::Graph, ElectricityView::Flows].into_iter()
+                    .filter(|option| *option != ElectricityView::Flows || can_flow)
+                {
                     button {
                         r#type: "button",
                         class: if view() == option { "active" },
@@ -352,7 +390,7 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
                     }
                 }
             }
-            if view() == ElectricityView::Graph {
+            if view() != ElectricityView::Table {
                 CategoryFilterMenu {
                     filter,
                     categories: categories.clone(),
@@ -531,15 +569,54 @@ fn electricity_table(electricity: &Electricity, compares_ev: bool, tz: &'static 
 
 /// A bar for each period, with the import of each label stacked above zero and the export below it.
 #[allow(clippy::too_many_arguments)]
+/// The name of tz's zone at time, a unix timestamp, e.g. AEDT, or GMT, which changes when the clocks do, as the time
+/// zone database gives it, which for some zones is the offset, e.g. +11.
+fn zone_name(time: i64, tz: &'static Tz) -> String {
+    use time_tz::{Offset, TimeZone};
+    time::OffsetDateTime::from_unix_timestamp(time).map(|time| tz.get_offset_utc(&time).name().to_string()).unwrap_or_default()
+}
+
+/// A bar's tick label, with how round its time is, see StackedBarPoint::tick_rank, and the label of its period, for its
+/// tooltip, e.g. 2026-11-05 14:00:00–14:30:00, or Week of 2026-11-02, None if its times are out of range.
+fn bar_labels(start: i64, end: i64, period: Period, tz: &'static Tz) -> Option<((Option<String>, u8), String)> {
+    let date_format = time::macros::format_description!("[year]-[month]-[day]");
+    let seconds_format = time::macros::format_description!("[hour]:[minute]:[second]");
+    let day_format = time::macros::format_description!("[day] [month repr:short]");
+    let month_format = time::macros::format_description!("[month repr:short] [year]");
+    let long_month_format = time::macros::format_description!("[month repr:long] [year]");
+    let local = |timestamp: i64| time::OffsetDateTime::from_unix_timestamp(timestamp).map(|time| time.to_timezone(tz)).ok();
+    let (point_start, point_end) = (local(start)?, local(end)?);
+    Some(match period {
+        Period::Day => (
+            (Some(point_start.format(&day_format).unwrap_or_default()), 0),
+            point_start.format(&date_format).unwrap_or_default(),
+        ),
+        Period::Week => (
+            (Some(format!("Week of {}", point_start.format(&day_format).unwrap_or_default())), 0),
+            format!("Week of {}", point_start.format(&date_format).unwrap_or_default()),
+        ),
+        Period::Month => (
+            (Some(point_start.format(&month_format).unwrap_or_default()), 0),
+            point_start.format(&long_month_format).unwrap_or_default(),
+        ),
+        // With the zone, as the site's may not be the computer's, e.g. Sydney's.
+        _ => (
+            time_tick_label(start, end, tz),
+            format!(
+                "{} {}–{} {}",
+                point_start.format(&date_format).unwrap_or_default(),
+                point_start.format(&seconds_format).unwrap_or_default(),
+                point_end.format(&seconds_format).unwrap_or_default(),
+                zone_name(start, tz),
+            ),
+        ),
+    })
+}
+
 fn electricity_graph(electricity: &Electricity, start: &DateTime, end: &DateTime, period: Period, drill: bool, mode: ElectricityMode,
     filter: &CategoryFilter, tz: &'static Tz, on_drill: impl FnMut((i64, i64)) + 'static, on_zoom: impl FnMut((i64, i64)) + 'static,
     menu: Vec<BarMenuItem>) -> Element
 {
-    let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
-    let seconds_format = time::format_description::parse("[hour]:[minute]:[second]").unwrap();
-    let day_format = time::format_description::parse("[day] [month repr:short]").unwrap();
-    let month_format = time::format_description::parse("[month repr:short] [year]").unwrap();
-    let long_month_format = time::format_description::parse("[month repr:long] [year]").unwrap();
     let local = |timestamp: i64| time::OffsetDateTime::from_unix_timestamp(timestamp).map(|time| time.to_timezone(tz)).ok();
 
     let several_days = local(start.unix_timestamp()).map(|time| time.date()) != local(end.unix_timestamp() - 1).map(|time| time.date());
@@ -589,30 +666,7 @@ fn electricity_graph(electricity: &Electricity, start: &DateTime, end: &DateTime
     let bars: Vec<StackedBarPoint> = points.iter()
         .enumerate()
         .filter_map(|(index, point)| {
-            let (point_start, point_end) = (local(point.start)?, local(point.end)?);
-            let ((tick_label, tick_rank), period_label) = match period {
-                Period::Day => (
-                    (Some(point_start.format(&day_format).unwrap_or_default()), 0),
-                    point_start.format(&date_format).unwrap_or_default(),
-                ),
-                Period::Week => (
-                    (Some(format!("Week of {}", point_start.format(&day_format).unwrap_or_default())), 0),
-                    format!("Week of {}", point_start.format(&date_format).unwrap_or_default()),
-                ),
-                Period::Month => (
-                    (Some(point_start.format(&month_format).unwrap_or_default()), 0),
-                    point_start.format(&long_month_format).unwrap_or_default(),
-                ),
-                _ => (
-                    time_tick_label(point.start, point.end, tz),
-                    format!(
-                        "{} {}–{}",
-                        point_start.format(&date_format).unwrap_or_default(),
-                        point_start.format(&seconds_format).unwrap_or_default(),
-                        point_end.format(&seconds_format).unwrap_or_default(),
-                    ),
-                ),
-            };
+            let ((tick_label, tick_rank), period_label) = bar_labels(point.start, point.end, period, tz)?;
             Some(StackedBarPoint {
                 start: point.start,
                 end: point.end,
@@ -716,5 +770,91 @@ pub fn ElectricityPage() -> Element {
             p { "None of this profile's modules has electricity to show, e.g. Octopus, GloBird or Tesla. Choose one on the Modules page." }
             {not_ready(waiting)}
         },
+    }
+}
+
+/// The labels of flows' sources, Grid, Solar and Battery, and of their uses, the loads, e.g. EV and Home, then
+/// Battery, Export and Not measured, of those any period has.
+fn flow_labels(flows: &[power::flows::FlowPoint]) -> (Vec<String>, Vec<String>) {
+    use power::flows::{BATTERY, GRID, NOT_MEASURED, SOLAR};
+    let sources = [GRID, SOLAR, BATTERY].into_iter()
+        .filter(|label| flows.iter().any(|point| point.sources.contains_key(*label)))
+        .map(String::from)
+        .collect();
+    let last = [BATTERY, EXPORT_LABEL, NOT_MEASURED];
+    let mut uses: Vec<String> = flows.iter().flat_map(|point| point.uses.keys().cloned()).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+    // The car and the house first, as on the Graph, then the others by name, then the batteries, export and the rest.
+    uses.sort_by_key(|label| (label != "EV", label != "Home", last.iter().position(|last| last == label), label.clone()));
+    (sources, uses)
+}
+
+/// Where the energy came from and where it went, see power::flows, as two graphs over the range, one above the other,
+/// each in the categories' colours, as filter shows them, which on_drill and on_zoom show in more detail, as the Graph's
+/// do.
+fn flows_graphs(flows: &[power::flows::FlowPoint], start: &DateTime, end: &DateTime, period: Period, filter: &CategoryFilter,
+    tz: &'static Tz, on_drill: Option<EventHandler<(i64, i64)>>, on_zoom: Option<EventHandler<(i64, i64)>>) -> Element
+{
+    if flows.is_empty() {
+        return rsx! { p { "No readings in this period" } };
+    }
+    let (sources, uses) = flow_labels(flows);
+    let several_days = {
+        let local = |timestamp: i64| time::OffsetDateTime::from_unix_timestamp(timestamp).map(|time| time.to_timezone(tz).date()).ok();
+        local(start.unix_timestamp()) != local(end.unix_timestamp() - 1)
+    };
+    let x_bands = if !period.is_calendar() && several_days { day_bands(start.unix_timestamp(), end.unix_timestamp(), tz) } else { Vec::new() };
+    let graph = |labels: &[String], value: fn(&power::flows::FlowPoint) -> &std::collections::BTreeMap<String, f64>| {
+        let categories: Vec<(String, Vec<f64>)> = labels.iter()
+            .map(|label| (label.clone(), flows.iter().map(|point| value(point).get(label).copied().unwrap_or_default()).collect()))
+            .collect();
+        let shown: Vec<CategoryValues> = filter.apply(categories, flows.len(), false);
+        let bars: Vec<StackedBarPoint> = flows.iter()
+            .enumerate()
+            .filter_map(|(index, point)| {
+                let ((tick_label, tick_rank), period_label) = bar_labels(point.start, point.end, period, tz)?;
+                Some(StackedBarPoint {
+                    start: point.start,
+                    end: point.end,
+                    tick_label,
+                    tick_rank,
+                    period_label,
+                    detail: None,
+                    values: shown.iter().map(|category| category.values[index]).collect(),
+                })
+            })
+            .collect();
+        rsx! {
+            StackedBarGraph {
+                points: bars,
+                series: shown.iter()
+                    .map(|category| StackedBarSeries { label: category.label.clone(), color: category.color.clone() })
+                    .collect::<Vec<_>>(),
+                mode: StackedBarMode::Units,
+                currency: Currency::NONE,
+                unit: String::from("kWh"),
+                per_seconds: Some(period.seconds().unwrap_or(86400)),
+                x_bands: x_bands.clone(),
+                on_drill,
+                on_zoom,
+            }
+        }
+    };
+    rsx! {
+        h2 { "Where it came from" }
+        {graph(&sources, |point| &point.sources)}
+        h2 { "Where it went" }
+        {graph(&uses, |point| &point.uses)}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_zone_is_named_as_the_clocks_are_then() {
+        // 5 November 2026, summer in Sydney and winter in London, and early July.
+        let november = 1_793_836_800;
+        assert_eq!(super::zone_name(november, time_tz::timezones::db::australia::SYDNEY), "AEDT");
+        assert_eq!(super::zone_name(november, time_tz::timezones::db::europe::LONDON), "GMT");
+        assert_eq!(super::zone_name(november - 123 * 86400, time_tz::timezones::db::europe::LONDON), "BST");
     }
 }

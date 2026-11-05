@@ -250,8 +250,12 @@ Unlike the NSPanel's, which is drawn for one house, it would be drawn from the s
    EV for the car and Home for the house, as Octopus's labels have them, or its name, e.g. Hot water Low Rate. Colours
    chosen, for categories on the Site page and for labels in the graphs' Categories menus, are saved with the profile,
    a category's being the default of its labels'.
-5. The live flow display, from the topology and the latest readings.
-6. Graphs of where the energy came from and where it went, beside the Electricity graph, which mixes the two and is
+5. The live flow display, from the topology and the latest readings. Done, `power/live.rs` and Home's Live page: each
+   circuit's power over the latest minute every placed measurement has, with dots moving along the lines, read from the
+   capture devices every 10 seconds while the page is shown, the zappi's latest minute where it lags, marked with its
+   time. Streaming from the devices was considered and left: they poll every 10 seconds anyway, and their web server
+   handles one request at a time.
+6. Done, `power/flows.rs` and the Electricity page's Flows view: graphs of where the energy came from and where it went, beside the Electricity graph, which mixes the two and is
    hard to read, as the first household's Home Assistant energy dashboard shows them: sources, the grid, the solar
    panels and the batteries discharging, and sinks, the house, the car, the batteries charging and export, each
    stacked over time, from the topology's split.

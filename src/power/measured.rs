@@ -63,6 +63,9 @@ pub trait Measurements {
     /// A channel's average power from start to end, in W, into its circuit, negative out of it, e.g. while solar
     /// panels make, which is steadier than its energy's changes over a few seconds, see power::topology.
     fn power(&self, channel: &str, start: i64, end: i64) -> Option<f64>;
+
+    /// The time of its latest reading, as a unix timestamp, None if it has none, for the Live page, see power::live.
+    fn latest(&self) -> Option<i64>;
 }
 
 /// What splits the grid's import by what it was used for, which combine is given without knowing how, see
@@ -130,6 +133,10 @@ impl Measurements for RegisterMeasurements {
 
     fn power(&self, channel: &str, start: i64, end: i64) -> Option<f64> {
         power(&self.registers, start, end, channel_fields(channel)?.2?)
+    }
+
+    fn latest(&self) -> Option<i64> {
+        self.registers.last().map(|registers| registers.time as i64)
     }
 }
 

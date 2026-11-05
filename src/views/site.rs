@@ -25,16 +25,16 @@ use crate::{MarcoSparkoContext, ModuleRegistrations};
 
 /// The size of a circuit's box in the diagram, with one channel, and the gaps between them, in the SVG's units. Each
 /// channel is a line of its own, see box_height.
-const BOX_WIDTH: f64 = 190.0;
-const BOX_HEIGHT: f64 = 54.0;
-const LINE_HEIGHT: f64 = 16.0;
-const COLUMN_GAP: f64 = 70.0;
-const ROW_GAP: f64 = 18.0;
-const MARGIN: f64 = 8.0;
+pub(super) const BOX_WIDTH: f64 = 190.0;
+pub(super) const BOX_HEIGHT: f64 = 54.0;
+pub(super) const LINE_HEIGHT: f64 = 16.0;
+pub(super) const COLUMN_GAP: f64 = 70.0;
+pub(super) const ROW_GAP: f64 = 18.0;
+pub(super) const MARGIN: f64 = 8.0;
 
 /// The colour of a circuit: a kind's, or its category's, from colours, the profile's categories', see
 /// category_colours, as the Electricity page's labels have them, e.g. the car's is EV Low Rate's.
-fn use_colour(use_: &Use, colours: &BTreeMap<String, String>) -> String {
+pub(super) fn use_colour(use_: &Use, colours: &BTreeMap<String, String>) -> String {
     match use_ {
         Use::Grid => String::from("#b0b0b0"),
         Use::Board => String::from("#e0e0e0"),
@@ -44,7 +44,7 @@ fn use_colour(use_: &Use, colours: &BTreeMap<String, String>) -> String {
 }
 
 /// The colour of each of the profile's categories and the batteries', see category_filter::category_colour.
-fn category_colours(settings: &ProfileSettings) -> BTreeMap<String, String> {
+pub(super) fn category_colours(settings: &ProfileSettings) -> BTreeMap<String, String> {
     let categories = settings.all_categories();
     categories.iter().map(String::as_str).chain([crate::power::topology::BATTERY])
         .map(|category| (category.to_string(), category_colour(category, &settings.colours, &categories)))
@@ -65,25 +65,25 @@ fn at<'a>(circuit: &'a mut Circuit, path: &[usize]) -> &'a mut Circuit {
 }
 
 /// A circuit placed in the diagram, by its depth, its column, and the middle of its box, see place.
-struct Placed {
-    depth: usize,
-    y: f64,
-    name: String,
-    use_: Use,
-    channels: Vec<String>,
+pub(super) struct Placed {
+    pub(super) depth: usize,
+    pub(super) y: f64,
+    pub(super) name: String,
+    pub(super) use_: Use,
+    pub(super) channels: Vec<String>,
     /// Its parent's place in the list, if it has one.
-    parent: Option<usize>,
+    pub(super) parent: Option<usize>,
 }
 
 /// The height of a circuit's box, with a line for each of its channels, or for "the rest".
-fn box_height(channels: usize) -> f64 {
+pub(super) fn box_height(channels: usize) -> f64 {
     BOX_HEIGHT + channels.saturating_sub(1) as f64 * LINE_HEIGHT
 }
 
 /// Places circuit and those under it, each leaf below the last, from top, and each circuit level with the middle of
 /// its children, or if its box is taller than they are, they level with it, returning the middle of its box. top
 /// is moved below what was placed.
-fn place(circuit: &Circuit, depth: usize, parent: Option<usize>, top: &mut f64, placed: &mut Vec<Placed>) -> f64 {
+pub(super) fn place(circuit: &Circuit, depth: usize, parent: Option<usize>, top: &mut f64, placed: &mut Vec<Placed>) -> f64 {
     let index = placed.len();
     placed.push(Placed { depth, y: 0.0, name: circuit.name.clone(), use_: circuit.use_.clone(), channels: circuit.channels.clone(), parent });
     let height = box_height(circuit.channels.len());
@@ -106,7 +106,7 @@ fn place(circuit: &Circuit, depth: usize, parent: Option<usize>, top: &mut f64, 
     y
 }
 
-fn column_x(depth: usize) -> f64 {
+pub(super) fn column_x(depth: usize) -> f64 {
     MARGIN + depth as f64 * (BOX_WIDTH + COLUMN_GAP)
 }
 

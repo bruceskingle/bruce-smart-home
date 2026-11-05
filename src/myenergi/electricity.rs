@@ -146,6 +146,11 @@ impl Measurements for ZappiMeasurements {
         })
     }
 
+    /// The end of the latest minute every zappi has a record of.
+    fn latest(&self) -> Option<i64> {
+        self.zappis.iter().map(|(_, minutes)| minutes.keys().next_back().map(|minute| minute + 60)).min().flatten()
+    }
+
     /// The average power of the minutes, as a record is a minute's energy.
     fn power(&self, channel: &str, start: i64, end: i64) -> Option<f64> {
         let flow = self.energy(channel, start, end)?;

@@ -35,6 +35,7 @@ pub fn Home(
         let topic = match page() {
             "electricity" => "electricity.md",
             "site" => "site.md",
+            "live" => "live.md",
             "devices" => "devices.md",
             "climate" => "climate.md",
             _ => "home.md",
@@ -240,6 +241,7 @@ pub fn Home(
                         match page() {
                             "electricity" => rsx! { super::electricity::ElectricityPage {} },
                             "site" => rsx! { super::SitePage {} },
+                            "live" => rsx! { super::LivePage {} },
                             "polling" => rsx! { PollingPage {} },
                             "devices" => rsx! { super::Devices {} },
                             "climate" => rsx! { super::ClimatePage {} },
@@ -253,8 +255,9 @@ pub fn Home(
 }
 
 /// The pages of Home.
-const HOME_PAGES: [PageInfo; 6] = [
+const HOME_PAGES: [PageInfo; 7] = [
     PageInfo { label: "Electricity", path: "electricity" },
+    PageInfo { label: "Live", path: "live" },
     PageInfo { label: "Site", path: "site" },
     PageInfo { label: "Modules", path: "modules" },
     PageInfo { label: "Polling", path: "polling" },

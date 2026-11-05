@@ -308,9 +308,15 @@ impl DeviceClient {
                 Some(query) => format!("{}?{query}", url.path()),
                 None => url.path().to_string(),
             };
+            // One request at a time to each device, as over HTTPS, see send: a device answering requests which overlap
+            // gives wrong answers, e.g. no records, or another feature's, seen on the RLCD on 5 November 2026.
+            let lock = device_lock(&self.base);
+            let _turn = lock.lock().await;
             let authorization = sign(key, "GET", &uri, time::OffsetDateTime::now_utc().unix_timestamp())?;
             let request = self.plain.get(url).header(reqwest::header::AUTHORIZATION, authorization).timeout(PAGE_TIMEOUT);
-            match Self::receive(request).await {
+            let result = Self::receive(request).await;
+            drop(_turn);
+            match result {
                 Err(error) if error.downcast_ref::<StatusError>().is_some_and(|error| [401, 404].contains(&error.status)) => {
                     crate::log_info!("Capture device at {} did not take a signed request for {path}, using HTTPS, {error:#}", self.address);
                 }
@@ -618,11 +624,18 @@ impl CaptureReader {
     /// if none which does could be read.
     pub async fn read(&self, devices: &[DeviceProfile], since: Option<time::OffsetDateTime>,
         save: &mut dyn FnMut(&DeviceProfile, &Value) -> anyhow::Result<bool>, progress: &mut dyn FnMut(String)) -> anyhow::Result<bool> {
+        self.read_each(devices, &|_| since, save, progress).await
+    }
+
+    /// As read, with since_for giving each device's since, e.g. the latest the app has of that device's own records,
+    /// for records which are each device's own, e.g. its temperature, rather than copies of a source's.
+    pub async fn read_each(&self, devices: &[DeviceProfile], since_for: &dyn Fn(&DeviceProfile) -> Option<time::OffsetDateTime>,
+        save: &mut dyn FnMut(&DeviceProfile, &Value) -> anyhow::Result<bool>, progress: &mut dyn FnMut(String)) -> anyhow::Result<bool> {
         let mut takes = false;
         let mut read_any = false;
         let mut first_error = None;
         for device in devices {
-            match self.read_device(device, since, save, progress).await {
+            match self.read_device(device, since_for(device), save, progress).await {
                 Ok(()) => {
                     takes = true;
                     read_any = true;
@@ -790,4 +803,21 @@ mod tests {
         println!("with the wrong fingerprint: {error:#}");
         assert!(format!("{error:#}").contains("not the one it had"));
     }
+}
+
+/// For --deviceget: GETs path, which may have a query, e.g. capture/climate/records?limit=5, of the active profile's
+/// capture device device, signed with the key the app keeps for it, which is not shown, and prints its response.
+pub fn cli_get(args: &crate::Args, device_id: &str, path: &str) -> anyhow::Result<()> {
+    let profile = crate::profile::fetch_active_profile(&args.marco_sparko_args.profile)?;
+    let device = profile.active_profile.settings.capture_devices.iter()
+        .find(|device| device.id == device_id)
+        .ok_or_else(|| anyhow::anyhow!("The profile {} has no capture device {device_id}", profile.active_profile.name))?;
+    let (path, query) = path.trim_start_matches('/').trim_start_matches("api/").split_once('?').unwrap_or((path, ""));
+    let query: Vec<(String, String)> = reqwest::Url::parse(&format!("http://device/?{query}"))?.query_pairs().into_owned().collect();
+    let query: Vec<(&str, String)> = query.iter().map(|(name, value)| (name.as_str(), value.clone())).collect();
+    let client = DeviceClient::for_device(device)?;
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let json = runtime.block_on(client.get_query(path, &query))?;
+    println!("{}", serde_json::to_string_pretty(&json)?);
+    Ok(())
 }

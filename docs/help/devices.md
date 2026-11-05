@@ -49,6 +49,7 @@ and buttons; clicking another's shows its card instead.
   card slot is empty. **Polls** lists the sources it takes, as it said when the app last read its records: any whose latest poll failed
   is in red, with the error, such as an API key the source did not accept, and when it last succeeded, as a tooltip.
   The log says when one starts failing, and when it polls again.
+- A device with its own temperature sensor, e.g. the Waveshare ESP32-S3-RLCD-4.2, reads high, as the board warms it, by an amount set in its settings as **Temperature Offset**, in tenths of a degree. To set it, put a thermometer beside it for half an hour, type what the thermometer says into **Actual temperature now** under the offset, and click **Work out offset**, which fills in the offset from the device's latest temperature, then **Save**. It takes effect when the device restarts.
 - A device with a battery, e.g. the Waveshare ESP32-S3-RLCD-4.2, shows its voltage over the last 2 days under its
   details, as it logs it with its temperature and humidity, so only while its **Temperature and Humidity Log** is on.
   The voltage says roughly how charged it is, but reads higher while it charges.

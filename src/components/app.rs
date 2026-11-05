@@ -43,9 +43,11 @@ const FAVICON: Asset = asset!("/icons/icon.ico");
 pub const MAIN_CSS: Asset = asset!("/assets/styling/main.css");
 
 /// The background of the app, as in main.css, for a window's webview and the page before the stylesheet has loaded,
-/// so that a window does not flash white as it opens.
+/// so that a window does not flash white as it opens. The page itself, in Dioxus's root element, main, is hidden until
+/// main.css has loaded, which shows it, so that it is not seen without its styles for a moment as the app starts. Every
+/// window links main.css, the main one in App and the bills' in BillWindow, or it would stay hidden.
 pub const BACKGROUND_COLOR: (u8, u8, u8, u8) = (0x0f, 0x11, 0x16, 0xff);
-pub const INITIAL_HEAD: &str = "<style>html, body { background-color: #0f1116; color: #ffffff; }</style>";
+pub const INITIAL_HEAD: &str = "<style>html, body { background-color: #0f1116; color: #ffffff; } #main { visibility: hidden; }</style>";
 
 /// App is the main component of our app. Components are the building blocks of dioxus apps. Each component is a function
 /// that takes some props and returns an Element. In this case, App takes no props because it is the root of our app.

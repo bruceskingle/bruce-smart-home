@@ -85,6 +85,11 @@ pub struct MarcoSparkoArgs {
     /// exit. Use with --profile demo, see docs/Screenshots.md
     #[arg(long, num_args = 0..=1, value_name = "SHOT_LIST", default_missing_value = screenshots::DEFAULT_FILE)]
     screenshots: Option<PathBuf>,
+    /// For developers: GET a path of the API of one of the profile's capture devices, by its ID, signed with the key the
+    /// app keeps for it, which is not shown, print the device's response, then exit, e.g.
+    /// --deviceget 441bf6cc7fcc "capture/climate/records?limit=5". No hyphen, see redact.
+    #[arg(long, num_args = 2, value_names = ["DEVICE", "PATH"])]
+    deviceget: Vec<String>,
 }
 
 pub struct Args {
@@ -160,6 +165,14 @@ impl Args {
     }
 
     /// Whether --fetch was given, to fetch the latest data without a window, see fetch_latest_data.
+    /// The device and the path to GET, with --deviceget, see MarcoSparkoArgs.
+    pub fn capture_get(&self) -> Option<(&str, &str)> {
+        match self.marco_sparko_args.deviceget.as_slice() {
+            [device, path] => Some((device.as_str(), path.as_str())),
+            _ => None,
+        }
+    }
+
     pub fn fetch(&self) -> bool {
         self.marco_sparko_args.fetch
     }
@@ -258,7 +271,7 @@ pub const FETCH_DAYS: i64 = 30;
 /// The labels the modules give energy, e.g. Home Low Rate, with their default colours, in the order they are shown,
 /// each module's own, then the app's, see components::category_filter.
 pub fn known_labels() -> impl Iterator<Item = &'static (&'static str, &'static str)> {
-    power::combine::LABELS.iter().chain(&globird::LABELS).chain(&power::LABELS)
+    power::combine::LABELS.iter().chain(&globird::LABELS).chain(&power::LABELS).chain(&power::flows::LABELS)
 }
 
 // Not Send, as fetch_latest_data is run on one thread, see fetch_latest_data, and the data sets' futures are not Send.

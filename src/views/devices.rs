@@ -771,7 +771,7 @@ fn DeviceSettings(device: DeviceProfile) -> Element {
                 Some(Err(error)) => rsx! { p { class: "invalid", {format!("Unable to read the settings, {error:#}")} } },
                 Some(Ok(json)) => rsx! {
                     for feature in json["features"].as_array().cloned().unwrap_or_default() {
-                        FeatureSettings { key: "{feature[\"name\"]}", feature, edits, enabled_edits }
+                        FeatureSettings { key: "{feature[\"name\"]}", feature, edits, enabled_edits, device_id: device.id.clone() }
                     }
                 },
             }
@@ -788,7 +788,7 @@ fn DeviceSettings(device: DeviceProfile) -> Element {
 
 /// One feature's settings, with whether it is enabled.
 #[component]
-fn FeatureSettings(feature: Value, edits: Signal<Edits>, enabled_edits: Signal<BTreeMap<String, bool>>) -> Element {
+fn FeatureSettings(feature: Value, edits: Signal<Edits>, enabled_edits: Signal<BTreeMap<String, bool>>, device_id: String) -> Element {
     let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
     let profile_name = context_signal.read().as_ref().map(|context| context.profile.active_profile.name.clone()).unwrap_or_default();
     let name = feature["name"].as_str().unwrap_or_default().to_string();
@@ -823,7 +823,7 @@ fn FeatureSettings(feature: Value, edits: Signal<Edits>, enabled_edits: Signal<B
                         r#type: "button",
                         title: "Fill in the settings this profile's modules know, e.g. the API key, to check, then Save",
                         onclick: {
-                            let name = name.clone();
+                            let (name, profile_name) = (name.clone(), profile_name.clone());
                             move |_| edits.write().extend(from_profile(&profile_name, &name))
                         },
                         "Fill in from this profile"
@@ -831,7 +831,11 @@ fn FeatureSettings(feature: Value, edits: Signal<Edits>, enabled_edits: Signal<B
                 }
             }
             for setting in settings {
-                SettingField { key: "{setting[\"name\"]}", feature: name.clone(), setting, edits }
+                SettingField { key: "{setting[\"name\"]}", feature: name.clone(), setting: setting.clone(), edits }
+                // The temperature sensor's offset is worked out from what a thermometer beside it says, see Calibrate.
+                if setting["name"] == json!(TEMPERATURE_OFFSET) {
+                    Calibrate { profile_name: profile_name.clone(), device_id: device_id.clone(), feature: name.clone(), setting, edits }
+                }
             }
         }
     }
@@ -999,6 +1003,57 @@ fn BatteryHistory(profile_name: String, device_id: String) -> Element {
         h3 { "Battery, {latest:.2} V" }
         div { class: "device-battery",
             {super::climate::series_graph(&crate::climate::BATTERY, &[("Battery", periods.as_slice())], from.unix_timestamp(), now.unix_timestamp(), tz)}
+        }
+    }
+}
+
+/// The name of the temperature sensor's offset setting, in tenths of a degree, see the platform's
+/// features/temperature_humidity.rs, which Calibrate works out.
+const TEMPERATURE_OFFSET: &str = "offset_tenths";
+
+/// Works out the temperature sensor's offset from what a thermometer beside the device says, typed in, and fills it in
+/// to Save: the device's latest temperature, as the app last read it, see climate.rs, less the offset it was taken with,
+/// setting's value on the device, is what the sensor itself read, and the offset is the thermometer's less that. To
+/// within a tenth, as the readings are kept to tenths, and as of the app's last read, a few minutes ago at most.
+#[component]
+fn Calibrate(profile_name: String, device_id: String, feature: String, setting: Value, edits: Signal<Edits>) -> Element {
+    let mut actual = use_signal(String::new);
+    let mut note = use_signal(|| None::<Result<String, String>>);
+    let now = crate::clock::now_utc();
+    let latest = crate::climate::dir(&profile_name).ok()
+        .map(|dir| crate::climate::load_series(&dir, &device_id, &crate::climate::SERIES[0], now - time::Duration::minutes(30), now))
+        .and_then(|periods| periods.last().map(|period| period.value));
+    let offset = setting["value"].as_f64().unwrap_or(0.0) / 10.0;
+    let work_out = move |_| {
+        let Ok(thermometer) = actual.read().trim().parse::<f64>() else {
+            note.set(Some(Err(String::from("Type the temperature the thermometer says, e.g. 24.8"))));
+            return;
+        };
+        let Some(latest) = latest else {
+            note.set(Some(Err(String::from("The app has no temperature from this device in the last half hour"))));
+            return;
+        };
+        let sensor = latest - offset;
+        let tenths = ((thermometer - sensor) * 10.0).round() as i64;
+        edits.write().insert((feature.clone(), String::from(TEMPERATURE_OFFSET)), json!(tenths));
+        note.set(Some(Ok(format!("The sensor reads {sensor:.1} °C, so the offset is {tenths}. Save to use it."))));
+    };
+    rsx! {
+        label { class: "device-setting",
+            span { "Actual temperature now (°C), from a thermometer beside it" }
+            input {
+                r#type: "number",
+                step: "0.1",
+                placeholder: latest.map(|latest| format!("shown now {latest:.1}")).unwrap_or_default(),
+                value: "{actual}",
+                oninput: move |event| actual.set(event.value()),
+            }
+            button { r#type: "button", onclick: work_out, "Work out offset" }
+        }
+        match note() {
+            Some(Ok(text)) => rsx! { p { class: "note", "{text}" } },
+            Some(Err(text)) => rsx! { p { class: "invalid", "{text}" } },
+            None => rsx! {},
         }
     }
 }
