@@ -6,6 +6,8 @@
 //! white screen shows the clock and numbers, and the status when KEY is pressed, see board and screen.rs.
 
 #[cfg(feature = "wave-esp32s3-rlcd-42")]
+mod battery;
+#[cfg(feature = "wave-esp32s3-rlcd-42")]
 mod climate;
 mod connections;
 mod day_files;

@@ -504,6 +504,7 @@ fn DeviceCard(
                     },
                 }
             }
+            BatteryHistory { profile_name: profile_name.clone(), device_id: device.id.clone() }
             div { class: "settings-buttons",
                 button { r#type: "button", disabled: busy(), onclick: move |_| show_settings.set(!show_settings()), if show_settings() { "Hide Settings" } else { "Settings" } }
                 button { r#type: "button", disabled: busy(), onclick: move |_| { status.set(None); generation += 1; }, "Refresh" }
@@ -975,5 +976,29 @@ mod tests {
         // Newest first, with the 2 not logged before the last.
         assert_eq!(restarts.list.iter().map(|(_, count, _, trouble, gap)| (*count, *trouble, *gap)).collect::<Vec<_>>(),
             vec![(Some(9), false, 2), (Some(6), true, 0), (Some(5), false, 0)]);
+    }
+}
+
+/// How many days of a device's battery the Devices page shows.
+const BATTERY_DAYS: i64 = 2;
+
+/// A device's battery's voltage over the last BATTERY_DAYS days, as it gave it with its temperature and humidity, see
+/// climate::BATTERY, as of the app's last read of it, nothing if it has none, e.g. a board without a battery.
+#[component]
+fn BatteryHistory(profile_name: String, device_id: String) -> Element {
+    let tz = time_tz::system::get_timezone().unwrap_or(time_tz::timezones::db::UTC);
+    let now = crate::clock::now_utc();
+    let from = now - time::Duration::days(BATTERY_DAYS);
+    let periods = crate::climate::dir(&profile_name)
+        .map(|dir| crate::climate::load_series(&dir, &device_id, &crate::climate::BATTERY, from, now))
+        .unwrap_or_default();
+    let Some(latest) = periods.last().map(|period| period.value) else {
+        return rsx! {};
+    };
+    rsx! {
+        h3 { "Battery, {latest:.2} V" }
+        div { class: "device-battery",
+            {super::climate::series_graph(&crate::climate::BATTERY, &[("Battery", periods.as_slice())], from.unix_timestamp(), now.unix_timestamp(), tz)}
+        }
     }
 }

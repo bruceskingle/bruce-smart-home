@@ -1,5 +1,6 @@
 //! Logs the board's own temperature and humidity sensor, e.g. the Waveshare ESP32-S3-RLCD-4.2's SHTC3, read every 10
-//! seconds. Unlike the other features' records, which are copies of what a source said, these are the readings
+//! seconds, and its battery's voltage, see sparko_esp_idf::battery, as a third series, which the app shows on the
+//! device's card rather than with the temperature and humidity, as it is about the device. Unlike the other features' records, which are copies of what a source said, these are the readings
 //! themselves, which no one else has, so each device's are its own.
 //!
 //! As they change slowly, each of temperature and humidity is kept as periods: a start, an end and a value, which lasts
@@ -93,6 +94,9 @@ impl Feature for ClimateCapture {
         let sample = SampleTask {
             sensor: sparko.shtc3(),
             series: [Series::new("temperature", "°C", 0.1, 1), Series::new("humidity", "%", 1.0, 0)],
+            // A step of 0.02 V, twice what is shown, so that its jitter of a hundredth does not make a period of each
+            // reading.
+            battery: sparko.battery().map(|battery| (battery, Series::new("battery", "V", 0.02, 2))),
             store: store.clone(),
             panel: self.panel.clone(),
             captured_by: captured_by(sparko),
@@ -200,6 +204,8 @@ struct SampleTask {
     sensor: sparko_esp_idf::shtc3::Shtc3,
     /// Temperature and humidity.
     series: [Series; 2],
+    /// The board's battery, if it can be read, and its voltage.
+    battery: Option<(Arc<sparko_esp_idf::battery::Battery>, Series)>,
     store: Arc<Mutex<Store>>,
     panel: Arc<Panel>,
     captured_by: String,
@@ -208,6 +214,21 @@ struct SampleTask {
 impl ScheduledTask<Esp32Platform> for SampleTask {
     fn run(&mut self, _sparko: &mut Esp32Platform) -> anyhow::Result<()> {
         let time = Utc::now();
+        // The battery whatever the sensor does, as it says how the board is powered.
+        if let Some((battery, series)) = &mut self.battery {
+            match battery.read() {
+                Ok(reading) => {
+                    let mut store = self.store.lock().unwrap();
+                    for (period, open) in series.add(time, reading.volts) {
+                        let record = series.to_json(&period, open, &self.captured_by);
+                        store.files.append(period.end, &record);
+                        let Store { files, ram, .. } = &mut *store;
+                        files.keep(ram, RAM_CAPACITY, period.end, record);
+                    }
+                },
+                Err(error) => warn!("Unable to read the battery, {error:#}"),
+            }
+        }
         let reading = match self.sensor.read() {
             Ok(reading) => reading,
             Err(error) => {

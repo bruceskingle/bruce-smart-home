@@ -500,3 +500,39 @@ git checkout scripts/release.sh
 
 # Old Release Instructions
 The manual build steps used before the workflow are in [Release-archive.md](Release-archive.md).
+
+## Signing the macOS App
+
+The workflow signs the macOS app and its `.dmg` with a Developer ID certificate, and notarizes both with Apple, so
+that a Mac opens them without warning that the developer can not be verified. `dx bundle` does both, given the
+certificate and an App Store Connect API key in the repository's secrets, see "Set up signing and notarizing" in
+[release.yml](../.github/workflows/release.yml). Without the secrets the app is built unsigned, as before. "Check the app
+is signed and notarized" in each Mac build's log says how it went: who signed it, and that Gatekeeper accepts it.
+
+Setting it up, once, needs the Apple Developer account's Account Holder or an Admin:
+
+1. **The certificate.** In Keychain Access, Certificate Assistant > Request a Certificate From a Certificate
+   Authority, with your email address, saved to disk. At
+   [Certificates](https://developer.apple.com/account/resources/certificates/list), + > **Developer ID Application**,
+   upload that request, and download the certificate. Open it, which adds it to the login keychain. In Keychain
+   Access, under My Certificates, export "Developer ID Application: *your name* (*team ID*)", with its private key,
+   as a `.p12` file, with a password.
+2. **The API key.** In [App Store Connect](https://appstoreconnect.apple.com/access/integrations/api), Users and Access
+   > Integrations > App Store Connect API > Team Keys, generate a key with the **Developer** role. Download its
+   `AuthKey_KEYID.p8`, which can only be downloaded once, and note its Key ID and the Issuer ID above the list.
+3. **The secrets**, in this repo's directory, from the files, so that nothing is typed or shown:
+
+   ```
+   base64 -i DeveloperID.p12 | gh secret set APPLE_CERTIFICATE
+   gh secret set APPLE_CERTIFICATE_PASSWORD                  # asks for the .p12's password
+   gh secret set APPLE_API_KEY --body KEYID
+   gh secret set APPLE_API_ISSUER --body ISSUER-ID
+   base64 -i AuthKey_KEYID.p8 | gh secret set APPLE_API_KEY_CONTENT
+   ```
+
+4. Keep the `.p12` and `.p8` somewhere safe, e.g. a password manager, and delete the copies on disk. A new key or
+   certificate only needs its secrets set again.
+
+Then [try the installers](#1-try-the-installers-optional). `dx bundle` does not ask `codesign` for a secure timestamp,
+which notarization needs; if the notarization fails for that, the log says "The signature does not include a secure
+timestamp", and the app will need signing again with `--timestamp` after `dx bundle`.

@@ -49,6 +49,9 @@ and buttons; clicking another's shows its card instead.
   card slot is empty. **Polls** lists the sources it takes, as it said when the app last read its records: any whose latest poll failed
   is in red, with the error, such as an API key the source did not accept, and when it last succeeded, as a tooltip.
   The log says when one starts failing, and when it polls again.
+- A device with a battery, e.g. the Waveshare ESP32-S3-RLCD-4.2, shows its voltage over the last 2 days under its
+  details, as it logs it with its temperature and humidity, so only while its **Temperature and Humidity Log** is on.
+  The voltage says roughly how charged it is, but reads higher while it charges.
 - **Refresh** asks the device again what it is, and **Restart** restarts it, when it can be reached.
 - **Release** gives the device back to its own /config page, and removes it from this profile.
 - **Forget** only removes it from this profile, e.g. if it no longer works. It stays adopted until its **BOOT** button

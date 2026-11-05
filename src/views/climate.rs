@@ -117,13 +117,20 @@ fn local_time(seconds: i64, tz: &Tz) -> String {
 
 /// The graph of the series at index of SERIES, of each device's periods, from from to to, as steps, a line each.
 fn graph(series: &Series, index: usize, devices: &[DeviceClimate], from: i64, to: i64, tz: &Tz) -> Element {
-    let values: Vec<f64> = devices.iter().flat_map(|device| device.series[index].iter().map(|period| period.value)).collect();
+    let lines: Vec<(&str, &[climate::Period])> = devices.iter().map(|device| (device.name.as_str(), device.series[index].as_slice())).collect();
+    series_graph(series, &lines, from, to, tz)
+}
+
+/// The graph of a series, of the periods of each of lines, by name, from from to to, as steps, a line each, e.g. a
+/// device's battery's voltage on the Devices page.
+pub fn series_graph(series: &Series, lines: &[(&str, &[climate::Period])], from: i64, to: i64, tz: &Tz) -> Element {
+    let values: Vec<f64> = lines.iter().flat_map(|(_, periods)| periods.iter().map(|period| period.value)).collect();
     if values.is_empty() {
         return rsx! { p { "No {series.label.to_lowercase()} readings in this period." } };
     }
     let (min, max) = values.iter().fold((f64::MAX, f64::MIN), |(min, max), value| (min.min(*value), max.max(*value)));
-    // At least a degree, or 5 %, so that the sensor's smallest steps do not fill the graph.
-    let span = (max - min).max(if series.decimals > 0 { 1.0 } else { 5.0 });
+    // At least a degree, 5 %, or a tenth of a volt, so that the smallest steps do not fill the graph.
+    let span = (max - min).max(match series.decimals { 0 => 5.0, 1 => 1.0, _ => 0.1 });
     let (step, decimals) = crate::components::stacked_bar_graph::nice_step(span / 4.0);
     let low = (min / step).floor() * step;
     let high = ((max / step).ceil() * step).max(low + step);
@@ -138,8 +145,8 @@ fn graph(series: &Series, index: usize, devices: &[DeviceClimate], from: i64, to
         .map(|value| (y(value), format!("{value:.decimals$}")))
         .collect();
     let x_ticks: Vec<(f64, String)> = time_ticks(from, to, tz).into_iter().map(|(time, label)| (x(time), label)).collect();
-    let lines: Vec<(String, &str, &str)> = devices.iter().enumerate()
-        .map(|(device_index, device)| (step_path(&device.series[index], from, to, &x, &y), COLOURS[device_index % COLOURS.len()], device.name.as_str()))
+    let lines: Vec<(String, &str, &str)> = lines.iter().enumerate()
+        .map(|(line_index, (name, periods))| (step_path(periods, from, to, &x, &y), COLOURS[line_index % COLOURS.len()], *name))
         .collect();
 
     rsx! {

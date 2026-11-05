@@ -36,6 +36,10 @@ pub const SERIES: [Series; 2] = [
     Series { name: "humidity", label: "Humidity", unit: "%", decimals: 0 },
 ];
 
+/// The board's battery's voltage, which a device with one, e.g. the RLCD, gives with the temperature and humidity, but
+/// which is about the device, so is shown on its card on the Devices page, not with them.
+pub const BATTERY: Series = Series { name: "battery", label: "Battery", unit: "V", decimals: 2 };
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Series {
     pub name: &'static str,
@@ -162,28 +166,31 @@ pub fn load(dir: &Path, from: OffsetDateTime, to: OffsetDateTime) -> Vec<DeviceC
             let named: Value = std::fs::read_to_string(path.join("device.json")).ok().and_then(|text| serde_json::from_str(&text).ok())?;
             let id = named.get("id")?.as_str()?.to_string();
             let name = named.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()).unwrap_or(&id).to_string();
-            let series = SERIES.map(|series| {
-                // A period which starts the day before may reach into the range.
-                let mut day = from.date().previous_day().unwrap_or(from.date());
-                let mut periods = Vec::new();
-                while day <= to.date() {
-                    for (start, saved) in read_day(&day_path(dir, &id, series.name, day)) {
-                        let (Some(start), Some(end)) = (parse(&start), parse(&saved.end)) else { continue };
-                        if end > from && start < to {
-                            periods.push(Period { start: start.unix_timestamp(), end: end.unix_timestamp(), value: saved.value });
-                        }
-                    }
-                    let Some(next) = day.next_day() else { break };
-                    day = next;
-                }
-                periods
-            });
+            let series = SERIES.map(|series| load_series(dir, &id, &series, from, to));
             Some(DeviceClimate { id, name, series })
         })
         .filter(|device| device.series.iter().any(|periods| !periods.is_empty()))
         .collect();
     devices.sort_by(|a, b| a.name.cmp(&b.name));
     devices
+}
+
+/// A device's periods of a series, of those saved, which overlap from to to, in time order.
+pub fn load_series(dir: &Path, id: &str, series: &Series, from: OffsetDateTime, to: OffsetDateTime) -> Vec<Period> {
+    // A period which starts the day before may reach into the range.
+    let mut day = from.date().previous_day().unwrap_or(from.date());
+    let mut periods = Vec::new();
+    while day <= to.date() {
+        for (start, saved) in read_day(&day_path(dir, id, series.name, day)) {
+            let (Some(start), Some(end)) = (parse(&start), parse(&saved.end)) else { continue };
+            if end > from && start < to {
+                periods.push(Period { start: start.unix_timestamp(), end: end.unix_timestamp(), value: saved.value });
+            }
+        }
+        let Some(next) = day.next_day() else { break };
+        day = next;
+    }
+    periods
 }
 
 /// Reads the periods from the profile's capture devices which take them, polled as MODULE_ID, see polling.rs.

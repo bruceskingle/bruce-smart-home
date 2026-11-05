@@ -105,6 +105,9 @@ impl Panel {
                 swipe: None,
             };
             initializer.add_task(Box::new(screen), crate::board::SCREEN_SCHEDULE)?;
+            // The RLCD's battery, below the temperature and humidity.
+            #[cfg(feature = "wave-esp32s3-rlcd-42")]
+            crate::battery::start(self.clone(), initializer)?;
         }
         Ok(())
     }

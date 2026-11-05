@@ -115,6 +115,41 @@ jobs:
       - name: Run the tests
         run: cargo test --locked
 
+      # The Developer ID certificate and App Store Connect API key, from the repository's secrets, for dx bundle, which
+      # signs the app and the .dmg with the certificate and notarizes and staples both with the key, see docs/Release.md.
+      # Without the secrets, e.g. on a fork, the app is built unsigned, as before. They go to the later steps through
+      # GITHUB_ENV, which GitHub keeps masked in the logs, and the key to a file, as notarytool needs it.
+      - name: Set up signing and notarizing
+        if: runner.os == 'macOS'
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          API_KEY: ${{ secrets.APPLE_API_KEY }}
+          API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          if [ -z "$CERTIFICATE" ]; then
+            echo "No APPLE_CERTIFICATE secret, so the app is not signed"
+            exit 0
+          fi
+          {
+            echo "APPLE_CERTIFICATE=$CERTIFICATE"
+            echo "APPLE_CERTIFICATE_PASSWORD=$CERTIFICATE_PASSWORD"
+            echo "SIGNED=true"
+          } >> "$GITHUB_ENV"
+          if [ -z "$API_KEY" ] || [ -z "$API_ISSUER" ] || [ -z "$API_KEY_CONTENT" ]; then
+            echo "No App Store Connect API key secrets, so the app is signed but not notarized"
+            exit 0
+          fi
+          key_path="$RUNNER_TEMP/AuthKey_$API_KEY.p8"
+          printf '%s' "$API_KEY_CONTENT" | base64 --decode > "$key_path"
+          {
+            echo "APPLE_API_KEY=$API_KEY"
+            echo "APPLE_API_ISSUER=$API_ISSUER"
+            echo "APPLE_API_KEY_PATH=$key_path"
+            echo "NOTARIZED=true"
+          } >> "$GITHUB_ENV"
+
       # The defaults: a .dmg on macOS and an NSIS setup.exe on Windows.
       - name: Build the installers
         run: dx bundle --release
@@ -129,6 +164,26 @@ jobs:
             echo "No installers were built"
             exit 1
           fi
+
+      # That the .dmg and the app in it are signed, by a Developer ID, and if notarized, that the tickets are stapled to
+      # both and Gatekeeper accepts them, as it would on a user's Mac when they are downloaded.
+      - name: Check the app is signed and notarized
+        if: runner.os == 'macOS' && env.SIGNED == 'true'
+        run: |
+          dmg=$(ls dist/*.dmg | head -1)
+          codesign --verify --verbose=2 "$dmg"
+          mount=$(mktemp -d)
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount" > /dev/null
+          app=$(ls -d "$mount"/*.app | head -1)
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign --display --verbose=2 "$app" 2>&1 | grep -E "Authority|TeamIdentifier|Timestamp|Runtime"
+          if [ "$NOTARIZED" = true ]; then
+            xcrun stapler validate "$dmg"
+            xcrun stapler validate "$app"
+            spctl --assess --type execute --verbose=2 "$app"
+            spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+          fi
+          hdiutil detach "$mount" > /dev/null
 
       # Installs the app as a user would, silently, and checks that it starts and is still running 30 seconds later.
       - name: Check the installed app starts

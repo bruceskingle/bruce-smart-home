@@ -29,12 +29,29 @@ use, costs and bills from Octopus Energy, and what its Tesla Powerwalls and myen
   Give the app arguments with `--args`, e.g. `dx serve --args="--profile=test"`; the `=` is needed when the value
   starts with `-`.
 - `cargo build` and `cargo test` are fine for compiling and the tests.
+- The VS Code debug launch, `.vscode/launch.json`, runs the app with `-v` and writes its stdout to `target/verbose.log`,
+  overwritten each run: the GraphQL requests and replies, errors and cache activity. Read it after a run the owner
+  reports, rather than asking for the log. `eprintln!` output is not in it.
 - The code is not formatted with rustfmt, so do not run `cargo fmt` or treat `cargo fmt --check` as a failure; match
   the formatting of the code around a change.
 - Try changes with a redacted, offline profile, made with `--redact <profile> <new profile>`, see
   [docs/Redaction.md](docs/Redaction.md), or with `--home=<an empty directory>` to start afresh, rather than with a
   real account. Never put an account's details, API keys or passwords in a commit, an issue or a
   log you share.
+
+## Capture devices
+
+- Read a device's serial log with `python3 capture/log.py <port>`, which leaves it running. `espflash monitor` restarts
+  it, and with `--non-interactive --no-reset` leaves it halted in its bootloader until `espflash reset`. The tasks
+  "Device: Flash" and "Device: Log" are in `.vscode/tasks.json`.
+- Before a request which changes a device, e.g. its settings, a restart, a release or a factory reset, check its state
+  in the same command, e.g. `GET /api/info` says it is adopted, and stop if it is not as assumed: a "negative test" of a
+  released device once wiped its Wi-Fi settings.
+- Flash or restart the devices one at a time, waiting until each polls again, so that one is always capturing, and
+  away from the Octopus poll times, :29, :30, :59 and :00 past the hour.
+- A device without an SD card keeps its records in memory, which a restart loses, so before flashing or restarting
+  one, check that the app has read it lately, e.g. its last "GET /api/capture/..." in the profile's log, which it does
+  only while a profile which is not offline is active.
 
 ## Branches
 
@@ -56,3 +73,28 @@ not on `main`.
 - **Help.** A change to what a screen shows or does is made to its page in `docs/help/` too. A new page is added to
   `PAGES` in `src/help.rs`, see [docs/WritingHelp.md](docs/WritingHelp.md).
 - **Comments** are doc comments in full sentences, saying what a thing is for and why, as the surrounding code's are.
+- **Modules are independent.** No module reads another's cache, calls its code, or is named in shared code; each gives
+  its data through the app's interfaces, e.g. `Module::electricity_source`, `measurement_source` and `channels`, and
+  the app puts them together, `src/power/`. Pages such as Home's Electricity belong to the app and work with any
+  subset of modules, e.g. Tesla alone.
+- **The site's topology is never assumed.** Where each meter and CT clamp measures differs from house to house, so the
+  split of the import by use comes from the profile's topology, `src/power/topology.rs`, set on Home's Site page, see
+  [docs/PowerSchema.md](docs/PowerSchema.md). Say "topology", not wiring, and that a circuit feeds another, or is fed
+  from it, not "under" it, as the diagram goes from left to right.
+- **What Octopus says, and what happened.** The Octopus Meters and Home Mini pages show what Octopus says, including
+  its split of the car's import, which it models, e.g. the same energy in each half hour of a charge. Home's
+  Electricity page is the best estimate of what happened, from everything measured, so it never presents Octopus's
+  split as fact. The Home Mini is a consumer access device reading the same meter Octopus bills from.
+- **ChangeLog.** `docs/ChangeLog.md` has a `# Release X.Y.Z` section for each release, with New, Improved and Fixed
+  lists, written for the app's users: no code, refactoring or release process. Add to the section of the version in
+  `Cargo.toml` when asked. Leave out fixes to how credentials or logs were handled unless asked.
+
+## Octopus's API
+
+- `rateLimitInfo { fieldSpecificRateLimits(first: 100) { edges { node { field rate ttl isBlocked } } } }` lists each
+  limited field's rate, whether the caller is blocked, and `ttl`, when the block or window ends, as a unix time. A
+  limited request fails with GraphQL error KT-CT-1199, not HTTP 429.
+- Measured on 25 October 2026: `smartMeterTelemetry` 125 an hour, a fixed hour from the first request;
+  `PropertyType.measurements` 20 a minute; 500,000 points an hour.
+- `smartMeterTelemetry` at TEN_SECONDS gives 12 and 13 hours, an empty list with no error for 18 hours, and KT-GB-4039
+  for 24, so the app asks for at most 12 hours at a time, `MAX_REQUEST_SECONDS` in `src/octopus/telemetry.rs`.

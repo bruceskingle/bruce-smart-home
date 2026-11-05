@@ -10,7 +10,8 @@ gateway, myenergi's zappi and Octopus's smart charging, and keeps what it gets o
 - a Waveshare ESP32-S3-RLCD-4.2, an ESP32-S3 with 8 MB of PSRAM, whose black and white reflective screen shows the
   clock with the latest numbers below, as the CYD's does, and the status for a while when its KEY button is pressed, and plays `sounds/Startup.wav` as it starts, with
   the `wave-esp32s3-rlcd-42` feature. Its **Temperature and Humidity Log** feature (`climate.rs`) logs its own sensor every 10
-  seconds, as periods of each value, at `/api/capture/climate/records`, which the app's Temp & Humidity page shows. `sdkconfig.defaults.esp32s3` adds its flash and PSRAM to `sdkconfig.defaults`.
+  seconds, as periods of each value, at `/api/capture/climate/records`, which the app's Temp & Humidity page shows. Below it the screen shows its 18650 battery's voltage and roughly how full it
+  is (`battery.rs`), read every 10 seconds and in the log every minute. `sdkconfig.defaults.esp32s3` adds its flash and PSRAM to `sdkconfig.defaults`.
 
 ## Building and flashing
 

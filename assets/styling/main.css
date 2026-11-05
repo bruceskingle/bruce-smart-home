@@ -1775,3 +1775,8 @@ tr.minute-row td {
 .category-editor .muted {
     color: var(--muted);
 }
+
+/* A device's battery's voltage on its card, see views/devices.rs, no wider than the card's details. */
+.device-battery {
+    max-width: 40rem;
+}
