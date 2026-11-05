@@ -498,41 +498,107 @@ Remove-Item scripts\release.sh
 git checkout scripts/release.sh
 ```
 
-# Old Release Instructions
-The manual build steps used before the workflow are in [Release-archive.md](Release-archive.md).
+# One Time Setup Steps
 
 ## Signing the macOS App
 
-The workflow signs the macOS app and its `.dmg` with a Developer ID certificate, and notarizes both with Apple, so
-that a Mac opens them without warning that the developer can not be verified. `dx bundle` does both, given the
-certificate and an App Store Connect API key in the repository's secrets, see "Set up signing and notarizing" in
-[release.yml](../.github/workflows/release.yml). Without the secrets the app is built unsigned, as before. "Check the app
-is signed and notarized" in each Mac build's log says how it went: who signed it, and that Gatekeeper accepts it.
+The release workflow signs the macOS app and its `.dmg`, and has Apple notarize them, so that a Mac opens them without
+warning that the developer can not be verified. `dx bundle` does it all, given five secrets in the GitHub repository:
+a **Developer ID Application certificate**, which says the app is from you, and an **App Store Connect API key**, with
+which the workflow asks Apple to notarize it. Without the secrets the app is built unsigned, as before. The steps are
+"Set up signing and notarizing" and "Check the app is signed and notarized" in
+[release.yml](../.github/workflows/release.yml).
 
-Setting it up, once, needs the Apple Developer account's Account Holder or an Admin:
+This is done once, then again only when the certificate or the key expires or is replaced. It needs the Apple
+Developer account's Account Holder or an Admin, and is done on the Mac the release is run from, in Terminal, in
+`~/git/marco-sparko`.
 
-1. **The certificate.** In Keychain Access, Certificate Assistant > Request a Certificate From a Certificate
-   Authority, with your email address, saved to disk. At
-   [Certificates](https://developer.apple.com/account/resources/certificates/list), + > **Developer ID Application**,
-   upload that request, and download the certificate. Open it, which adds it to the login keychain. In Keychain
-   Access, under My Certificates, export "Developer ID Application: *your name* (*team ID*)", with its private key,
-   as a `.p12` file, with a password.
-2. **The API key.** In [App Store Connect](https://appstoreconnect.apple.com/access/integrations/api), Users and Access
-   > Integrations > App Store Connect API > Team Keys, generate a key with the **Developer** role. Download its
-   `AuthKey_KEYID.p8`, which can only be downloaded once, and note its Key ID and the Issuer ID above the list.
-3. **The secrets**, in this repo's directory, from the files, so that nothing is typed or shown:
+### Part 1: the certificate
+
+1. **Check whether you already have one.** In Terminal:
 
    ```
-   base64 -i DeveloperID.p12 | gh secret set APPLE_CERTIFICATE
-   gh secret set APPLE_CERTIFICATE_PASSWORD                  # asks for the .p12's password
-   gh secret set APPLE_API_KEY --body KEYID
-   gh secret set APPLE_API_ISSUER --body ISSUER-ID
-   base64 -i AuthKey_KEYID.p8 | gh secret set APPLE_API_KEY_CONTENT
+   security find-identity -v -p codesigning
    ```
 
-4. Keep the `.p12` and `.p8` somewhere safe, e.g. a password manager, and delete the copies on disk. A new key or
-   certificate only needs its secrets set again.
+   If it lists `Developer ID Application: YOUR NAME (TEAM ID)`, skip to step 7. "0 valid identities
+   found" means carry on. (A **Developer ID Installer** certificate does not count: it only signs `.pkg` installers,
+   and is not listed here.)
+2. **Make a certificate request.** Open **Keychain Access** (Spotlight finds it). From its menu: Keychain Access >
+   Certificate Assistant > **Request a Certificate From a Certificate Authority…**. User Email Address: your Apple
+   developer email. Common Name: e.g. `Marco Sparko Developer ID`. CA Email Address: empty. Choose **Saved to disk**,
+   Continue, and save the `.certSigningRequest` file, e.g. to the Desktop. This also makes the certificate's private
+   key in your login keychain, so do it on this Mac.
+3. **Ask Apple for the certificate.** Go to [Certificates](https://developer.apple.com/account/resources/certificates/list)
+   (developer.apple.com > Account > Certificates, IDs & Profiles > Certificates), click **+**, choose
+   **Developer ID Application** (not Installer), Continue, upload the `.certSigningRequest` file, and download the
+   certificate, a `.cer` file.
+4. **Install it.** Open the `.cer` file, which adds it to the login keychain.
+5. **If Keychain Access says it is not trusted**, the Mac is missing Apple's intermediate certificate, which Xcode
+   would have installed: download **Developer ID - G2** from [Apple's certificate authority
+   page](https://www.apple.com/certificateauthority/) and open it.
+6. **Check** with the command in step 1, which should now list `Developer ID Application: ...`.
+7. **Export it as a `.p12` file.** In Keychain Access, login keychain, **My Certificates**, find
+   `Developer ID Application: YOUR NAME (TEAM ID)`, which has its private key under it. Right-click >
+   Export, format Personal Information Exchange (`.p12`), e.g. `~/Desktop/DeveloperID.p12`, and give it a password,
+   which you will need in step 14.
 
-Then [try the installers](#1-try-the-installers-optional). `dx bundle` does not ask `codesign` for a secure timestamp,
-which notarization needs; if the notarization fails for that, the log says "The signature does not include a secure
-timestamp", and the app will need signing again with `--timestamp` after `dx bundle`.
+### Part 2: the API key
+
+8. **Open the keys page.** Go to [App Store Connect > Users and Access > Integrations](https://appstoreconnect.apple.com/access/integrations/api)
+   and choose **App Store Connect API**, then the **Team Keys** tab. (Not Individual Keys, which have no Issuer ID.)
+9. **Note the Issuer ID.** It is above the list of keys, labelled Issuer ID, a UUID, five groups of letters and digits
+   joined by hyphens, e.g. `69a6de7e-1234-47e3-e053-5b8c7c11a4d1`. Copy it with the Copy link next to it.
+10. **Make a key, or use the one there.** If there is no key yet, click **+** (Generate API Key), name it e.g.
+    `Marco Sparko notarize`, Access **Developer**, and Generate.
+11. **Note the Key ID.** It is in the key's row, in the KEY ID column, 10 capital letters and digits, e.g. `2X9R4HXF34`.
+12. **Download the key**, from the key's row, a file named `AuthKey_` and its Key ID, e.g. `AuthKey_2X9R4HXF34.p8`,
+    which goes to Downloads. Apple lets it be downloaded only once: if it was downloaded before and lost, revoke that
+    key and make a new one, step 10.
+13. **Check the key with Apple**, on your Mac, putting in your file, Key ID and Issuer ID:
+
+    ```
+    xcrun notarytool history --key ~/Downloads/AuthKey_2X9R4HXF34.p8 --key-id 2X9R4HXF34 --issuer 69a6de7e-1234-47e3-e053-5b8c7c11a4d1
+    ```
+
+    It lists the notarizations so far, none the first time, or says what is wrong, e.g. that the issuer is not a UUID.
+
+### Part 3: the secrets on GitHub
+
+14. **Set the five secrets**, in Terminal in `~/git/marco-sparko`, putting in your own file names, Key ID and Issuer ID
+    as in step 13. The files are read and sent as they are, so nothing secret is typed or shown:
+
+    ```
+    base64 -i ~/Desktop/DeveloperID.p12 | gh secret set APPLE_CERTIFICATE
+    gh secret set APPLE_CERTIFICATE_PASSWORD
+    gh secret set APPLE_API_KEY --body 2X9R4HXF34
+    gh secret set APPLE_API_ISSUER --body 69a6de7e-1234-47e3-e053-5b8c7c11a4d1
+    base64 -i ~/Downloads/AuthKey_2X9R4HXF34.p8 | gh secret set APPLE_API_KEY_CONTENT
+    ```
+
+    The second asks for the `.p12`'s password, from step 7.
+15. **Check they are there**, by name, as GitHub never shows a secret again:
+
+    ```
+    gh secret list
+    ```
+
+    It should list the five `APPLE_...` secrets, with when each was set.
+16. **Put the files somewhere safe**, e.g. a password manager, with the `.p12`'s password, and delete them from the
+    Desktop and Downloads.
+
+### Part 4: try it
+
+17. **Run a try**, see [Try the Installers](#1-try-the-installers-optional): `./scripts/release.sh try`.
+18. **Watch the Mac builds' logs** on GitHub (Actions > the Release run > Build macOS Apple Silicon, or Intel):
+    - "Set up signing and notarizing" should not say "No APPLE_CERTIFICATE secret".
+    - "Build the installers" takes a few minutes longer, while Apple notarizes, and should say the notarization was
+      Accepted and stapled.
+    - "Check the app is signed and notarized" should show `Authority=Developer ID Application: ...`, and `accepted`,
+      `source=Notarized Developer ID`, for both the app and the `.dmg`.
+19. **Open the downloaded `.dmg` on a Mac** and start the app: it should open with no warning that it can not be
+    verified, and no need to right-click > Open.
+
+If notarizing fails, "Build the installers" fails, with Apple's reason. `dx bundle` does not ask `codesign` for a secure
+timestamp, which notarization needs; if Apple says "The signature does not include a secure timestamp", the app will
+need signing again with `--timestamp` after `dx bundle`.
