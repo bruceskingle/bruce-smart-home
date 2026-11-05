@@ -15,12 +15,13 @@ use rgb::RGB8;
 use sparko_embedded_std::graphics::DrawTargetResultExt;
 
 /// The gateway's meters which are graphed, in the order of Sample::power, with the colour of each: the grid, the solar,
-/// the battery and the house. Bright, as softer colours are too dark against the black on a small screen.
+/// the battery and the house. Bright, as softer colours are too dark against the black on a small screen. The house is
+/// the app's green, as on its graphs, e.g. Home on the Electricity page.
 pub const SERIES: [(&str, RGB8); 4] = [
     ("site", RGB8::new(0xff, 0x50, 0x50)),
     ("solar", RGB8::new(0xff, 0xff, 0x00)),
     ("battery", RGB8::new(0xff, 0x40, 0xff)),
-    ("load", RGB8::new(0x00, 0xff, 0xff)),
+    ("load", RGB8::new(0x46, 0xee, 0x43)),
 ];
 /// Drawn in this order, so that the house, which most often moves, is on top.
 const DRAWING_ORDER: [usize; 4] = [0, 1, 2, 3];
@@ -29,6 +30,9 @@ const DRAWING_ORDER: [usize; 4] = [0, 1, 2, 3];
 const STEP_SECONDS: i64 = 10;
 /// The most samples kept, more than fit across any screen.
 const CAPACITY: usize = 480;
+/// How far back the samples kept go, which tesla.rs reads back from the SD card when the device starts, so that the graph
+/// is not empty after a restart.
+pub const HISTORY: chrono::TimeDelta = chrono::TimeDelta::seconds(CAPACITY as i64 * STEP_SECONDS);
 /// The scale at the right: the most characters of a label, e.g. "-10", in kW, the gap before them, and the space left
 /// at the right, where the corners of the Waveshare's screen are hidden, in pixels.
 const SCALE_CHARACTERS: u32 = 3;

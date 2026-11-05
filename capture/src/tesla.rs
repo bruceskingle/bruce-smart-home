@@ -137,6 +137,10 @@ impl Feature for TeslaCapture {
             client: self.gateway.clone(),
         };
 
+        // The graph's history from the card, if there is one, as the samples in RAM went with the restart.
+        if let Some(dir) = store.lock().unwrap().files().usable() {
+            fill_graph(&self.panel, &dir);
+        }
         set_panel(&self.panel, &store.lock().unwrap());
 
         // A first poll now, as the app does, so there is something to show without waiting for the first slot.
@@ -168,6 +172,37 @@ fn serve_records(
         let store = store.lock().unwrap();
         store.since(since).try_for_each(|record| write(&serde_json::to_vec(&record.to_json(store.captured_by()))?))
     })
+}
+
+/// Adds the samples of the records on the SD card in dir from the last graph::HISTORY to the graph, oldest first, so
+/// that it shows them at once after a restart. Not if the clock is not set yet, as the last HISTORY would then be all of
+/// the card. A record which can not be read is left out, as is the whole history if the files can not be.
+fn fill_graph(panel: &Panel, dir: &std::path::Path) {
+    use chrono::Datelike;
+    let now = Utc::now();
+    if now.year() < 2025 {
+        warn!("The clock is not set, so the graph is not filled from the SD card");
+        return;
+    }
+    let mut added = 0;
+    let result = day_files::write_since(dir, Some(now - crate::graph::HISTORY), None, &mut |line| {
+        let Ok(json) = serde_json::from_slice::<serde_json::Value>(line) else { return Ok(()) };
+        let time = ["slot", "requested"].iter()
+            .find_map(|name| json.get(*name)?.as_str())
+            .and_then(|time| DateTime::parse_from_rfc3339(time).ok())
+            .map(|time| time.with_timezone(&Utc));
+        let meters = &json["responses"]["meters/aggregates"];
+        let power = crate::graph::SERIES.map(|(name, _)| meters[name]["instant_power"].as_f64().map(|power| power as f32));
+        if let (Some(time), [Some(grid), Some(solar), Some(battery), Some(house)]) = (time, power) {
+            panel.add_sample(Sample { time, power: [grid, solar, battery, house] });
+            added += 1;
+        }
+        Ok(())
+    });
+    match result {
+        Ok(_) => info!("Filled the graph with {added} samples from the SD card"),
+        Err(error) => warn!("Unable to fill the graph from the SD card, {error:#}"),
+    }
 }
 
 /// What the screen shows, see panel_lines, and the latest sample for its graph, see graph.rs.
