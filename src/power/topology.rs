@@ -61,11 +61,13 @@ pub struct Circuit {
 }
 
 /// One place a module measures, however many resolutions it comes in, e.g. `octopus:electricity`, the billing meter's
-/// half hours and its Home Mini's readings, with what it is for the Site page.
+/// half hours and its Home Mini's readings, with what it is for the Site page, and what it usually measures, for the
+/// suggested topology, e.g. the grid, or a board for a gateway's site meter.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Channel {
     pub id: String,
     pub description: String,
+    pub use_: Use,
 }
 
 impl Circuit {
@@ -73,25 +75,22 @@ impl Circuit {
         Circuit { name: name.to_string(), use_, channels: channels.iter().map(|channel| channel.to_string()).collect(), children }
     }
 
-    /// A first topology for the channels the profile's modules have, to edit: the grid with whatever measures the
-    /// billing meter, the Tesla gateway's meters below it, and the house the rest. Where the car's charger is, if
-    /// there is one, only the user knows, see docs/PowerSchema.md.
+    /// A first topology for the channels the profile's modules have, to edit, from what each usually measures: the
+    /// grid with whatever measures the grid connection, a gateway's site meter fed from it, if there is one, as a board
+    /// feeding the batteries, the solar panels and the car, as installers fit them, and the house the rest, without
+    /// the channels which measure the house, as the rest is what the others do not take. Where the car's charger
+    /// really is, only the user knows, see docs/PowerSchema.md.
     pub fn suggested(channels: &[Channel]) -> Circuit {
-        use super::measured::{BATTERY_CHANNEL, SITE_CHANNEL, SOLAR_CHANNEL};
-        let has = |id: &str| channels.iter().any(|channel| channel.id == id);
-        let grid: Vec<&str> = channels.iter().map(|channel| channel.id.as_str())
-            .filter(|id| !id.starts_with("tesla:"))
+        let ids = |use_: Use| -> Vec<&str> { channels.iter().filter(|channel| channel.use_ == use_).map(|channel| channel.id.as_str()).collect() };
+        let mut fed: Vec<Circuit> = [(Use::Battery, "Battery"), (Use::Solar, "Solar"), (Use::Car, "Car")].into_iter()
+            .flat_map(|(use_, name)| ids(use_).into_iter().map(move |id| Circuit::new(name, use_, &[id], vec![])))
             .collect();
-        let mut house = vec![];
-        if has(BATTERY_CHANNEL) {
-            house.push(Circuit::new("Battery", Use::Battery, &[BATTERY_CHANNEL], vec![]));
-        }
-        if has(SOLAR_CHANNEL) {
-            house.push(Circuit::new("Solar", Use::Solar, &[SOLAR_CHANNEL], vec![]));
-        }
-        house.push(Circuit::new("House", Use::House, &[], vec![]));
-        let children = if has(SITE_CHANNEL) { vec![Circuit::new("Gateway", Use::Board, &[SITE_CHANNEL], house)] } else { house };
-        Circuit::new("Grid", Use::Grid, &grid, children)
+        fed.push(Circuit::new("House", Use::House, &[], vec![]));
+        let children = match ids(Use::Board).first() {
+            Some(board) => vec![Circuit::new("Gateway", Use::Board, &[board], fed)],
+            None => fed,
+        };
+        Circuit::new("Grid", Use::Grid, &ids(Use::Grid), children)
     }
 
     /// What is wrong with it, as the Site page says, nothing if it can split the import: the top is the grid, each
@@ -105,6 +104,15 @@ impl Circuit {
         let mut seen = BTreeSet::new();
         self.check(true, &mut seen, &mut problems);
         problems
+    }
+
+    /// The channels of it and every circuit under it.
+    pub fn channel_ids(&self) -> BTreeSet<String> {
+        let mut ids: BTreeSet<String> = self.channels.iter().cloned().collect();
+        for child in &self.children {
+            ids.extend(child.channel_ids());
+        }
+        ids
     }
 
     fn check(&self, top: bool, seen: &mut BTreeSet<String>, problems: &mut Vec<String>) {
@@ -257,7 +265,12 @@ impl Split for TopologySplit {
     /// grid meter and the site's devices are read at different moments.
     fn split(&self, kwh: &[f64], demand: &[Option<f64>], bounds: &[(i64, i64)]) -> Option<Vec<(f64, f64, f64)>> {
         let half_hour = bounds.first()?.0 - bounds.first()?.0.rem_euclid(HALF_HOUR);
-        if self.measurements.is_empty() || !self.measurements.iter().all(|measurements| measurements.complete(half_hour)) {
+        // Only the measurements of the topology's channels, as e.g. a zappi's gaps do not matter if it is not placed.
+        let used = self.topology.channel_ids();
+        let placed: Vec<&Arc<dyn Measurements>> = self.measurements.iter()
+            .filter(|measurements| measurements.channels().iter().any(|channel| used.contains(channel)))
+            .collect();
+        if placed.is_empty() || !placed.iter().all(|measurements| measurements.complete(half_hour)) {
             return None;
         }
         let seconds: Vec<f64> = bounds.iter().map(|(start, end)| (end - start) as f64).collect();
@@ -360,14 +373,70 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_suggestion_puts_the_gateway_under_the_grid_and_leaves_the_car_to_the_user() {
-        let channels: Vec<Channel> = ["octopus:electricity", SITE_CHANNEL, BATTERY_CHANNEL, SOLAR_CHANNEL, "tesla:load"].iter()
-            .map(|id| Channel { id: id.to_string(), description: String::new() })
-            .collect();
-        let suggested = Circuit::suggested(&channels);
+    fn the_suggestion_puts_the_gateway_under_the_grid_and_the_car_behind_it_as_installers_do() {
+        let channel = |id: &str, use_| Channel { id: id.to_string(), description: String::new(), use_ };
+        let mut channels = vec![
+            channel("octopus:electricity", Use::Grid),
+            channel(SITE_CHANNEL, Use::Board),
+            channel(BATTERY_CHANNEL, Use::Battery),
+            channel(SOLAR_CHANNEL, Use::Solar),
+            channel("tesla:load", Use::House),
+        ];
         let mut expected = beside_the_gateway();
         expected.children.remove(0);
-        assert_eq!(suggested, expected);
+        assert_eq!(Circuit::suggested(&channels), expected);
+        channels.extend([channel("myenergi:Z1", Use::Car), channel("myenergi:Z1:grid", Use::Grid)]);
+        expected.channels.push(String::from("myenergi:Z1:grid"));
+        expected.children[0].children.insert(2, Circuit::new("Car", Use::Car, &["myenergi:Z1"], vec![]));
+        assert_eq!(Circuit::suggested(&channels), expected);
+    }
+
+    #[test]
+    fn a_measured_car_beside_the_gateway_shares_the_grids_import_with_it_in_proportion() {
+        // The zappi's own channel says 3.6 kWh, the gateway 3.5 kWh, of a grid import of 7 kWh, so each is scaled to
+        // fit, and a measurement not in the topology, with gaps, does not stop the split.
+        let (bounds, kwh, demand) = half_hour();
+        let zappi = Arc::new(Fixed { channel: "myenergi:Z1", kwh: 3.6, watts: 7200.0 });
+        let unplaced = Arc::new(Fixed { channel: "other:x", kwh: 0.0, watts: 0.0 });
+        let mut measurements = tesla(registers(DAY - 20, DAY + 1820, 7000.0, 5000.0));
+        measurements.push(zappi);
+        measurements.push(unplaced);
+        let mut topology = beside_the_gateway();
+        topology.children[0].channels.push(String::from("myenergi:Z1"));
+        let split = TopologySplit { topology, measurements };
+        let (car, battery, house) = totals(&split.split(&kwh, &demand, &bounds).unwrap());
+        let car_share = 7.0 * 3.6 / 7.1;
+        assert!((car - car_share).abs() < 1e-6, "{car}");
+        assert!((battery - 2.5).abs() < 1e-6 && (house - (7.0 - car_share - 2.5)).abs() < 1e-6, "{battery} {house}");
+    }
+
+    /// A channel at a steady power all the time, or with other:x, never complete.
+    struct Fixed {
+        channel: &'static str,
+        kwh: f64,
+        watts: f64,
+    }
+
+    impl Measurements for Fixed {
+        fn name(&self) -> String {
+            String::from("Fixed")
+        }
+
+        fn channels(&self) -> Vec<String> {
+            vec![self.channel.to_string()]
+        }
+
+        fn complete(&self, _half_hour: i64) -> bool {
+            self.channel != "other:x"
+        }
+
+        fn energy(&self, channel: &str, _start: i64, _end: i64) -> Option<crate::power::measured::Flow> {
+            (channel == self.channel).then_some(crate::power::measured::Flow { import: self.kwh, export: 0.0 })
+        }
+
+        fn power(&self, channel: &str, _start: i64, _end: i64) -> Option<f64> {
+            (channel == self.channel).then_some(self.watts)
+        }
     }
 
     #[test]

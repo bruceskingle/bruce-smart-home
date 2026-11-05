@@ -4,6 +4,7 @@
 
 mod client;
 mod digest;
+mod electricity;
 mod fetch;
 
 use std::sync::Arc;
@@ -142,6 +143,15 @@ impl Module for MyenergiModule {
         let captured = !cache_config.offline && self.capture.read(&devices, fetch::latest_status_time(cache_config),
             &mut |_, record| fetch::save_status_if_new(cache_config, record), &mut |_| {}).await?;
         fetch::poll(&self.context.client, cache_config, slot, &self.whole_days_fetched, captured).await
+    }
+
+    /// What the zappis charged the car with, and their grid clamps, see electricity.rs.
+    fn measurement_source(&self) -> Option<Arc<dyn crate::power::measured::MeasurementSource>> {
+        Some(Arc::new(electricity::ZappiMeasurementSource { cache_config: self.context.cache_config.clone() }))
+    }
+
+    fn channels(&self) -> Vec<crate::power::topology::Channel> {
+        electricity::channels(&self.context.cache_config)
     }
 
     fn cli_debug(&self) -> anyhow::Result<()> {

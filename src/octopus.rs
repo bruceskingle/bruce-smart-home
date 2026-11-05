@@ -262,6 +262,7 @@ impl Module for OctopusModule {
         vec![crate::power::topology::Channel {
             id: String::from("octopus:electricity"),
             description: String::from("The electricity meter Octopus bills from, and its Home Mini's readings"),
+            use_: crate::power::topology::Use::Grid,
         }]
     }
 

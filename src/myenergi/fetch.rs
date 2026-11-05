@@ -511,6 +511,34 @@ pub fn status_samples(cache_config: &CacheConfig, limit: usize) -> Vec<StatusSam
     samples
 }
 
+/// The zappis in the latest status, by serial number, with whether one of its CT clamps is set to measure the grid,
+/// whose readings are its records' imp and exp, true if the status does not say.
+pub fn zappis(cache_config: &CacheConfig) -> Vec<(String, bool)> {
+    let Some(status) = cache_config.latest_json(STATUS_KEY).map(|saved| saved_status(&saved).clone()) else {
+        return Vec::new();
+    };
+    status.as_array().into_iter().flatten()
+        .filter_map(|item| item.get("zappi")?.as_array())
+        .flatten()
+        .filter_map(|zappi| {
+            let serial = match zappi.get("sno")? {
+                serde_json::Value::Number(number) => number.to_string(),
+                serde_json::Value::String(text) => text.clone(),
+                _ => return None,
+            };
+            let kinds: Vec<&str> = (2..=4).filter_map(|n| zappi.get(format!("ectt{n}"))?.as_str()).collect();
+            Some((serial, kinds.is_empty() || kinds.contains(&"Grid")))
+        })
+        .collect()
+}
+
+/// A zappi's cached records of the UTC day date, see MyenergiClient::day, none if it is not cached.
+pub fn zappi_day(cache_config: &CacheConfig, serial: &str, date: Date) -> Vec<serde_json::Value> {
+    CacheConfig::read_json(&cache_config.existing_path_for_day(&format!("{DAY_KEY}Z{serial}"), &date.into()))
+        .and_then(|json| json.as_object()?.values().next()?.as_array().cloned())
+        .unwrap_or_default()
+}
+
 /// The summaries of every cached day, newest first.
 pub fn summaries(cache_config: &CacheConfig) -> Vec<DaySummary> {
     let today = crate::clock::now_utc().date().to_string();

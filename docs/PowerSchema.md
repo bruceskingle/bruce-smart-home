@@ -229,8 +229,16 @@ Unlike the NSPanel's, which is drawn for one house, it would be drawn from the s
    household's assumption in `power/measured.rs` replaced by the split from the topology, `power/topology.rs`. Done:
    until a profile's topology is saved, its import is shown by rate only, so the first household saves its tree once.
 3. The myenergi module's channels, the zappi's charging and grid CT, from its minute records, which myenergi keeps.
+   Done, `myenergi/electricity.rs`. myenergi's records miss about 70 minutes a day, mostly one at a time; gaps of up
+   to 2 minutes are filled with the average of the minutes either side, which makes 94% of the first household's
+   half hours since October usable, against a third without. The suggested topology now comes from what each channel
+   usually measures, e.g. a zappi's charging the car, so the topology code names no module.
 4. The checks, over the cached days, then the suggestions.
 5. The live flow display, from the topology and the latest readings.
+6. Graphs of where the energy came from and where it went, beside the Electricity graph, which mixes the two and is
+   hard to read, as the first household's Home Assistant energy dashboard shows them: sources, the grid, the solar
+   panels and the batteries discharging, and sinks, the house, the car, the batteries charging and export, each
+   stacked over time, from the topology's split.
 
 ## Storage
 

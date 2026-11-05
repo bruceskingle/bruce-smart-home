@@ -198,12 +198,13 @@ impl Module for TeslaModule {
     /// The gateway's meters.
     fn channels(&self) -> Vec<crate::power::topology::Channel> {
         use crate::power::measured::{BATTERY_CHANNEL, LOAD_CHANNEL, SITE_CHANNEL, SOLAR_CHANNEL};
+        use crate::power::topology::{Channel, Use};
         [
-            (SITE_CHANNEL, "The gateway's site meter, its grid CT clamp"),
-            (BATTERY_CHANNEL, "The Powerwalls, charging and discharging"),
-            (SOLAR_CHANNEL, "The solar panels"),
-            (LOAD_CHANNEL, "The house, as the gateway works it out from its meters"),
-        ].map(|(id, description)| crate::power::topology::Channel { id: id.to_string(), description: description.to_string() }).to_vec()
+            (SITE_CHANNEL, "The gateway's site meter, its grid CT clamp", Use::Board),
+            (BATTERY_CHANNEL, "The Powerwalls, charging and discharging", Use::Battery),
+            (SOLAR_CHANNEL, "The solar panels", Use::Solar),
+            (LOAD_CHANNEL, "The house, as the gateway works it out from its meters", Use::House),
+        ].map(|(id, description, use_)| Channel { id: id.to_string(), description: description.to_string(), use_ }).to_vec()
     }
 
     async fn fetch_latest_data(&self) -> anyhow::Result<()> {

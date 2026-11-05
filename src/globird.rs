@@ -155,6 +155,7 @@ impl Module for GlobirdModule {
         vec![crate::power::topology::Channel {
             id: String::from("globird:electricity"),
             description: String::from("The electricity meter GloBird bills from"),
+            use_: crate::power::topology::Use::Grid,
         }]
     }
 

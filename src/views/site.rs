@@ -12,9 +12,11 @@ use crate::power::topology::{Channel, Circuit, Use};
 use crate::profile::Settings as ProfileSettings;
 use crate::{MarcoSparkoContext, ModuleRegistrations};
 
-/// The size of a circuit's box in the diagram, and the gaps between them, in the SVG's units.
+/// The size of a circuit's box in the diagram, with one channel, and the gaps between them, in the SVG's units. Each
+/// channel is a line of its own, see box_height.
 const BOX_WIDTH: f64 = 190.0;
 const BOX_HEIGHT: f64 = 54.0;
+const LINE_HEIGHT: f64 = 16.0;
 const COLUMN_GAP: f64 = 70.0;
 const ROW_GAP: f64 = 18.0;
 const MARGIN: f64 = 8.0;
@@ -58,19 +60,33 @@ struct Placed {
     parent: Option<usize>,
 }
 
-/// Places circuit and those under it, each leaf a row below the last, and each circuit level with the middle of its
-/// children, returning the middle of its box.
-fn place(circuit: &Circuit, depth: usize, parent: Option<usize>, row: &mut usize, placed: &mut Vec<Placed>) -> f64 {
+/// The height of a circuit's box, with a line for each of its channels, or for "the rest".
+fn box_height(channels: usize) -> f64 {
+    BOX_HEIGHT + channels.saturating_sub(1) as f64 * LINE_HEIGHT
+}
+
+/// Places circuit and those under it, each leaf below the last, from top, and each circuit level with the middle of
+/// its children, or if its box is taller than they are, they level with it, returning the middle of its box. top
+/// is moved below what was placed.
+fn place(circuit: &Circuit, depth: usize, parent: Option<usize>, top: &mut f64, placed: &mut Vec<Placed>) -> f64 {
     let index = placed.len();
     placed.push(Placed { depth, y: 0.0, name: circuit.name.clone(), use_: circuit.use_, channels: circuit.channels.clone(), parent });
+    let height = box_height(circuit.channels.len());
+    let first_top = *top;
     let y = if circuit.children.is_empty() {
-        let y = MARGIN + *row as f64 * (BOX_HEIGHT + ROW_GAP) + BOX_HEIGHT / 2.0;
-        *row += 1;
-        y
+        *top += height + ROW_GAP;
+        first_top + height / 2.0
     } else {
-        let ys: Vec<f64> = circuit.children.iter().map(|child| place(child, depth + 1, Some(index), row, placed)).collect();
+        let ys: Vec<f64> = circuit.children.iter().map(|child| place(child, depth + 1, Some(index), top, placed)).collect();
+        let children_height = *top - ROW_GAP - first_top;
+        if children_height < height {
+            *top = first_top + height + ROW_GAP;
+        }
         (ys[0] + ys[ys.len() - 1]) / 2.0
     };
+    // At least half its height from the top of what it and its children take, so that it does not overlap the box
+    // above it.
+    let y = y.max(first_top + height / 2.0);
     placed[index].y = y;
     y
 }
@@ -84,11 +100,11 @@ fn column_x(depth: usize) -> f64 {
 #[component]
 fn TopologyDiagram(topology: Circuit) -> Element {
     let mut placed = Vec::new();
-    let mut rows = 0;
-    place(&topology, 0, None, &mut rows, &mut placed);
+    let mut top = MARGIN;
+    place(&topology, 0, None, &mut top, &mut placed);
     let depth = placed.iter().map(|placed| placed.depth).max().unwrap_or(0);
     let width = column_x(depth) + BOX_WIDTH + MARGIN;
-    let height = MARGIN * 2.0 + rows as f64 * (BOX_HEIGHT + ROW_GAP) - ROW_GAP;
+    let height = top - ROW_GAP + MARGIN;
     let placed_y: Vec<f64> = placed.iter().map(|placed| placed.y).collect();
     rsx! {
         svg {
@@ -115,24 +131,35 @@ fn TopologyDiagram(topology: Circuit) -> Element {
                     rect {
                         class: "topology-box",
                         x: column_x(placed.depth),
-                        y: placed.y - BOX_HEIGHT / 2.0,
+                        y: placed.y - box_height(placed.channels.len()) / 2.0,
                         width: BOX_WIDTH,
-                        height: BOX_HEIGHT,
+                        height: box_height(placed.channels.len()),
                         rx: 8.0,
                         stroke: use_colour(placed.use_),
                     }
                     text {
                         class: "topology-name",
                         x: column_x(placed.depth) + 12.0,
-                        y: placed.y - 6.0,
+                        y: placed.y - box_height(placed.channels.len()) / 2.0 + 21.0,
                         fill: use_colour(placed.use_),
                         "{placed.name}"
                     }
-                    text {
-                        class: if placed.channels.is_empty() { "topology-channels rest" } else { "topology-channels" },
-                        x: column_x(placed.depth) + 12.0,
-                        y: placed.y + 14.0,
-                        if placed.channels.is_empty() && placed.depth > 0 { "the rest" } else { "{placed.channels.join(\", \")}" }
+                    if placed.channels.is_empty() && placed.depth > 0 {
+                        text {
+                            class: "topology-channels rest",
+                            x: column_x(placed.depth) + 12.0,
+                            y: placed.y - box_height(0) / 2.0 + 41.0,
+                            "the rest"
+                        }
+                    }
+                    for (line, channel) in placed.channels.iter().enumerate() {
+                        text {
+                            key: "{channel}",
+                            class: "topology-channels",
+                            x: column_x(placed.depth) + 12.0,
+                            y: placed.y - box_height(placed.channels.len()) / 2.0 + 41.0 + line as f64 * LINE_HEIGHT,
+                            "{channel}"
+                        }
                     }
                 }
             }
@@ -151,7 +178,7 @@ fn flattened(circuit: &Circuit, path: Vec<usize>, rows: &mut Vec<(Vec<usize>, Ci
 }
 
 /// The circuits as a list to edit: each one's name, use and channels, which are chosen from those the profile's
-/// modules have, with buttons to add a circuit under it and to remove it.
+/// modules have, with buttons to add a circuit it feeds and to remove it.
 #[component]
 fn TopologyEditor(edited: Signal<Option<Circuit>>, channels: Vec<Channel>) -> Element {
     let Some(topology) = edited() else {
@@ -237,7 +264,7 @@ fn TopologyEditor(edited: Signal<Option<Circuit>>, channels: Vec<Channel>) -> El
                                         }
                                     }
                                 },
-                                "Add under"
+                                "Add fed circuit"
                             }
                             if let Some((last, parent)) = path.split_last() {
                                 button {
@@ -267,7 +294,7 @@ fn channel_choices(channels: &[Channel], circuit: &Circuit) -> Vec<Channel> {
     let mut choices = channels.to_vec();
     for id in &circuit.channels {
         if !choices.iter().any(|channel| channel.id == *id) {
-            choices.push(Channel { id: id.clone(), description: String::from("No module of this profile has this channel now") });
+            choices.push(Channel { id: id.clone(), description: String::from("No module of this profile has this channel now"), use_: circuit.use_ });
         }
     }
     choices
@@ -322,8 +349,8 @@ pub fn SitePage() -> Element {
     rsx! {
         h1 { "Site" }
         p {
-            "Where in the house each module measures, from the grid connection down. A circuit with no channel has the "
-            "rest of what feeds it, e.g. the car's charger beside a Tesla gateway has the grid's import less the "
+            "Where in the house each module measures, from the grid connection, on the left, through the circuits each one "
+            "feeds. A circuit with no channel has the rest of what feeds it, e.g. the car's charger beside a Tesla gateway has the grid's import less the "
             "gateway's. The Electricity page splits the grid's import into the car's, the batteries' and the house's "
             "with it."
         }

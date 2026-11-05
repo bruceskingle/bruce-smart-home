@@ -1,6 +1,6 @@
 # myenergi
 
-The myenergi module fetches data about myenergi devices, such as the zappi EV charger, from myenergi's servers. It is new, and for now it only shows what it fetches, to see what the data is like:
+The myenergi module fetches data about myenergi devices, such as the zappi EV charger, from myenergi's servers. Each zappi's records of what it charged the car with, and of its grid CT clamp, are channels which the [Site](../site.md) page can place, so that the [Electricity](../electricity.md) page splits the import with them. Its own pages show what it fetches:
 
 - **Days**, the totals of each device's records of each day, in kWh. **Fetch** gets the status of every device and the last few days of their records. Days are UTC days, and a day is fetched again until it has ended.
 - **Cache Files**, every file it has fetched, as myenergi sent it.
