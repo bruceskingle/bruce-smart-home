@@ -392,11 +392,13 @@ dependencies = [
  "anyhow",
  "base64",
  "bruce-util-progress",
+ "log",
  "serde",
  "serde_jcs",
  "serde_json",
  "sha2",
  "time",
+ "unicode-normalization",
 ]
 
 [[package]]

@@ -48,7 +48,7 @@ pub fn for_profile(profile_name: &str) -> anyhow::Result<Arc<Store>> {
 /// A part of a hash key for a capture device, its ID, a MAC address, in lowercase without its colons, e.g.
 /// 441bf6cc7fcc, which is also its origin, see the design's keys.
 pub fn device_part(device_id: &str) -> String {
-    device_id.replace(':', "").to_lowercase()
+    crate::device_kinds::device_part(device_id)
 }
 
 /// The directory of a site's store, e.g. to count or delete it with its profile.

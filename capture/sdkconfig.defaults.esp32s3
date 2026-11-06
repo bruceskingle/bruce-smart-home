@@ -6,3 +6,10 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_MALLOC=y
+# Every allocation from PSRAM, however small, as the store's index is many small ones, which would otherwise fill the
+# internal RAM, which Wi-Fi, TLS's DMA and the tasks' stacks need. ESP-IDF still keeps a pool of internal RAM for what
+# must have it, see CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL.
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=0
+# The main task, which runs the features' polls, and so their TLS and the store's puts, twice the 12 KB of
+# sdkconfig.defaults, which the RLCD's polls overflowed once they put their records into the store.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=24576

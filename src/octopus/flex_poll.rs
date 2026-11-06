@@ -27,8 +27,6 @@ pub const POLL_INTERVAL: Duration = Duration::from_secs(15 * 60);
 /// the account are not affected.
 const CALLS_PER_HOUR: usize = 20;
 
-const KIND: &str = "octopus.flex";
-
 /// The requests made in the last hour, to keep within CALLS_PER_HOUR.
 #[derive(Default)]
 pub struct CallBudget {
@@ -134,8 +132,7 @@ pub async fn poll(context: &OctopusContext, slot: Option<OffsetDateTime>, budget
 
 /// The account's DataSet of polls, by the hash of its number, see the design's IDs.
 pub(super) fn hash_key(store: &bruce_db::Store, account_id: &str) -> anyhow::Result<String> {
-    let account = bruce_db::Id::of(&serde_json::json!({"octopus": account_id}))?;
-    store.hash_key(KIND, &[bruce_db::Part::Id(account)])
+    crate::device_kinds::octopus_flex_key(store, account_id)
 }
 
 /// The sort key of a time, to the second, e.g. 2026-10-29T17:29:30Z.
@@ -152,14 +149,9 @@ pub fn save(context: &OctopusContext, saved: &serde_json::Value, device: Option<
 
 /// Saves a poll of the account's, see save.
 pub(super) fn save_to(store: &bruce_db::Store, account_id: &str, saved: &serde_json::Value, device: Option<&str>) -> anyhow::Result<bool> {
-    let time = crate::capture_device::record_time(saved).ok_or_else(|| anyhow!("the poll has no time"))?;
-    let sk = second_key(time);
-    let second = bruce_db::Micros::parse(&sk)?;
-    let version = match device {
-        Some(device) => bruce_db::Version::new(second, &crate::store::device_part(device)),
-        None => bruce_db::Version::new(bruce_db::Micros(second.0 + 1), &crate::store::origin()),
-    };
-    Ok(store.put(&bruce_db::Item::new(&hash_key(store, account_id)?, &sk, version, saved.clone()))? == bruce_db::Put::Stored)
+    let origin = crate::store::origin();
+    let writer = device.map_or(crate::device_kinds::Writer::App(&origin), crate::device_kinds::Writer::Device);
+    Ok(store.put(&crate::device_kinds::octopus_flex(store, account_id, saved, writer)?)? == bruce_db::Put::Stored)
 }
 
 /// The time of the latest poll saved, and what it said, see summary: of the last two days, or of all.

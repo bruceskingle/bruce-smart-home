@@ -32,6 +32,8 @@ pub mod window_state;
 mod data_set;
 mod cache;
 pub mod store;
+/// The kinds capture devices write, shared with the firmware, see device_kinds.rs.
+pub mod device_kinds;
 pub mod convert;
 use cache::CacheConfig;
 
@@ -91,6 +93,10 @@ pub struct MarcoSparkoArgs {
     /// --deviceget 441bf6cc7fcc "capture/climate/records?limit=5". No hyphen, see redact.
     #[arg(long, num_args = 2, value_names = ["DEVICE", "PATH"])]
     deviceget: Vec<String>,
+    /// For developers: POST a JSON body to a path of the API of one of the profile's capture devices, as --deviceget
+    /// does, e.g. --devicepost f85b1b909f50 config '{"features":{"Store":{"enabled":true}}}'. No hyphen, see redact.
+    #[arg(long, num_args = 3, value_names = ["DEVICE", "PATH", "JSON"])]
+    devicepost: Vec<String>,
     /// Upgrade a profile to the current version, as the Home page does when asked, e.g. converting what one made before
     /// the store kept in the cache directory into its store, leaving the cache as it was, see profile::upgrade_profile,
     /// then exit. No hyphen, see redact.
@@ -179,6 +185,14 @@ impl Args {
         }
     }
 
+    /// The device, the path and the body to POST, with --devicepost, see MarcoSparkoArgs.
+    pub fn capture_post(&self) -> Option<(&str, &str, &str)> {
+        match self.marco_sparko_args.devicepost.as_slice() {
+            [device, path, body] => Some((device.as_str(), path.as_str(), body.as_str())),
+            _ => None,
+        }
+    }
+
     pub fn fetch(&self) -> bool {
         self.marco_sparko_args.fetch
     }
@@ -224,10 +238,28 @@ pub fn fetch_latest_data(args: Args) -> bool {
         let context = MarcoSparkoContext::new(args)?;
         let registrations = ModuleRegistrations::new(verbose);
         let module_ids: Vec<String> = context.profile.active_profile.modules.keys().cloned().collect();
-        if module_ids.is_empty() {
+        let devices = capture_device::adopted_devices(&context.profile.active_profile.name);
+        if module_ids.is_empty() && devices.is_empty() {
             return Err(anyhow!("Profile {} has no modules set up, open the app and log in first", context.profile.active_profile.name));
         }
         let mut all_ok = true;
+        // What the capture devices on the store have captured, first, so that the modules see it, see
+        // capture_device::replicate. Those with older firmware are read by the modules, as they were.
+        if !context.profile.active_profile.offline && !devices.is_empty() {
+            let store = context.store()?;
+            for device in &devices {
+                let progress = &mut |message: String| println!("{message}");
+                match capture_device::replicate(&store, device, progress).await {
+                    Ok(Some(_)) => println!("Capture device {}: done", device.id),
+                    Ok(None) => println!("Capture device {}: its firmware is from before the store", device.id),
+                    Err(error) => {
+                        println!("Capture device {}: FAILED: {error:#}", device.id);
+                        log_error!("Replicating the capture device {} failed: {error:#}", device.id);
+                        all_ok = false;
+                    },
+                }
+            }
+        }
         for module_id in module_ids {
             println!("Module {module_id}");
             log_info!("Fetching the latest data of {module_id}");

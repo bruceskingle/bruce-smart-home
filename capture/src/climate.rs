@@ -7,10 +7,9 @@
 //! while the readings stay within STEP of the value, see Series, rather than a record every 10 seconds. A period is
 //! written when it closes, and while it is open once a minute, with its end moved on, so that the app, which saves
 //! each period by its start, replaces what it had of it, and a restart loses at most a minute of it. The records are
-//! the lines {"series": "temperature", "start", "end", "value", "unit", "open", "capturedBy"}, on the SD card, see
-//! DayFiles, in the files of the days of their ends, and the latest in RAM too.
+//! the lines {"series": "temperature", "start", "end", "value", "unit", "open", "capturedBy"}, put in the store as the
+//! app would put them, see db.rs.
 
-use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, TimeDelta, Utc};
@@ -26,7 +25,7 @@ use sparko_embedded_std::platform::PlatformInitializer;
 use sparko_embedded_std::task::scheduler::ScheduledTask;
 use sparko_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
 
-use crate::day_files::{self, DayFiles};
+use crate::db::Db;
 use crate::device::{Device, captured_by};
 use crate::records::{LastPoll, format_time};
 use crate::screen::Panel;
@@ -40,10 +39,6 @@ const DEFAULT_SCHEDULE: &str = "*/10 * * * * *";
 /// How often an open period is written, with its end moved on.
 const WRITE_OPEN_EVERY: TimeDelta = TimeDelta::minutes(1);
 
-/// About 2 days of records, two a minute and those which close, for when there is no SD card, which only a board with
-/// PSRAM, e.g. the RLCD, has room for.
-const RAM_CAPACITY: usize = 6000;
-
 /// Where its line goes on the screen, after the polled features'.
 const PANEL_ORDER: u8 = 4;
 
@@ -56,11 +51,12 @@ pub struct ClimateConfig {
 
 pub struct ClimateCapture {
     panel: Arc<Panel>,
+    db: Arc<Db>,
 }
 
 impl ClimateCapture {
-    pub fn new(panel: Arc<Panel>) -> Self {
-        Self { panel }
+    pub fn new(panel: Arc<Panel>, db: Arc<Db>) -> Self {
+        Self { panel, db }
     }
 }
 
@@ -82,12 +78,7 @@ impl Feature for ClimateCapture {
             .climate_sched
             .map(|schedule| schedule.pattern.to_string())
             .unwrap_or_else(|| DEFAULT_SCHEDULE.to_string());
-        let dir = sparko.sd_card().map(|mount_point| std::path::Path::new(mount_point).join("capture").join("climate"));
-        let store = Arc::new(Mutex::new(Store {
-            files: DayFiles::new(dir),
-            ram: VecDeque::with_capacity(RAM_CAPACITY),
-            last_poll: None,
-        }));
+        let store = Arc::new(Mutex::new(Store { last_poll: None }));
         // The app reads every 5 minutes, see marco-sparko's src/climate.rs, not on every sample.
         let device = Arc::new(Device::new("0 */5 * * * *"));
 
@@ -98,33 +89,25 @@ impl Feature for ClimateCapture {
             // reading.
             battery: sparko.battery().map(|battery| (battery, Series::new("battery", "V", 0.02, 2))),
             store: store.clone(),
+            db: self.db.clone(),
             panel: self.panel.clone(),
             captured_by: captured_by(sparko),
         };
         initializer.add_task(Box::new(sample), &schedule_spec)?;
 
-        sparko.api_get("/api/capture/climate/records", move |request| {
-            let (files, device_json) = {
-                let store = store.lock().unwrap();
-                (store.files.usable(), device.to_json(&store.files, store.ram.len(), RAM_CAPACITY, store.last_poll.as_ref()))
-            };
-            day_files::respond(request, &device_json, files, |since, write| {
-                let store = store.lock().unwrap();
-                store
-                    .ram
-                    .iter()
-                    .filter(|(time, _)| since.is_none_or(|since| *time > since))
-                    .try_for_each(|(_, line)| write(line.as_bytes()))
-            })
-        })?;
+        // For the app, at /api/store/info, see db.rs.
+        self.db.add_status("climate", move |db| device.to_json(db, store.lock().unwrap().last_poll.as_ref()));
         Ok(())
     }
 }
 
+/// Puts a period's record in the store, by the device's ID.
+fn put(db: &Db, record: &serde_json::Value) {
+    let device = db.device();
+    db.put(|store, _| crate::device_kinds::climate_period(store, &device, record));
+}
+
 struct Store {
-    files: DayFiles,
-    /// The latest records, oldest first, by their ends, as their JSON.
-    ram: VecDeque<(DateTime<Utc>, Box<str>)>,
     /// How the latest reading went, for the app, see Device::to_json.
     last_poll: Option<LastPoll>,
 }
@@ -186,7 +169,7 @@ impl Series {
         records
     }
 
-    fn to_json(&self, period: &Period, open: bool, captured_by: &str) -> String {
+    fn to_json(&self, period: &Period, open: bool, captured_by: &str) -> serde_json::Value {
         json!({
             "series": self.name,
             "start": format_time(period.start),
@@ -196,7 +179,6 @@ impl Series {
             "open": open,
             "capturedBy": captured_by,
         })
-        .to_string()
     }
 }
 
@@ -207,6 +189,7 @@ struct SampleTask {
     /// The board's battery, if it can be read, and its voltage.
     battery: Option<(Arc<sparko_esp_idf::battery::Battery>, Series)>,
     store: Arc<Mutex<Store>>,
+    db: Arc<Db>,
     panel: Arc<Panel>,
     captured_by: String,
 }
@@ -218,12 +201,8 @@ impl ScheduledTask<Esp32Platform> for SampleTask {
         if let Some((battery, series)) = &mut self.battery {
             match battery.read() {
                 Ok(reading) => {
-                    let mut store = self.store.lock().unwrap();
                     for (period, open) in series.add(time, reading.volts) {
-                        let record = series.to_json(&period, open, &self.captured_by);
-                        store.files.append(period.end, &record);
-                        let Store { files, ram, .. } = &mut *store;
-                        files.keep(ram, RAM_CAPACITY, period.end, record);
+                        put(&self.db, &series.to_json(&period, open, &self.captured_by));
                     }
                 },
                 Err(error) => warn!("Unable to read the battery, {error:#}"),
@@ -242,10 +221,7 @@ impl ScheduledTask<Esp32Platform> for SampleTask {
         let mut store = self.store.lock().unwrap();
         for (series, value) in self.series.iter_mut().zip([reading.celsius, reading.humidity]) {
             for (period, open) in series.add(time, value) {
-                let record = series.to_json(&period, open, &self.captured_by);
-                store.files.append(period.end, &record);
-                let Store { files, ram, .. } = &mut *store;
-                files.keep(ram, RAM_CAPACITY, period.end, record);
+                put(&self.db, &series.to_json(&period, open, &self.captured_by));
             }
         }
         store.last_poll = Some(LastPoll::succeeded(time));

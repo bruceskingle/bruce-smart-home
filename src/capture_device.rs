@@ -216,6 +216,9 @@ fn sign(key: &str, method: &str, uri: &str, time: i64) -> anyhow::Result<String>
     Ok(format!("Sparko-HMAC-SHA256 {time}:{signature}"))
 }
 
+/// The addresses of the devices which have taken a signed request over plain HTTP, see get_query.
+static SIGNED: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
+
 /// A connection to one device's API.
 pub struct DeviceClient {
     http: reqwest::Client,
@@ -299,6 +302,13 @@ impl DeviceClient {
     /// Reads path, with query, over plain HTTP, signed with the key, see sign, or over HTTPS if there is no key, or
     /// the device does not take signed requests, e.g. its firmware is from before them, or its clock is wrong.
     pub async fn get_query(&self, path: &str, query: &[(&str, String)]) -> anyhow::Result<Value> {
+        self.get_signed(path, query, true).await
+    }
+
+    /// As get_query, but if missing_over_https is false, a path the device does not have, 404, is not asked for again
+    /// over HTTPS, e.g. /api/store/info, which a device from before the store does not have, whether or not it takes
+    /// signed requests.
+    async fn get_signed(&self, path: &str, query: &[(&str, String)], missing_over_https: bool) -> anyhow::Result<Value> {
         if let Some(key) = &self.key {
             let mut url = reqwest::Url::parse(&format!("http://{}/api/{path}", self.address))?;
             if !query.is_empty() {
@@ -316,11 +326,20 @@ impl DeviceClient {
             let request = self.plain.get(url).header(reqwest::header::AUTHORIZATION, authorization).timeout(PAGE_TIMEOUT);
             let result = Self::receive(request).await;
             drop(_turn);
+            // A 404 from a device which has taken a signed request is a path it does not have, e.g. /api/store/info
+            // on firmware from before the store, not firmware from before signed requests, so not asked again over
+            // HTTPS, which needs tens of KB of its RAM.
+            let signed = !missing_over_https || SIGNED.lock().unwrap().contains(&self.address);
             match result {
-                Err(error) if error.downcast_ref::<StatusError>().is_some_and(|error| [401, 404].contains(&error.status)) => {
+                Err(error) if error.downcast_ref::<StatusError>().is_some_and(|error| error.status == 401 || (error.status == 404 && !signed)) => {
                     crate::log_info!("Capture device at {} did not take a signed request for {path}, using HTTPS, {error:#}", self.address);
                 }
-                result => return result,
+                result => {
+                    if result.is_ok() {
+                        SIGNED.lock().unwrap().insert(self.address.clone());
+                    }
+                    return result;
+                }
             }
         }
         self.send(self.http.get(format!("{}/{path}", self.base)).query(query)).await
@@ -617,25 +636,42 @@ impl CaptureReader {
             .map(|next| next + READ_DELAY)
     }
 
-    /// Reads the records of each device which takes them, those since since, the time of the latest the app has, the
-    /// first time, and since the latest read after that, saving each with save, given the device it is from, which
-    /// says whether it was new.
+    /// Reads the records of each device which takes them: a device on the store is replicated into store, see
+    /// replicate, and one with older firmware is read those since since, the time of the latest the app has, the first
+    /// time, and since the latest read after that, saving each with save, given the device it is from, which says
+    /// whether it was new.
     /// Returns false if none of them takes them, e.g. there are none, so that the app fetches them itself, and an error
     /// if none which does could be read.
-    pub async fn read(&self, devices: &[DeviceProfile], since: Option<time::OffsetDateTime>,
+    pub async fn read(&self, store: &bruce_db::Store, devices: &[DeviceProfile], since: Option<time::OffsetDateTime>,
         save: &mut dyn FnMut(&DeviceProfile, &Value) -> anyhow::Result<bool>, progress: &mut dyn FnMut(String)) -> anyhow::Result<bool> {
-        self.read_each(devices, &|_| since, save, progress).await
+        self.read_each(store, devices, &|_| since, save, progress).await
     }
 
     /// As read, with since_for giving each device's since, e.g. the latest the app has of that device's own records,
     /// for records which are each device's own, e.g. its temperature, rather than copies of a source's.
-    pub async fn read_each(&self, devices: &[DeviceProfile], since_for: &dyn Fn(&DeviceProfile) -> Option<time::OffsetDateTime>,
+    pub async fn read_each(&self, store: &bruce_db::Store, devices: &[DeviceProfile],
+        since_for: &dyn Fn(&DeviceProfile) -> Option<time::OffsetDateTime>,
         save: &mut dyn FnMut(&DeviceProfile, &Value) -> anyhow::Result<bool>, progress: &mut dyn FnMut(String)) -> anyhow::Result<bool> {
         let mut takes = false;
         let mut read_any = false;
         let mut first_error = None;
         for device in devices {
-            match self.read_device(device, since_for(device), save, progress).await {
+            // A device on the store, replicated, rather than read, see replicate. Older firmware has no
+            // /api/store/info, so is read as before.
+            let result = match replicate(store, device, progress).await {
+                Ok(Some(info)) => match info.features.get(&self.module_id) {
+                    Some(feature) => {
+                        if let Some(schedule) = &feature.schedule {
+                            self.schedules.lock().unwrap().insert(device.id.clone(), schedule.clone());
+                        }
+                        Ok(())
+                    }
+                    None => Err(StatusError { status: 404, message: format!("It does not take {}", self.module_id) }.into()),
+                },
+                Ok(None) => self.read_device(device, since_for(device), save, progress).await,
+                Err(error) => Err(error),
+            };
+            match result {
                 Ok(()) => {
                     takes = true;
                     read_any = true;
@@ -749,6 +785,126 @@ impl CaptureReader {
     }
 }
 
+/// How many changes a device is asked for at a time, see replicate. A page of 500 takes a Guitron some 14 seconds.
+const CHANGES_PAGE: usize = 500;
+/// How long a device's replication is taken as current, so that the modules it takes, polled together on the same
+/// slot, do not each pull its changes, see replicate.
+const REPLICATED_FOR: Duration = Duration::from_secs(5);
+/// The kind of the app's cursor of each device's change feed, see replicate.
+const REPLICATION_KIND: &str = "app.replication";
+
+/// What a device on the store says of it, /api/store/info: the site and the store's ID, and each feature's status, by
+/// the module whose records it takes, e.g. tesla, which its records pages said before the store.
+#[derive(Clone, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct StoreInfo {
+    pub site: Option<String>,
+    pub store: Option<String>,
+    /// Why it has no store, e.g. no SD card, or the site not set.
+    pub problem: Option<String>,
+    #[serde(default)]
+    pub features: std::collections::BTreeMap<String, RecordsDevice>,
+}
+
+/// A page of a device's change feed, /api/store/changes.
+#[derive(Deserialize)]
+struct ChangesPage {
+    store: String,
+    changes: Vec<Value>,
+    next: u64,
+    /// Why it could not read them all, after which it gave those it had.
+    error: Option<String>,
+}
+
+/// The latest replication of each device, by its ID, with what it said of itself then, see REPLICATED_FOR.
+static REPLICATIONS: Mutex<std::collections::BTreeMap<String, Arc<tokio::sync::Mutex<Option<(std::time::Instant, StoreInfo)>>>>> =
+    Mutex::new(std::collections::BTreeMap::new());
+
+/// Pulls the changes a device on the store has made since the app last did, putting each into store as from the
+/// device, see the design's capture devices on the store, and returns what the device says of itself, or None if its
+/// firmware is from before the store, so that it is read as it was. The cursor is the app's, in store, with the
+/// device's store's ID, so that a device whose store is new, e.g. a changed card, is pulled from the start again.
+pub async fn replicate(store: &bruce_db::Store, device: &DeviceProfile, progress: &mut dyn FnMut(String))
+    -> anyhow::Result<Option<StoreInfo>> {
+    let latest = REPLICATIONS.lock().unwrap().entry(device.id.clone()).or_default().clone();
+    let mut latest = latest.lock().await;
+    if let Some((at, info)) = latest.as_ref().filter(|(at, _)| at.elapsed() < REPLICATED_FOR) {
+        crate::log_info!("Capture device {} replicated {} ms ago", device.id, at.elapsed().as_millis());
+        return Ok(Some(info.clone()));
+    }
+    let client = DeviceClient::for_device(device)?;
+    let named = STATUSES.lock().unwrap().get(&device.id).is_some_and(|status| status.name.is_some());
+    if !named {
+        match client.info().await {
+            Ok(info) => update_status(device, |status| status.name = info.hostname.filter(|name| !name.is_empty())),
+            Err(error) => crate::log_info!("Unable to get the name of the capture device {}, {error:#}", device.id),
+        }
+    }
+    let info: StoreInfo = match client.get_signed("store/info", &[], false).await {
+        Ok(json) => serde_json::from_value(json)?,
+        Err(error) if error.downcast_ref::<StatusError>().is_some_and(|error| error.status == 404) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if let Some(problem) = &info.problem {
+        anyhow::bail!("The capture device {} keeps no store, {problem}", device.id);
+    }
+    let site = store.site().to_string();
+    if info.site.as_deref() != Some(site.as_str()) {
+        anyhow::bail!("The capture device {} keeps the site {}, not this profile's", device.id, info.site.as_deref().unwrap_or("none"));
+    }
+    let hk = store.hash_key(REPLICATION_KIND, &[bruce_db::Part::Name(crate::store::node()?),
+        bruce_db::Part::Name(crate::store::device_part(&device.id))])?;
+    let cursor = store.get(&hk, "-")?.and_then(|item| item.attributes);
+    let mut since = cursor.as_ref()
+        .filter(|cursor| cursor["store"].as_str() == info.store.as_deref())
+        .and_then(|cursor| cursor["next"].as_u64())
+        .unwrap_or(0);
+    progress(format!("Reading the capture device {}", device.id));
+    let (mut read, mut stored) = (0u64, 0u64);
+    loop {
+        let query = [("since", since.to_string()), ("limit", CHANGES_PAGE.to_string())];
+        crate::log_info!("Capture device {} GET /api/store/changes {query:?}", device.id);
+        let page: ChangesPage = serde_json::from_value(client.get_query("store/changes", &query).await?)?;
+        let count = page.changes.len();
+        for change in page.changes {
+            let change = bruce_db::Change::from_json(change)?;
+            if store.put_from(&change.item, &crate::store::device_part(&device.id))? == bruce_db::Put::Stored {
+                stored += 1;
+            }
+        }
+        read += count as u64;
+        store.put(&bruce_db::Item::new(&hk, "-", crate::store::version_now(),
+            serde_json::json!({ "store": page.store, "next": page.next })))?;
+        if let Some(error) = page.error {
+            anyhow::bail!("The capture device {} could not read all its changes, {error}", device.id);
+        }
+        // Only while the page moved on, so that a device which gives fewer than asked for is not asked forever.
+        let moved = page.next != since;
+        since = page.next;
+        if count < CHANGES_PAGE || !moved {
+            break;
+        }
+        progress(format!("Read {read} changes from the capture device {} so far, {stored} new", device.id));
+    }
+    crate::log_info!("Capture device {}: {read} changes, {stored} new, up to {since}", device.id);
+    update_status(device, |status| {
+        status.takes = info.features.keys().cloned().collect();
+        status.last_read = Some(crate::clock::now_utc());
+        status.last_error = None;
+        status.read += read;
+        status.saved += stored;
+        status.device = info.features.values().next().cloned();
+        for (module_id, feature) in &info.features {
+            if let Some(poll) = &feature.last_poll {
+                log_poll_change(status, module_id, status.polls.get(module_id), poll);
+                status.polls.insert(module_id.clone(), poll.clone());
+            }
+        }
+    });
+    *latest = Some((std::time::Instant::now(), info.clone()));
+    Ok(Some(info))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -808,16 +964,34 @@ mod tests {
 /// For --deviceget: GETs path, which may have a query, e.g. capture/climate/records?limit=5, of the active profile's
 /// capture device device, signed with the key the app keeps for it, which is not shown, and prints its response.
 pub fn cli_get(args: &crate::Args, device_id: &str, path: &str) -> anyhow::Result<()> {
-    let profile = crate::profile::fetch_active_profile(&args.marco_sparko_args.profile)?;
-    let device = profile.active_profile.settings.capture_devices.iter()
-        .find(|device| device.id == device_id)
-        .ok_or_else(|| anyhow::anyhow!("The profile {} has no capture device {device_id}", profile.active_profile.name))?;
+    let device = cli_device(args, device_id)?;
     let (path, query) = path.trim_start_matches('/').trim_start_matches("api/").split_once('?').unwrap_or((path, ""));
     let query: Vec<(String, String)> = reqwest::Url::parse(&format!("http://device/?{query}"))?.query_pairs().into_owned().collect();
     let query: Vec<(&str, String)> = query.iter().map(|(name, value)| (name.as_str(), value.clone())).collect();
-    let client = DeviceClient::for_device(device)?;
+    let client = DeviceClient::for_device(&device)?;
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     let json = runtime.block_on(client.get_query(path, &query))?;
     println!("{}", serde_json::to_string_pretty(&json)?);
     Ok(())
+}
+
+/// For --devicepost: POSTs body, JSON, to path, e.g. config, of the active profile's capture device device, signed as
+/// cli_get's are, and prints its response.
+pub fn cli_post(args: &crate::Args, device_id: &str, path: &str, body: &str) -> anyhow::Result<()> {
+    let device = cli_device(args, device_id)?;
+    let body: Value = serde_json::from_str(body).map_err(|error| anyhow!("The body is not JSON: {error:#}"))?;
+    let client = DeviceClient::for_device(&device)?;
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let json = runtime.block_on(client.post(path.trim_start_matches('/').trim_start_matches("api/"), &body))?;
+    println!("{}", serde_json::to_string_pretty(&json)?);
+    Ok(())
+}
+
+/// The active profile's capture device with the ID device_id, for --deviceget and --devicepost.
+fn cli_device(args: &crate::Args, device_id: &str) -> anyhow::Result<DeviceProfile> {
+    let profile = crate::profile::fetch_active_profile(&args.marco_sparko_args.profile)?;
+    profile.active_profile.settings.capture_devices.iter()
+        .find(|device| device.id == device_id)
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("The profile {} has no capture device {device_id}", profile.active_profile.name))
 }

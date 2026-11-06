@@ -36,9 +36,9 @@ const DAILY: &[&str] = &[
 
 /// The kinds of the snapshots and details, see the module documentation, and the part of their hash keys naming the
 /// gateway, as a site has one.
-const KIND: &str = "tesla.snapshot";
+const KIND: &str = crate::device_kinds::TESLA_SNAPSHOT;
 const DETAILS_KIND: &str = "tesla.details";
-const GATEWAY: &str = "gateway";
+const GATEWAY: &str = crate::device_kinds::TESLA_GATEWAY;
 
 /// The responses of the endpoints, as {"slot": ..., "requested": ..., "received": ..., "responses": {endpoint:
 /// response}}. slot is the time the poll was scheduled for, see polling::next_slot, if it was, requested when the first
@@ -103,9 +103,12 @@ fn save_to(store: &Store, hk: &str, json: &serde_json::Value, device: Option<&st
     Ok(store.put(&Item::new(hk, &sk, version, json.clone()))? == Put::Stored)
 }
 
-/// Saves a snapshot taken by the capture device device, or by the app if it is None, see save_to.
+/// Saves a snapshot taken by the capture device device, or by the app if it is None, as a device writes it, see
+/// device_kinds.rs.
 pub fn save(store: &Store, json: &serde_json::Value, device: Option<&str>) -> anyhow::Result<bool> {
-    save_to(store, &snapshot_key(store)?, json, device)
+    let origin = crate::store::origin();
+    let writer = device.map_or(crate::device_kinds::Writer::App(&origin), crate::device_kinds::Writer::Device);
+    Ok(store.put(&crate::device_kinds::tesla_snapshot(store, json, writer)?)? == Put::Stored)
 }
 
 /// The gateway's software version, in the status response.

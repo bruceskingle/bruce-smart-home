@@ -32,6 +32,13 @@ fn main() {
         }
         std::process::exit(0);
     }
+    if let Some((device, path, body)) = args.capture_post() {
+        if let Err(error) = marco_sparko::capture_device::cli_post(&args, device, path, body) {
+            eprintln!("{error:#}");
+            std::process::exit(1);
+        }
+        std::process::exit(0);
+    }
     if args.fetch() {
         std::process::exit(if marco_sparko::fetch_latest_data(args) { 0 } else { 1 });
     }

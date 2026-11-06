@@ -29,10 +29,10 @@ use sparko_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
 
 use crate::connections::KeptConnection;
 use crate::graph::Sample;
-use crate::day_files::{self, DayFiles};
 use crate::device::{Device, captured_by};
 use crate::slots::Slots;
-use crate::records::{ENDPOINTS, Record, Response, Store, format_time};
+use crate::db::Db;
+use crate::records::{ENDPOINTS, Record, Response, Snapshots, format_time};
 use crate::screen::{Line, Panel};
 
 /// The feature's name, which is also its NVS namespace, so at most 15 characters.
@@ -45,11 +45,6 @@ const PASSWORD: &str = "tesla_password";
 /// the home network, can easily answer, as the connection to it is kept between polls, see PollTask::fetch. The power
 /// at that resolution is what the Octopus Home Mini's telemetry has, for comparison.
 const DEFAULT_SCHEDULE: &str = "*/10 * * * * *";
-
-/// 4 hours of 5 minute samples, about 250 bytes each in RAM, for the screen, and for the app if there is no SD card,
-/// which keeps the rest. More fit, but myenergi's HTTPS connection needs the RAM, see the free heap in the log after
-/// each poll.
-const DEFAULT_CAPACITY: i32 = 48;
 
 /// How long to wait before logging in again after the gateway said there had been too many attempts.
 const LOCKOUT_WAIT: TimeDelta = TimeDelta::minutes(30);
@@ -73,9 +68,6 @@ pub struct TeslaConfig {
     tesla_password: Option<String>,
     #[config(label = "Tesla Poll Schedule (cron, seconds first; every 10 seconds if empty)")]
     tesla_schedule: Option<Cron>,
-    /// How many samples are kept, see DEFAULT_CAPACITY.
-    #[config(label = "Tesla Samples Kept in RAM (48 if empty)")]
-    tesla_capacity: Option<i32>,
 }
 
 /// Where its lines go on the screen, first.
@@ -87,13 +79,14 @@ const METERS: &[(&str, &str)] = &[("site", "Grid"), ("solar", "Solar"), ("batter
 
 pub struct TeslaCapture {
     panel: Arc<Panel>,
+    db: Arc<Db>,
     /// The connection to the gateway, kept between polls, see PollTask::fetch.
     gateway: KeptConnection,
 }
 
 impl TeslaCapture {
-    pub fn new(panel: Arc<Panel>, gateway: KeptConnection) -> Self {
-        Self { panel, gateway }
+    pub fn new(panel: Arc<Panel>, db: Arc<Db>, gateway: KeptConnection) -> Self {
+        Self { panel, db, gateway }
     }
 }
 
@@ -118,9 +111,7 @@ impl Feature for TeslaCapture {
             .tesla_schedule
             .map(|schedule| schedule.pattern.to_string())
             .unwrap_or_else(|| DEFAULT_SCHEDULE.to_string());
-        let capacity = config.tesla_capacity.filter(|capacity| *capacity > 0).unwrap_or(DEFAULT_CAPACITY);
-        let dir = sparko.sd_card().map(|mount_point| std::path::Path::new(mount_point).join("capture").join("tesla"));
-        let store = Arc::new(Mutex::new(Store::new(capacity as usize, DayFiles::new(dir), captured_by(sparko))));
+        let store = Arc::new(Mutex::new(Snapshots::new(self.db.clone(), captured_by(sparko))));
         let device = Arc::new(Device::new(&schedule_spec));
 
         let mut poll = PollTask {
@@ -137,76 +128,52 @@ impl Feature for TeslaCapture {
             client: self.gateway.clone(),
         };
 
-        // The graph's history from the card, if there is one, as the samples in RAM went with the restart.
-        if let Some(dir) = store.lock().unwrap().files().usable() {
-            fill_graph(&self.panel, &dir);
-        }
+        // The graph's history from the store, as the samples in RAM went with the restart.
+        fill_graph(&self.panel, &self.db);
         set_panel(&self.panel, &store.lock().unwrap());
 
         // A first poll now, as the app does, so there is something to show without waiting for the first slot.
         poll.poll(sparko, None);
         initializer.add_task(Box::new(poll), &schedule_spec)?;
 
-        // Only on the API, which once the device has been adopted needs the app's key, or a request signed with it, as
-        // the records say when the house is empty.
-        sparko.api_get("/api/capture/tesla/records", move |request| {
-            serve_records(request, &store, &device)
-        })?;
+        // For the app, at /api/store/info, see db.rs.
+        self.db.add_status("tesla", move |db| {
+            let store = store.lock().unwrap();
+            device.to_json(db, store.last_poll())
+        });
 
         Ok(())
     }
 }
 
-/// The records since the time in the request's since parameter, and the device's details, see day_files::respond.
-fn serve_records(
-    request: esp_idf_svc::http::server::Request<&mut esp_idf_svc::http::server::EspHttpConnection<'_>>,
-    store: &Mutex<Store>,
-    device: &Device,
-) -> anyhow::Result<()> {
-    let (files, device_json) = {
-        let store = store.lock().unwrap();
-        (store.files().usable(), device.to_json(store.files(), store.len(), store.capacity(), store.last_poll()))
-    };
-    // Not holding the store while the files are read, so that polling carries on while a few days are read.
-    day_files::respond(request, &device_json, files, |since, write| {
-        let store = store.lock().unwrap();
-        store.since(since).try_for_each(|record| write(&serde_json::to_vec(&record.to_json(store.captured_by()))?))
-    })
-}
-
-/// Adds the samples of the records on the SD card in dir from the last graph::HISTORY to the graph, oldest first, so
-/// that it shows them at once after a restart. Not if the clock is not set yet, as the last HISTORY would then be all of
-/// the card. A record which can not be read is left out, as is the whole history if the files can not be.
-fn fill_graph(panel: &Panel, dir: &std::path::Path) {
-    use chrono::Datelike;
-    let now = Utc::now();
-    if now.year() < 2025 {
-        warn!("The clock is not set, so the graph is not filled from the SD card");
-        return;
-    }
+/// Adds the samples of the store's snapshots from the last graph::HISTORY to the graph, oldest first, so that it shows
+/// them at once after a restart. A record which can not be read is left out, as is the whole history if the store can
+/// not be.
+fn fill_graph(panel: &Panel, db: &Db) {
+    let Some(store) = db.store() else { return };
+    let from = crate::device_kinds::second_key(bruce_db::Micros((Utc::now() - crate::graph::HISTORY).timestamp_micros()));
     let mut added = 0;
-    let result = day_files::write_since(dir, Some(now - crate::graph::HISTORY), None, &mut |line| {
-        let Ok(json) = serde_json::from_slice::<serde_json::Value>(line) else { return Ok(()) };
-        let time = ["slot", "requested"].iter()
-            .find_map(|name| json.get(*name)?.as_str())
-            .and_then(|time| DateTime::parse_from_rfc3339(time).ok())
-            .map(|time| time.with_timezone(&Utc));
-        let meters = &json["responses"]["meters/aggregates"];
-        let power = crate::graph::SERIES.map(|(name, _)| meters[name]["instant_power"].as_f64().map(|power| power as f32));
-        if let (Some(time), [Some(grid), Some(solar), Some(battery), Some(house)]) = (time, power) {
-            panel.add_sample(Sample { time, power: [grid, solar, battery, house] });
-            added += 1;
-        }
-        Ok(())
+    let result = crate::device_kinds::tesla_snapshot_key(&store).and_then(|hk| {
+        store.query(&hk, from.as_str()..bruce_db::ALL.end, &mut |item| {
+            let Some(json) = item.attributes else { return Ok(bruce_db::Flow::Continue) };
+            let time = crate::device_kinds::tesla_time(&json).and_then(|time| DateTime::from_timestamp_micros(time.0));
+            let meters = &json["responses"]["meters/aggregates"];
+            let power = crate::graph::SERIES.map(|(name, _)| meters[name]["instant_power"].as_f64().map(|power| power as f32));
+            if let (Some(time), [Some(grid), Some(solar), Some(battery), Some(house)]) = (time, power) {
+                panel.add_sample(Sample { time, power: [grid, solar, battery, house] });
+                added += 1;
+            }
+            Ok(bruce_db::Flow::Continue)
+        })
     });
     match result {
-        Ok(_) => info!("Filled the graph with {added} samples from the SD card"),
-        Err(error) => warn!("Unable to fill the graph from the SD card, {error:#}"),
+        Ok(()) => info!("Filled the graph with {added} samples from the store"),
+        Err(error) => warn!("Unable to fill the graph from the store, {error:#}"),
     }
 }
 
 /// What the screen shows, see panel_lines, and the latest sample for its graph, see graph.rs.
-fn set_panel(panel: &Panel, store: &Store) {
+fn set_panel(panel: &Panel, store: &Snapshots) {
     let mut meters = Vec::new();
     if let Some(record) = store.latest() {
         for (name, label) in METERS {
@@ -225,7 +192,7 @@ fn set_panel(panel: &Panel, store: &Store) {
 
 /// What the screen shows besides the power of each of the gateway's meters: the battery's charge and backup reserve,
 /// and when the gateway was last polled, or why that failed.
-fn panel_lines(store: &Store) -> Vec<Line> {
+fn panel_lines(store: &Snapshots) -> Vec<Line> {
     let mut lines = Vec::new();
     if let Some(record) = store.latest() {
         // As the gateway says them, which the Tesla app shows less the 5% it keeps in reserve.
@@ -243,10 +210,10 @@ fn panel_lines(store: &Store) -> Vec<Line> {
         None => lines.push(("Waiting for first poll".to_string(), false)),
         Some(poll) => {
             let time = poll.time.with_timezone(&chrono::Local).format("%H:%M");
-            match (&poll.error, store.files().problem()) {
+            match (&poll.error, store.db().problem()) {
                 (None, None) => lines.push((format!("Polled {time}"), false)),
-                // e.g. no SD card, so the records will be lost when the device restarts.
-                (None, Some(_)) => lines.push((format!("Polled {time}, no SD"), true)),
+                // e.g. no SD card or no site, so the records are not kept.
+                (None, Some(_)) => lines.push((format!("Polled {time}, not stored"), true)),
                 (Some(error), _) => lines.push((format!("{time} {error}"), true)),
             }
         }
@@ -384,7 +351,7 @@ fn summary(body: &[u8]) -> String {
 
 struct PollTask {
     gateway: Gateway,
-    store: Arc<Mutex<Store>>,
+    store: Arc<Mutex<Snapshots>>,
     panel: Arc<Panel>,
     slots: Slots,
     /// The connection to the gateway, kept between polls, so that each is a few requests, not a new HTTPS
@@ -416,7 +383,7 @@ impl PollTask {
         match result {
             Ok(record) => {
                 store.add(record);
-                info!("Tesla poll saved, {} records, free heap {heap}, minimum {minimum_heap}", store.len());
+                info!("Tesla poll saved, free heap {heap}, minimum {minimum_heap}");
             }
             Err(error) => {
                 if error.is::<PasswordRejected>() {

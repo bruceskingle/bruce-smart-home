@@ -16,7 +16,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use bruce_db::{Flow, Item, Micros, Part, Store, Version};
+use bruce_db::{Flow, Item, Store};
 use dioxus::prelude::*;
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -50,8 +50,7 @@ pub struct Series {
 }
 
 /// The kind of the periods, and of the devices' names, see the module documentation.
-const KIND: &str = "climate.period";
-const DEVICE_KIND: &str = "device.info";
+const KIND: &str = crate::device_kinds::CLIMATE_PERIOD;
 /// The sort key of where the app has got to in reading a DataSet's device.
 const READ: &str = "#read";
 
@@ -78,22 +77,15 @@ pub fn store(profile_name: &str) -> anyhow::Result<Arc<Store>> {
 }
 
 fn series_key(store: &Store, device_id: &str, series: &str) -> anyhow::Result<String> {
-    store.hash_key(KIND, &[Part::Name(crate::store::device_part(device_id)), Part::Name(series.to_string())])
+    crate::device_kinds::climate_period_key(store, device_id, series)
 }
 
 fn device_key(store: &Store, device_id: &str) -> anyhow::Result<String> {
-    store.hash_key(DEVICE_KIND, &[Part::Name(crate::store::device_part(device_id))])
+    crate::device_kinds::device_info_key(store, device_id)
 }
 
 fn parse(time: &str) -> Option<OffsetDateTime> {
     OffsetDateTime::parse(time, &Rfc3339).ok()
-}
-
-/// A period's version: its end, and a microsecond more once it is closed, so that the period closed replaces the same
-/// period open with the same end, written by the device.
-fn period_version(device_id: &str, end: OffsetDateTime, open: bool) -> Version {
-    let end = Micros::from_datetime(end);
-    Version::new(Micros(if open { end.0 } else { end.0 + 1 }), &crate::store::device_part(device_id))
 }
 
 /// Saves the records read from device, each as the device gave it, see the module documentation, returning how many
@@ -107,18 +99,12 @@ pub(crate) fn save(store: &Store, device_id: &str, records: &[Value]) -> anyhow:
     let mut latest: std::collections::BTreeMap<String, OffsetDateTime> = std::collections::BTreeMap::new();
     for record in records {
         let field = |key: &str| record.get(key).and_then(Value::as_str);
-        let (Some(series), Some(start), Some(end)) = (field("series"), field("start"), field("end").and_then(parse)) else {
+        let (Some(item), Some(series), Some(end)) =
+            (crate::device_kinds::climate_period(store, device_id, record)?, field("series"), field("end").and_then(parse)) else {
             not_periods.0 += 1;
             not_periods.1.get_or_insert(record);
             continue;
         };
-        if record.get("value").and_then(Value::as_f64).is_none() || parse(start).is_none() {
-            not_periods.0 += 1;
-            not_periods.1.get_or_insert(record);
-            continue;
-        }
-        let open = record.get("open").and_then(Value::as_bool).unwrap_or(false);
-        let item = Item::new(&series_key(store, device_id, series)?, start, period_version(device_id, end, open), record.clone());
         if store.put(&item)? == bruce_db::Put::Stored {
             changed += 1;
         }
@@ -254,7 +240,7 @@ impl Module for ClimateReader {
         let store = store(&self.profile_name)?;
         let devices = crate::capture_device::adopted_devices(&self.profile_name);
         let mut read: Vec<(DeviceProfile, Vec<Value>)> = Vec::new();
-        let takes = self.capture.read_each(&devices, &|device| latest_end(&store, &device.id), &mut |device, record| {
+        let takes = self.capture.read_each(&store, &devices, &|device| latest_end(&store, &device.id), &mut |device, record| {
             match read.last_mut() {
                 Some((last, records)) if last.id == device.id => records.push(record.clone()),
                 _ => read.push((device.clone(), vec![record.clone()])),

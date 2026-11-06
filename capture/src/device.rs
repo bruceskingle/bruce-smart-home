@@ -1,9 +1,10 @@
-//! What the app is told about the device with each feature's records, e.g. when and why it last started.
+//! What the app is told about the device with each feature's status, at /api/store/info, see db.rs, e.g. when and why it
+//! last started.
 
 use chrono::{DateTime, TimeDelta, Utc};
 use serde_json::json;
 
-use crate::day_files::DayFiles;
+use crate::db::Db;
 use crate::records::{LastPoll, format_time};
 
 /// The firmware which took the records, in each one's firmware.
@@ -38,9 +39,9 @@ impl Device {
         Device { boot_time: Utc::now() - up_time, reset_reason: sparko_esp_idf::reset_reason(), schedule: schedule.to_string() }
     }
 
-    /// The details, with where the feature's records are kept, how many of them are in RAM, out of how many, and how
-    /// its latest poll went, as the screen shows it, so that the app can show a feature which is failing.
-    pub fn to_json(&self, files: &DayFiles, in_ram: usize, ram_capacity: usize, last_poll: Option<&LastPoll>) -> serde_json::Value {
+    /// The details, with whether the feature's records are kept in the store, db, and how its latest poll went, as the
+    /// screen shows it, so that the app can show a feature which is failing.
+    pub fn to_json(&self, db: &Db, last_poll: Option<&LastPoll>) -> serde_json::Value {
         json!({
             "name": env!("CARGO_PKG_NAME"),
             "version": env!("CARGO_PKG_VERSION"),
@@ -48,13 +49,10 @@ impl Device {
             "bootTime": format_time(self.boot_time),
             "resetReason": self.reset_reason,
             "schedule": self.schedule,
-            "storage": files.storage(),
-            "storageProblem": files.problem(),
+            "storage": if db.store().is_some() { "store" } else { "none" },
+            "storageProblem": db.problem(),
             // The SD card's size and free space, if the records are kept on one.
-            "sdCard": files.usable().and_then(|_| sparko_esp_idf::sd_card::space())
-                .map(|(total, free)| json!({ "totalBytes": total, "freeBytes": free })),
-            "recordsInRam": in_ram,
-            "ramCapacity": ram_capacity,
+            "sdCard": db.sd_card(),
             "freeHeap": unsafe { esp_idf_sys::esp_get_free_heap_size() },
             "minimumFreeHeap": unsafe { esp_idf_sys::esp_get_minimum_free_heap_size() },
             "largestFreeBlock": unsafe { esp_idf_sys::heap_caps_get_largest_free_block(esp_idf_sys::MALLOC_CAP_DEFAULT) },

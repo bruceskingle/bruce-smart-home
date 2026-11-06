@@ -8,7 +8,7 @@
 //! e.g. U12345678. A day is fetched again until it has ended.
 
 use anyhow::anyhow;
-use bruce_db::{Flow, Id, Item, Micros, Part, Put, Store, Version};
+use bruce_db::{Flow, Id, Item, Micros, Part, Put, Store};
 use time::{Date, Duration};
 
 use super::client::{Device, MyenergiClient};
@@ -16,9 +16,9 @@ use super::client::{Device, MyenergiClient};
 /// How many days are fetched, including today.
 pub const DAYS: i64 = 3;
 
-const STATUS_KIND: &str = "myenergi.status";
+const STATUS_KIND: &str = crate::device_kinds::MYENERGI_STATUS;
 const MINUTES_KIND: &str = "myenergi.minutes";
-const HUB: &str = "hub";
+const HUB: &str = crate::device_kinds::MYENERGI_HUB;
 
 fn status_key(store: &Store) -> anyhow::Result<String> {
     store.hash_key(STATUS_KIND, &[Part::from(HUB)])
@@ -57,13 +57,10 @@ pub fn save_status(store: &Store, saved: &serde_json::Value, device: Option<&str
 /// whose time is in its old file's name, see convert_legacy.
 fn save_status_at(store: &Store, saved: &serde_json::Value, time: Option<time::OffsetDateTime>, device: Option<&str>) -> anyhow::Result<bool> {
     let time = saved_time(saved).or(time).ok_or_else(|| anyhow!("the status has no time"))?;
-    let sk = second_key(time);
-    let second = Micros::parse(&sk)?;
-    let version = match device {
-        Some(device) => Version::new(second, &crate::store::device_part(device)),
-        None => Version::new(Micros(second.0 + 1), &crate::store::origin()),
-    };
-    Ok(store.put(&Item::new(&status_key(store)?, &sk, version, saved.clone()))? == Put::Stored)
+    let origin = crate::store::origin();
+    let writer = device.map_or(crate::device_kinds::Writer::App(&origin), crate::device_kinds::Writer::Device);
+    let item = crate::device_kinds::sampled(&status_key(store)?, Micros::from_datetime(time), saved, writer);
+    Ok(store.put(&item)? == Put::Stored)
 }
 
 /// Fetches the status into the store, which lists the devices.

@@ -6,8 +6,9 @@
 //! and as a connection to Octopus is the costliest thing the device does, each poll is one request, flexPoll, on one
 //! connection, once it knows the charging device, see Octopus::poll.
 //!
-//! Each record is what the app saves, {"slot", "requested", "received", "responses"}, on the SD card, see DayFiles, and
-//! the latest in RAM, for the screen, and for the app if there is no card.
+//! Each record is what the app saves, {"slot", "requested", "received", "responses"}, put in the store as the app would
+//! put it, see db.rs, by the account, which is why the records kept before the store are converted after the first
+//! poll, once it is known, see PollTask::poll.
 //!
 //! It only needs the API key: the account is the key's first, unless the config says which.
 //!
@@ -40,7 +41,7 @@ use sparko_embedded_std::task::scheduler::ScheduledTask;
 use sparko_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
 
 use crate::connections::KeptConnection;
-use crate::day_files::{self, DayFiles};
+use crate::db::Db;
 use crate::device::{Device, FIRMWARE, captured_by};
 use crate::records::{LastPoll, format_time};
 use crate::screen::{Line, Panel};
@@ -51,9 +52,6 @@ const FEATURE_NAME: &str = "OctopusCapture";
 
 /// 30 seconds before and after each half hour ends, 30 seconds clear of the other features' polls on the minute.
 const DEFAULT_SCHEDULE: &str = "30 0,29,30,59 * * * *";
-
-/// 2 hours of records, from about 1 KB each, to about 4 KB after a night's charging, for when there is no SD card.
-const RAM_CAPACITY: usize = 8;
 
 const URL: &str = "https://api.octopus.energy/v1/graphql/";
 
@@ -100,13 +98,14 @@ pub struct OctopusConfig {
 
 pub struct OctopusCapture {
     panel: Arc<Panel>,
+    db: Arc<Db>,
     /// Closed before each poll, for the RAM, see KeptConnection::release.
     kept: KeptConnection,
 }
 
 impl OctopusCapture {
-    pub fn new(panel: Arc<Panel>, kept: KeptConnection) -> Self {
-        Self { panel, kept }
+    pub fn new(panel: Arc<Panel>, db: Arc<Db>, kept: KeptConnection) -> Self {
+        Self { panel, db, kept }
     }
 }
 
@@ -128,10 +127,7 @@ impl Feature for OctopusCapture {
             .octopus_sched
             .map(|schedule| schedule.pattern.to_string())
             .unwrap_or_else(|| DEFAULT_SCHEDULE.to_string());
-        let dir = sparko.sd_card().map(|mount_point| std::path::Path::new(mount_point).join("capture").join("octopus"));
         let store = Arc::new(Mutex::new(Store {
-            files: DayFiles::new(dir),
-            ram: VecDeque::with_capacity(RAM_CAPACITY),
             line: ("Octopus: not polled yet".to_string(), false),
             last_poll: None,
         }));
@@ -146,6 +142,8 @@ impl Feature for OctopusCapture {
                 calls: VecDeque::new(),
             },
             store: store.clone(),
+            db: self.db.clone(),
+            converted: false,
             panel: self.panel.clone(),
             kept: self.kept.clone(),
             slots: Slots::new(&schedule_spec)?,
@@ -155,28 +153,13 @@ impl Feature for OctopusCapture {
         poll.poll(None);
         initializer.add_task(Box::new(poll), &schedule_spec)?;
 
-        sparko.api_get("/api/capture/octopus/records", move |request| {
-            let (files, device_json) = {
-                let store = store.lock().unwrap();
-                (store.files.usable(), device.to_json(&store.files, store.ram.len(), RAM_CAPACITY, store.last_poll.as_ref()))
-            };
-            day_files::respond(request, &device_json, files, |since, write| {
-                let store = store.lock().unwrap();
-                store
-                    .ram
-                    .iter()
-                    .filter(|(time, _)| since.is_none_or(|since| *time > since))
-                    .try_for_each(|(_, line)| write(line.as_bytes()))
-            })
-        })?;
+        // For the app, at /api/store/info, see db.rs.
+        self.db.add_status("octopus", move |db| device.to_json(db, store.lock().unwrap().last_poll.as_ref()));
         Ok(())
     }
 }
 
 struct Store {
-    files: DayFiles,
-    /// The latest records, oldest first, by when each is of, as their JSON.
-    ram: VecDeque<(DateTime<Utc>, Box<str>)>,
     /// What the screen shows, see panel_line.
     line: Line,
     /// How the latest poll went, for the app, see Device::to_json.
@@ -478,6 +461,9 @@ fn panel_line(devices: &[DeviceRead], planned: &[Dispatch]) -> Line {
 struct PollTask {
     octopus: Octopus,
     store: Arc<Mutex<Store>>,
+    db: Arc<Db>,
+    /// Whether the records kept before the store have been converted, see poll.
+    converted: bool,
     panel: Arc<Panel>,
     /// Closed before each poll, for the RAM, see KeptConnection::release.
     kept: KeptConnection,
@@ -511,10 +497,6 @@ impl PollTask {
         match result {
             Ok((responses, line)) => {
                 store.line = line;
-                if store.files.problem().is_some() {
-                    store.line.0.push_str(", no SD");
-                    store.line.1 = true;
-                }
                 let mut record = json!({
                     "slot": slot.map(format_time),
                     "requested": format_time(requested),
@@ -529,10 +511,33 @@ impl PollTask {
                 record.push_str(&responses);
                 record.push('}');
                 drop(responses);
-                let time = slot.unwrap_or(requested);
-                store.files.append(time, &record);
-                let Store { files, ram, .. } = &mut *store;
-                files.keep(ram, RAM_CAPACITY, time, record);
+                // The account, which the poll found if the config did not say.
+                let account = self.octopus.account.clone().unwrap_or_default();
+                let put = serde_json::from_str::<serde_json::Value>(&record).map_err(anyhow::Error::from).map(|record| {
+                    self.db.put(|store, writer| Ok(Some(crate::device_kinds::octopus_flex(store, &account, &record, writer)?)))
+                });
+                if let Err(error) = &put {
+                    warn!("Unable to read the Octopus record, {error:#}");
+                }
+                if !put.unwrap_or(false) && self.db.problem().is_some() {
+                    store.line.0.push_str(", not stored");
+                    store.line.1 = true;
+                }
+                // In a thread of its own, as the other features' are, see db.rs, as it needs more stack than the
+                // scheduler's task has, and takes a while.
+                if !self.converted {
+                    self.converted = true;
+                    let (db, panel) = (self.db.clone(), self.panel.clone());
+                    let converting = std::thread::Builder::new().stack_size(16 * 1024).spawn(move || {
+                        db.convert(&panel, "octopus", &|store, writer, record| {
+                            Ok(Some(crate::device_kinds::octopus_flex(store, &account, record, writer)?))
+                        });
+                    });
+                    if let Err(error) = converting {
+                        warn!("Unable to start converting the old Octopus records, {error:#}");
+                        self.converted = false;
+                    }
+                }
                 store.last_poll = Some(LastPoll::succeeded(received));
                 info!("Octopus poll saved, free heap {heap}, minimum {minimum_heap}");
             }

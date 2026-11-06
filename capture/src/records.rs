@@ -1,16 +1,16 @@
-//! The samples captured, kept on the SD card and in RAM, and given to the app in the same form as marco-sparko's own
-//! Tesla snapshots (src/tesla/snapshot.rs), so that it can save them in its cache as if it had taken them itself.
+//! The samples captured, put in the store in the same form as marco-sparko's own Tesla snapshots
+//! (src/tesla/snapshot.rs), as the app would put them, see db.rs.
 //!
-//! Only the fields the app uses are kept, as a whole snapshot is about 6 KB of JSON: on the SD card as JSON, see Store,
-//! and the latest in RAM as typed values, as the CYD has no room for many of those.
+//! Only the fields the app uses are kept, as a whole snapshot is about 6 KB of JSON: in the store as JSON, see
+//! Snapshots, and the latest in RAM as typed values, for the screen.
 
-use std::collections::VecDeque;
+use std::sync::Arc;
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::day_files::DayFiles;
+use crate::db::Db;
 
 /// The gateway's endpoints which are polled, after /api/, see marco-sparko's src/tesla/snapshot.rs LIVE. status and
 /// system_status are left out, as the app does not use them in samples and system_status is the largest response.
@@ -230,31 +230,26 @@ impl LastPoll {
     }
 }
 
-/// The records, kept on the SD card, see DayFiles, and the latest, up to capacity, in RAM too, oldest first, as typed
-/// values, for the screen, and for the app if there is no card.
-pub struct Store {
-    records: VecDeque<Record>,
-    capacity: usize,
+/// The latest record, for the screen, with how the latest poll went, the records themselves being put in the store, see
+/// db.rs, as the app would put them, see marco-sparko's src/device_kinds.rs.
+pub struct Snapshots {
+    latest: Option<Record>,
     last_poll: Option<LastPoll>,
-    files: DayFiles,
+    db: Arc<Db>,
     /// What took the records, in each one's capturedBy.
     captured_by: String,
 }
 
-impl Store {
-    pub fn new(capacity: usize, files: DayFiles, captured_by: String) -> Store {
-        Store { records: VecDeque::with_capacity(capacity), capacity, last_poll: None, files, captured_by }
+impl Snapshots {
+    pub fn new(db: Arc<Db>, captured_by: String) -> Snapshots {
+        Snapshots { latest: None, last_poll: None, db, captured_by }
     }
 
     pub fn add(&mut self, record: Record) {
-        self.files.append(record.time(), &record.to_json(&self.captured_by).to_string());
-        // Only the latest, for the screen, while the card keeps them, so that RAM is not used for nothing.
-        let capacity = if self.files.usable().is_some() { 1 } else { self.capacity };
-        while self.records.len() >= capacity {
-            self.records.pop_front();
-        }
+        let json = record.to_json(&self.captured_by);
+        self.db.put(|store, writer| Ok(Some(crate::device_kinds::tesla_snapshot(store, &json, writer)?)));
         self.last_poll = Some(LastPoll::succeeded(record.received));
-        self.records.push_back(record);
+        self.latest = Some(record);
     }
 
     pub fn failed(&mut self, time: DateTime<Utc>, error: String) {
@@ -262,31 +257,14 @@ impl Store {
     }
 
     pub fn latest(&self) -> Option<&Record> {
-        self.records.back()
+        self.latest.as_ref()
     }
 
     pub fn last_poll(&self) -> Option<&LastPoll> {
         self.last_poll.as_ref()
     }
 
-    pub fn len(&self) -> usize {
-        self.records.len()
-    }
-
-    pub fn capacity(&self) -> usize {
-        self.capacity
-    }
-
-    pub fn files(&self) -> &DayFiles {
-        &self.files
-    }
-
-    /// The records in RAM of times after since, if given, oldest first.
-    pub fn since(&self, since: Option<DateTime<Utc>>) -> impl Iterator<Item = &Record> {
-        self.records.iter().filter(move |record| since.is_none_or(|since| record.time() > since))
-    }
-
-    pub fn captured_by(&self) -> &str {
-        &self.captured_by
+    pub fn db(&self) -> &Db {
+        &self.db
     }
 }

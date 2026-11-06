@@ -15,7 +15,8 @@ marco-sparko --fetch
 
 fetches what every page would fetch if you opened it with the date range set to the last 30 days: bills (and the
 details of those issued in the last 30 days), properties, each meter's readings, each charger's charging sessions and
-the Home Mini's readings. Anything already downloaded and up to date is not downloaded again, so a run is quick when
+the Home Mini's readings. First it copies what the profile's capture devices have recorded since it last did, from
+those whose firmware keeps a store; those with older firmware are read when the modules are. Anything already downloaded and up to date is not downloaded again, so a run is quick when
 little has changed. It prints what it is doing, and exits with status 0 if everything was fetched, or 1 if anything
 failed, e.g. a network problem or a login which has expired, in which case open the app and log in again.
 

@@ -27,6 +27,9 @@ rgb = "0.8.53"
 # For myenergi's digest authentication, see myenergi.rs.
 md-5 = "0.10"
 
+# The store the device keeps its records in, as the app does, see bruce-db's docs/design.md, "Capture devices on the store".
+bruce-db = { path = "../../bruce-db" }
+
 sparko-embedded-std = { path = "../../sparko-embedded-std/libs/sparko-embedded-std" }
 sparko-esp-idf = { path = "../../sparko-embedded-std/libs/sparko-esp-idf", features = ["sd-card"] }
 

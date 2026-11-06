@@ -143,7 +143,7 @@ impl Module for MyenergiModule {
     async fn poll(&self, slot: Option<time::OffsetDateTime>) -> anyhow::Result<String> {
         let (store, offline) = (&self.context.store, self.context.cache_config.offline);
         let devices = crate::capture_device::adopted_devices(&self.profile_name);
-        let captured = !offline && self.capture.read(&devices, fetch::latest_status_time(store),
+        let captured = !offline && self.capture.read(store, &devices, fetch::latest_status_time(store),
             &mut |device, record| fetch::save_status(store, record, Some(&device.id)), &mut |_| {}).await?;
         fetch::poll(&self.context.client, store, offline, slot, &self.whole_days_fetched, captured).await
     }

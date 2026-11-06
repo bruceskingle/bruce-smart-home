@@ -245,7 +245,7 @@ impl Module for OctopusModule {
         let devices = crate::capture_device::adopted_devices(&self.profile_name);
         let since = flex_poll::latest(context).and_then(|(time, _)| time);
         if !context.cache_config.offline
-            && self.capture.read(&devices, since, &mut |device, record| flex_poll::save(context, record, Some(&device.id)), &mut |_| {}).await? {
+            && self.capture.read(&context.store, &devices, since, &mut |device, record| flex_poll::save(context, record, Some(&device.id)), &mut |_| {}).await? {
             return Ok(flex_poll::latest(context).map(|(_, summary)| summary).unwrap_or_default());
         }
         flex_poll::poll(&self.context, slot, &self.call_budget, &self.charging_device).await

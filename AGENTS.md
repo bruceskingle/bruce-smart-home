@@ -41,7 +41,8 @@ use, costs and bills from Octopus Energy, and what its Tesla Powerwalls and myen
 
 ## Capture devices
 
-- Read a device's serial log with `python3 capture/log.py <port>`, which leaves it running. `espflash monitor` restarts
+- Read a device's serial log with `python3 capture/log.py <port>`, which leaves a board with a USB serial chip, e.g.
+  the CYD, running, but restarts an ESP32-S3 on its own USB port, e.g. the RLCD and the Guitron (reset reason Usb). `espflash monitor` restarts
   it, and with `--non-interactive --no-reset` leaves it halted in its bootloader until `espflash reset`. The tasks
   "Device: Flash" and "Device: Log" are in `.vscode/tasks.json`.
 - Before a request which changes a device, e.g. its settings, a restart, a release or a factory reset, check its state

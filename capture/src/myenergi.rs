@@ -4,10 +4,8 @@
 //! device's minute records itself, as myenergi keeps those.
 //!
 //! Each record is what the app saves, {"slot", "requested", "received", "response"}, with only what the app uses of the
-//! response, see reduce, on the SD card, see DayFiles, and the latest in RAM, for the screen, and for the app if there
-//! is no card.
+//! response, see reduce, put in the store as the app would put it, see db.rs.
 
-use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -30,7 +28,7 @@ use sparko_embedded_std::task::scheduler::ScheduledTask;
 use sparko_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
 
 use crate::connections::KeptConnection;
-use crate::day_files::{self, DayFiles};
+use crate::db::Db;
 use crate::device::{Device, FIRMWARE, captured_by};
 use crate::records::{LastPoll, format_time};
 use crate::screen::{Line, Panel};
@@ -41,9 +39,6 @@ const FEATURE_NAME: &str = "MyenergiCapture";
 
 /// Every 5 minutes, on the minute, as the app polls, see marco-sparko's src/polling.rs.
 const DEFAULT_SCHEDULE: &str = "0 */5 * * * *";
-
-/// 4 hours of 5 minute records, a few hundred bytes each, for when there is no SD card.
-const RAM_CAPACITY: usize = 48;
 
 /// The server which says which server has the hub's data, see Myenergi::host.
 const DIRECTOR_HOST: &str = "director.myenergi.net";
@@ -79,13 +74,14 @@ pub struct MyenergiConfig {
 
 pub struct MyenergiCapture {
     panel: Arc<Panel>,
+    db: Arc<Db>,
     /// Closed before each poll, for the RAM, see KeptConnection::release.
     kept: KeptConnection,
 }
 
 impl MyenergiCapture {
-    pub fn new(panel: Arc<Panel>, kept: KeptConnection) -> Self {
-        Self { panel, kept }
+    pub fn new(panel: Arc<Panel>, db: Arc<Db>, kept: KeptConnection) -> Self {
+        Self { panel, db, kept }
     }
 }
 
@@ -107,10 +103,7 @@ impl Feature for MyenergiCapture {
             .myenergi_sched
             .map(|schedule| schedule.pattern.to_string())
             .unwrap_or_else(|| DEFAULT_SCHEDULE.to_string());
-        let dir = sparko.sd_card().map(|mount_point| std::path::Path::new(mount_point).join("capture").join("myenergi"));
         let store = Arc::new(Mutex::new(Store {
-            files: DayFiles::new(dir),
-            ram: VecDeque::with_capacity(RAM_CAPACITY),
             line: ("myenergi: not polled yet".to_string(), false),
             last_poll: None,
         }));
@@ -124,6 +117,7 @@ impl Feature for MyenergiCapture {
                 count: 0,
             },
             store: store.clone(),
+            db: self.db.clone(),
             panel: self.panel.clone(),
             kept: self.kept.clone(),
             slots: Slots::new(&schedule_spec)?,
@@ -133,28 +127,13 @@ impl Feature for MyenergiCapture {
         poll.poll(None);
         initializer.add_task(Box::new(poll), &schedule_spec)?;
 
-        sparko.api_get("/api/capture/myenergi/records", move |request| {
-            let (files, device_json) = {
-                let store = store.lock().unwrap();
-                (store.files.usable(), device.to_json(&store.files, store.ram.len(), RAM_CAPACITY, store.last_poll.as_ref()))
-            };
-            day_files::respond(request, &device_json, files, |since, write| {
-                let store = store.lock().unwrap();
-                store
-                    .ram
-                    .iter()
-                    .filter(|(time, _)| since.is_none_or(|since| *time > since))
-                    .try_for_each(|(_, line)| write(line.as_bytes()))
-            })
-        })?;
+        // For the app, at /api/store/info, see db.rs.
+        self.db.add_status("myenergi", move |db| device.to_json(db, store.lock().unwrap().last_poll.as_ref()));
         Ok(())
     }
 }
 
 struct Store {
-    files: DayFiles,
-    /// The latest records, oldest first, by when each is of, as their JSON.
-    ram: VecDeque<(DateTime<Utc>, Box<str>)>,
     /// What the screen shows, see panel_line.
     line: Line,
     /// How the latest poll went, for the app, see Device::to_json.
@@ -380,6 +359,7 @@ fn panel_line(status: &Value) -> Line {
 struct PollTask {
     myenergi: Myenergi,
     store: Arc<Mutex<Store>>,
+    db: Arc<Db>,
     panel: Arc<Panel>,
     /// Closed before each poll, for the RAM, see KeptConnection::release.
     kept: KeptConnection,
@@ -414,10 +394,6 @@ impl PollTask {
             Ok(status) => {
                 let response = reduce(&status);
                 store.line = panel_line(&response);
-                if store.files.problem().is_some() {
-                    store.line.0.push_str(", no SD");
-                    store.line.1 = true;
-                }
                 let record = json!({
                     "slot": slot.map(format_time),
                     "requested": format_time(requested),
@@ -425,12 +401,13 @@ impl PollTask {
                     "capturedBy": self.captured_by,
                     "firmware": FIRMWARE,
                     "response": response,
-                })
-                .to_string();
-                let time = slot.unwrap_or(requested);
-                store.files.append(time, &record);
-                let Store { files, ram, .. } = &mut *store;
-                files.keep(ram, RAM_CAPACITY, time, record);
+                });
+                if !self.db.put(|store, writer| Ok(Some(crate::device_kinds::myenergi_status(store, &record, writer)?)))
+                    && self.db.problem().is_some()
+                {
+                    store.line.0.push_str(", not stored");
+                    store.line.1 = true;
+                }
                 store.last_poll = Some(LastPoll::succeeded(received));
                 info!("myenergi poll saved, free heap {heap}, minimum {minimum_heap}");
             }
