@@ -25,7 +25,7 @@ pub const FETCH_DAYS: i64 = 40;
 /// How many of the latest days are fetched again, even if cached, as their readings may still arrive or change.
 pub const REFETCH_DAYS: i64 = 7;
 
-const CURRENT_USER_KEY: &str = "currentuser";
+pub const CURRENT_USER_KEY: &str = "currentuser";
 const METERS_KEY: &str = "readmeters-";
 const USAGE_KEY: &str = "usage-";
 const COST_KEY: &str = "cost-";
@@ -161,6 +161,9 @@ pub struct CostRow {
     pub date: String,
     /// In AUD, negative for a credit.
     pub amount: Option<f64>,
+    /// What was charged for, kWh for USAGE and SOLAR, which may differ from the meter's for the day, see
+    /// rates::DayCheck.
+    pub quantity: Option<f64>,
     pub is_meter_read_missing_on_date: Option<bool>,
 }
 
@@ -211,12 +214,16 @@ pub struct DaySummary {
     /// kWh imported, by charge type, e.g. Peak Usage.
     pub import: BTreeMap<String, f64>,
     pub export: f64,
+    /// kWh exported, by charge type, e.g. Standard Solar Feed in.
+    pub export_by_type: BTreeMap<String, f64>,
     /// How many 5 minute import readings there are, 288 for a whole day.
     pub readings: usize,
     /// Whether any readings are not actual ones, e.g. estimated.
     pub estimated: bool,
     /// AUD, by category, e.g. USAGE.
     pub cost: BTreeMap<String, f64>,
+    /// What each category's cost was for, by category, e.g. the kWh of USAGE, see CostRow::quantity.
+    pub quantity: BTreeMap<String, f64>,
     /// Whether GloBird says a meter read is missing for the day's costs.
     pub cost_read_missing: bool,
 }
@@ -244,6 +251,7 @@ pub fn summarise(usage: &[UsageRow], cost: &[CostRow]) -> Vec<DaySummary> {
         }
         else {
             day.export += kwh;
+            *day.export_by_type.entry(row.charge_type.clone().unwrap_or_default()).or_default() += kwh;
         }
         day.estimated |= row.min_quality_method.as_deref().is_some_and(|method| method != "A");
     }
@@ -251,12 +259,15 @@ pub fn summarise(usage: &[UsageRow], cost: &[CostRow]) -> Vec<DaySummary> {
         let Some(date) = row.date() else { continue };
         let day = days.entry(date).or_insert_with(|| DaySummary { date: Some(date), ..Default::default() });
         *day.cost.entry(row.charge_category.clone().unwrap_or_default()).or_default() += row.amount.unwrap_or_default();
+        if let Some(quantity) = row.quantity {
+            *day.quantity.entry(row.charge_category.clone().unwrap_or_default()).or_default() += quantity;
+        }
         day.cost_read_missing |= row.is_meter_read_missing_on_date == Some(true);
     }
     days.into_values().rev().collect()
 }
 
-fn write_json(path: &std::path::Path, json: &serde_json::Value) -> anyhow::Result<()> {
+pub(super) fn write_json(path: &std::path::Path, json: &serde_json::Value) -> anyhow::Result<()> {
     // Compact, as the other modules' cache files are, which Cache Files shows pretty printed.
     serde_json::to_writer(crate::private_file::create_private_file(path)?, json)?;
     Ok(())

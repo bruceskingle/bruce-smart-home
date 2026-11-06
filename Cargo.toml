@@ -46,6 +46,8 @@ pulldown-cmark = { version = "0.13", default-features = false, features = ["html
 webbrowser = "1.0.6"
 aho-corasick = "1.1"
 regex = "1.11"
+# The text of GloBird's bills, which are PDFs, in pure Rust so that a capture device could read them too
+pdf-extract = "0.9"
 rand = "0.9"
 # Pinning a capture device's self-signed certificate, see capture_device.rs, the same rustls as reqwest's.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
@@ -85,6 +87,17 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std"
 [features]
 default = ["desktop"]
 desktop = ["dioxus/desktop"]
+
+# Reading a GloBird bill's PDF takes 600 ms in a debug build, 150 ms with these crates optimised, and 50 ms in a release
+# build, so they are optimised in debug builds too, which only slows their first build.
+[profile.dev.package.pdf-extract]
+opt-level = 3
+
+[profile.dev.package.lopdf]
+opt-level = 3
+
+[profile.dev.package.miniz_oxide]
+opt-level = 3
 
 [profile.wasm-dev]
 inherits = "dev"

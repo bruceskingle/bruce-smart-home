@@ -73,9 +73,15 @@ impl GlobirdClient {
         self.session_changed.swap(false, Ordering::SeqCst).then(|| self.session_token())
     }
 
+    /// One request, see send_bytes, whose reply is text.
+    async fn send(&self, method: Method, path: &str, body: Option<&serde_json::Value>) -> anyhow::Result<(StatusCode, String)> {
+        let (status, bytes) = self.send_bytes(method, path, body).await?;
+        Ok((status, String::from_utf8_lossy(&bytes).into_owned()))
+    }
+
     /// One request, sending the session's cookies and keeping those the portal sets. Every cookie is sent whatever its
     /// domain, as the portal's sticky Azure ARRAffinity cookies are set for its backend's host rather than this one.
-    async fn send(&self, method: Method, path: &str, body: Option<&serde_json::Value>) -> anyhow::Result<(StatusCode, String)> {
+    async fn send_bytes(&self, method: Method, path: &str, body: Option<&serde_json::Value>) -> anyhow::Result<(StatusCode, Vec<u8>)> {
         crate::log_info!("GloBird {method} {path}");
         let mut request = self.http.request(method, format!("{BASE}{path}"))
             .header(reqwest::header::ACCEPT, "application/json, text/plain, */*")
@@ -105,26 +111,29 @@ impl GlobirdClient {
         if changed {
             self.session_changed.store(true, Ordering::SeqCst);
         }
-        Ok((status, response.text().await?))
+        Ok((status, response.bytes().await?.to_vec()))
     }
 
-    /// The data of a request's reply, logging in first if there is no session, and once more if the portal no longer
-    /// accepts the session.
-    async fn call(&self, method: Method, path: &str, body: Option<serde_json::Value>) -> anyhow::Result<serde_json::Value> {
+    /// A request's reply, logging in first if there is no session, and once more if the portal no longer accepts the
+    /// session.
+    async fn call_bytes(&self, method: Method, path: &str, body: Option<serde_json::Value>) -> anyhow::Result<(StatusCode, Vec<u8>)> {
         if self.cookies.lock().unwrap().is_empty() {
             self.login().await?;
         }
-        let (status, text) = self.send(method.clone(), path, body.as_ref()).await?;
-        let (status, text) = if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+        let (status, bytes) = self.send_bytes(method.clone(), path, body.as_ref()).await?;
+        if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
             crate::log_info!("The GloBird session has expired, logging in again");
             self.cookies.lock().unwrap().clear();
             self.login().await?;
-            self.send(method, path, body.as_ref()).await?
+            return self.send_bytes(method, path, body.as_ref()).await;
         }
-        else {
-            (status, text)
-        };
-        let data = envelope_data(status, &text, path)?;
+        Ok((status, bytes))
+    }
+
+    /// The data of a request's reply, see call_bytes.
+    async fn call(&self, method: Method, path: &str, body: Option<serde_json::Value>) -> anyhow::Result<serde_json::Value> {
+        let (status, bytes) = self.call_bytes(method, path, body).await?;
+        let data = envelope_data(status, &String::from_utf8_lossy(&bytes), path)?;
         crate::http::print_response(self.verbose, &format!("GloBird {path}"), &data);
         Ok(data)
     }
@@ -185,6 +194,29 @@ impl GlobirdClient {
                 "identifier": nmi, "serialNumber": serial, "fromDate": from.format(&format)?, "toDate": to.format(&format)?,
                 "isSmart": true, "isAcrossAccount": false,
             }))).await
+    }
+
+    /// A page of the account's correspondence, its emails and letters, newest first, from offset, see
+    /// super::bills::ListItem.
+    pub async fn correspondence_list(&self, account_id: i64, offset: usize, limit: usize) -> anyhow::Result<serde_json::Value> {
+        self.call(Method::POST, &format!("/api/correspondence/getcorrespondencelist?accountId={account_id}"),
+            Some(serde_json::json!({ "offset": offset, "limit": limit }))).await
+    }
+
+    /// An email of the correspondence, with the documents attached to it, see super::bills::Detail.
+    pub async fn correspondence_detail(&self, account_id: i64, email_id: i64) -> anyhow::Result<serde_json::Value> {
+        self.call(Method::GET, &format!("/api/correspondence/detail?accountId={account_id}&emailId={email_id}"), None).await
+    }
+
+    /// A document of the correspondence, e.g. a bill, a PDF, which is sent as it is, not in an envelope.
+    pub async fn document(&self, account_id: i64, document_id: i64) -> anyhow::Result<Vec<u8>> {
+        let path = format!("/api/correspondence/document?accountId={account_id}&documentId={document_id}");
+        let (status, bytes) = self.call_bytes(Method::GET, &path, None).await?;
+        if !status.is_success() || !bytes.starts_with(b"%PDF") {
+            return Err(anyhow!("GloBird responded {status} to {path} with something which is not a PDF: {}",
+                crate::http::summary(&String::from_utf8_lossy(&bytes[..bytes.len().min(500)]))));
+        }
+        Ok(bytes)
     }
 
     /// The cost of each NEM day from from to to by category, see super::fetch::CostRow.

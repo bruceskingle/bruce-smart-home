@@ -9,6 +9,7 @@ use time_tz::Tz;
 pub enum Period {
     TenSeconds,
     Minute,
+    FiveMinutes,
     TenMinutes,
     HalfHour,
     Day,
@@ -17,9 +18,10 @@ pub enum Period {
 }
 
 impl Period {
-    pub const ALL: [Period; 7] = [
+    pub const ALL: [Period; 8] = [
         Period::TenSeconds,
         Period::Minute,
+        Period::FiveMinutes,
         Period::TenMinutes,
         Period::HalfHour,
         Period::Day,
@@ -32,6 +34,7 @@ impl Period {
         match self {
             Period::TenSeconds => Some(10),
             Period::Minute => Some(60),
+            Period::FiveMinutes => Some(300),
             Period::TenMinutes => Some(600),
             Period::HalfHour => Some(1800),
             _ => None,
@@ -43,7 +46,8 @@ impl Period {
         match self {
             Period::TenSeconds => None,
             Period::Minute => Some(Period::TenSeconds),
-            Period::TenMinutes => Some(Period::Minute),
+            Period::FiveMinutes => Some(Period::Minute),
+            Period::TenMinutes => Some(Period::FiveMinutes),
             Period::HalfHour => Some(Period::TenMinutes),
             Period::Day => Some(Period::HalfHour),
             Period::Week => Some(Period::Day),
@@ -62,6 +66,7 @@ impl std::fmt::Display for Period {
         match self {
             Period::TenSeconds => write!(f, "10s"),
             Period::Minute => write!(f, "1min"),
+            Period::FiveMinutes => write!(f, "5min"),
             Period::TenMinutes => write!(f, "10min"),
             Period::HalfHour => write!(f, "30min"),
             Period::Day => write!(f, "Day"),

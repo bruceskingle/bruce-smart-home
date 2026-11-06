@@ -128,6 +128,13 @@ pub trait ElectricitySource {
         Period::ALL.to_vec()
     }
 
+    /// The period of the readings as the source gives them, e.g. GloBird's 5 minutes, at which the page of one source
+    /// shows them as they are, rather than added up, see ElectricityExplorer. None if they are not known to be as given,
+    /// in which case none of its table is shown as derived.
+    fn reading_period(&self) -> Option<Period> {
+        None
+    }
+
     /// Loads what there is from start to end, fetching what is not cached, and fetching reload again however up to date
     /// it is, saying what it is doing with progress, and stopping if cancel is cancelled.
     fn load(&self, start: DateTime, end: DateTime, reload: Option<(DateTime, DateTime)>, progress: Signal<String>,

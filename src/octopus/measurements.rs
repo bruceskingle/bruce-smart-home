@@ -118,7 +118,12 @@ impl MeasurementsDataSet {
         Ok(Self { data })
     }
 
-    pub fn display(&self, start: &DateTime, end: &DateTime) -> Element {
+    /// The table of the readings from start to end, each as Octopus gave it if period is Raw, or else added up by
+    /// period, as the graph's bars are, and so shown as derived, see aggregated_table.
+    pub fn display(&self, start: &DateTime, end: &DateTime, tz: &'static Tz, period: StackedBarPeriod) -> Element {
+        if period != StackedBarPeriod::Raw {
+            return self.aggregated_table(start, end, tz, period);
+        }
         let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
         let time_format = time::format_description::parse("[hour]:[minute]").unwrap();
 
@@ -152,6 +157,42 @@ impl MeasurementsDataSet {
                 {MeasurementsReading::summary_headers(&labels)}
                 for item in items {
                     {item}
+                }
+            }
+        }
+    }
+
+    /// The readings from start to end added up by period, see graph_points, a row of each label's units, cost and
+    /// average rate, its cost over its units, and the standing charge, all derived.
+    fn aggregated_table(&self, start: &DateTime, end: &DateTime, tz: &'static Tz, period: StackedBarPeriod) -> Element {
+        let (labels, points) = self.graph_points(start, end, tz, period);
+        rsx! {
+            table {
+                tr {
+                    td {}
+                    for label in labels.iter() {
+                        th { colspan: 3, class: "header", "{label}" }
+                    }
+                }
+                tr { class: "header",
+                    th { "{period}" }
+                    for _ in labels.iter() {
+                        th { "Units" }
+                        th { "Cost" }
+                        th { "Rate" }
+                    }
+                    th { "Standing Charge" }
+                }
+                for point in points.iter() {
+                    tr {
+                        td { "{point.period_label}" }
+                        for (units, cost) in point.units.iter().zip(&point.costs) {
+                            td { class: "derived", {format!("{units:.3}")} }
+                            td { class: "derived", {format!("{cost:.2}")} }
+                            td { class: "derived", if *units != 0.0 { {format!("{:.4}", cost / units)} } }
+                        }
+                        td { class: "derived", {format!("{:.2}", point.standing_charge)} }
+                    }
                 }
             }
         }
@@ -643,6 +684,14 @@ pub struct MeasurementsReadingConsumption {
     cost:  Decimal,
     rate: Decimal,
     ccy: sparko_graphql::types::Currency,
+    /// Whether the units were worked out from the cost and the rate, rather than given, as in the old format, see
+    /// from_tou, so that the table shows them as derived. Left out when false, so that a reading's serialized form,
+    /// which is compared to detect changes, is as it was.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    units_derived: bool,
+    /// Whether the rate was worked out, e.g. from the cost and the units, see from_tou and GenerationValue in from.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    rate_derived: bool,
 }
 
 impl MeasurementsReadingConsumption {
@@ -690,6 +739,8 @@ impl MeasurementsReadingConsumption {
             cost,
             rate,
             ccy,
+            units_derived: false,
+            rate_derived: false,
         }
     }
 
@@ -731,7 +782,7 @@ impl MeasurementsReadingConsumption {
             (price_excl * cost_incl / cost_excl).round_dp(4)
         };
 
-        Ok(MeasurementsReadingConsumption { units, cost: cost_incl, rate, ccy})
+        Ok(MeasurementsReadingConsumption { units, cost: cost_incl, rate, ccy, units_derived: true, rate_derived: true })
     }
 }
 
@@ -816,9 +867,9 @@ impl MeasurementsReading {
                 td { "{end_time}" }
                 for label in labels {
                     if let Some(consumption) = self.consumption.get(label) {
-                        td { "{consumption.units}" }
+                        td { class: if consumption.units_derived { "derived" } else { "" }, "{consumption.units}" }
                         td { "{consumption.cost}" }
-                        td { "{consumption.rate}" }
+                        td { class: if consumption.rate_derived { "derived" } else { "" }, "{consumption.rate}" }
                     }
                     else {
                         td {}
@@ -885,6 +936,7 @@ impl MeasurementsReading {
                                     if !measured_value.is_zero() {
                                         generation.rate = (generation.cost / measured_value).round_dp(4);
                                     }
+                                    generation.rate_derived = true;
                                     Self::insert_consumption(&mut consumption, label, generation, &interval_measurement_type.start_at_)?;
                                 },
                                 // _ if device => {},

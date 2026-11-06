@@ -317,6 +317,14 @@ const MIN_HEIGHT: f64 = 300.0;
 /// component must call use_child_window. If one with the same key is open, it is brought to the front instead. It is
 /// placed and sized by cascade, from anchor, a point in the main window's content, if there is one.
 pub fn open(key: &str, title: String, anchor: Option<LogicalPosition<f64>>, make_dom: impl FnOnce() -> VirtualDom) {
+    open_shaped(key, title, anchor, None, make_dom);
+}
+
+/// Opens a window as open does, but as wide as width_for_height says for the height cascade gives it, if it is given,
+/// e.g. the width at which a page shown whole down the window also fills it across, see globird/bill_pages.rs.
+pub fn open_shaped(key: &str, title: String, anchor: Option<LogicalPosition<f64>>, width_for_height: Option<fn(f64) -> f64>,
+    make_dom: impl FnOnce() -> VirtualDom)
+{
     let Some((existing, main, menu_bar)) = with_state(|state| (
         state.children.iter().find(|child| child.key == key).map(|child| child.window.clone()),
         state.main.upgrade(),
@@ -336,7 +344,11 @@ pub fn open(key: &str, title: String, anchor: Option<LogicalPosition<f64>>, make
         return;
     };
 
-    let placement = with_state(|state| cascade(&main, anchor, state)).flatten();
+    let placement = with_state(|state| cascade(&main, anchor, state)).flatten()
+        .map(|(position, size)| match width_for_height {
+            Some(width_for_height) => (position, LogicalSize::new(width_for_height(size.height).max(MIN_WIDTH), size.height)),
+            None => (position, size),
+        });
     #[allow(unused_mut)]
     let mut window_builder = WindowBuilder::new()
         .with_title(&title)

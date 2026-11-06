@@ -452,8 +452,8 @@ fn MeasurementsConsumption(props: MeasurementsConsumptionProps) -> Element {
     let export_table = move |_: ()| {
         let data = exportable.read().clone()?;
         Some(match view() {
-            ConsumptionView::Table => data.readings_export(&start, &end),
-            ConsumptionView::Graph | ConsumptionView::Trend => data.graph_export(&start, &end, tz, shown_period),
+            ConsumptionView::Table if shown_period == StackedBarPeriod::Raw => data.readings_export(&start, &end),
+            ConsumptionView::Table | ConsumptionView::Graph | ConsumptionView::Trend => data.graph_export(&start, &end, tz, shown_period),
         })
     };
 
@@ -517,25 +517,27 @@ fn MeasurementsConsumption(props: MeasurementsConsumptionProps) -> Element {
                         }
                     }
                 }
-                span { class: "view-toggle",
-                    for option in [
-                        StackedBarPeriod::Raw,
-                        StackedBarPeriod::Rate,
-                        StackedBarPeriod::Day,
-                        StackedBarPeriod::Week,
-                        StackedBarPeriod::Month,
-                    ]
-                    {
-                        ToggleButton {
-                            label: option.to_string(),
-                            active: shown_period == option,
-                            // Smoothing works from daily totals, so the period is not used.
-                            disabled: view() == ConsumptionView::Trend && smoothing() != TrendSmoothing::None,
-                            unavailable: (!fits(option)).then(|| String::from("Zoom in to see more")),
-                            onclick: move |_| graph_period.set(option),
-                        }
+            }
+            span { class: "view-toggle",
+                for option in [
+                    StackedBarPeriod::Raw,
+                    StackedBarPeriod::Rate,
+                    StackedBarPeriod::Day,
+                    StackedBarPeriod::Week,
+                    StackedBarPeriod::Month,
+                ]
+                {
+                    ToggleButton {
+                        label: option.to_string(),
+                        active: shown_period == option,
+                        // Smoothing works from daily totals, so the period is not used.
+                        disabled: view() == ConsumptionView::Trend && smoothing() != TrendSmoothing::None,
+                        unavailable: (!fits(option)).then(|| String::from("Zoom in to see more")),
+                        onclick: move |_| graph_period.set(option),
                     }
                 }
+            }
+            if view() != ConsumptionView::Table {
                 if view() == ConsumptionView::Trend {
                     span { class: "view-toggle", title: "Smooth the daily totals",
                         for option in TrendSmoothing::ALL {
@@ -776,7 +778,7 @@ fn MeasurementsDetail(props: MeasurementsDetailProps) -> Element {
         },
         Some(Ok(consumption)) => {
             let content = match props.view {
-                ConsumptionView::Table => consumption.display(&props.start, &props.end),
+                ConsumptionView::Table => consumption.display(&props.start, &props.end, props.billing_timezone, props.graph_period),
                 ConsumptionView::Graph => consumption.display_graph(
                     &props.start,
                     &props.end,
@@ -832,7 +834,8 @@ impl ConsumptionView {
     /// What an export of this view contains, for the file name.
     fn export_description(&self, period: StackedBarPeriod) -> String {
         match self {
-            ConsumptionView::Table => String::from("readings"),
+            ConsumptionView::Table if period == StackedBarPeriod::Raw => String::from("readings"),
+            ConsumptionView::Table => format!("table_{}", period.to_string().to_lowercase()),
             ConsumptionView::Graph => period.to_string().to_lowercase(),
             ConsumptionView::Trend => format!("trend_{}", period.to_string().to_lowercase()),
         }

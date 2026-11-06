@@ -153,7 +153,15 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
         RangeSelection { start: LocalSlot { date: today - time::Duration::days(6), slot: 0 }, end: None }
     });
     let mut view = use_signal(|| ElectricityView::Graph);
-    let mut period = use_signal(|| if periods.contains(&Period::HalfHour) { Period::HalfHour } else { periods[0] });
+    // Whether a source's readings are shown alone, with nothing measured to split them, so that at its reading period
+    // they are shown as it gave them, which is then the period first shown, e.g. the page of one GloBird register.
+    let alone = sources.len() == 1 && measurements.is_empty();
+    let reading_period = source.0.reading_period();
+    let mut period = use_signal(|| match reading_period.filter(|_| alone) {
+        Some(reading_period) => reading_period,
+        None if periods.contains(&Period::HalfHour) => Period::HalfHour,
+        None => periods[0],
+    });
     let mut mode = use_signal(|| ElectricityMode::Energy);
     let filter = crate::components::category_filter::use_category_filter();
     // The range and period before each drill down or zoom in the graph, the latest last, for Zoom Out.
@@ -311,6 +319,9 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
         },
     ];
 
+    // Whether the table's readings are worked out, e.g. added up into longer periods, rather than as the source gave
+    // them, which is only known if it says what its readings' period is.
+    let derived = reading_period.is_some_and(|reading_period| !alone || shown_period != reading_period);
     let export_electricity = electricity.clone();
     let compares_ev = source.0.compares_ev();
     let export_table = move |_: ()| export_electricity.as_ref().map(|electricity| points_export(electricity, compares_ev, tz));
@@ -323,7 +334,7 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
         (Some(Ok(_)), Some(electricity)) if electricity.points.is_empty() => rsx! { p { "No readings in this period" } },
         (Some(Ok(_)), Some(electricity)) => rsx! {
             match view() {
-                ElectricityView::Table => electricity_table(electricity, compares_ev, tz),
+                ElectricityView::Table => electricity_table(electricity, compares_ev, derived, tz),
                 ElectricityView::Graph => electricity_graph(electricity, &start, &end, shown_period, shorter.is_some(), mode(), &filter.read(), tz, on_drill, on_zoom, menu),
                 ElectricityView::Flows => flows_graphs(flows.as_deref().unwrap_or_default(), &start, &end, flow_period, &filter.read(), tz,
                     shorter.is_some().then(|| EventHandler::new(on_drill)),
@@ -488,8 +499,10 @@ fn points_export(electricity: &Electricity, compares_ev: bool, tz: &'static Tz) 
 }
 
 /// A row for each period, with the import of each label, the export and where they are from, and Octopus's split of
-/// the car's import if compares_ev, see ElectricitySource::compares_ev.
-fn electricity_table(electricity: &Electricity, compares_ev: bool, tz: &'static Tz) -> Element {
+/// the car's import if compares_ev, see ElectricitySource::compares_ev, with the readings shown as derived if derived is
+/// set, see ElectricityExplorer.
+fn electricity_table(electricity: &Electricity, compares_ev: bool, derived: bool, tz: &'static Tz) -> Element {
+    let reading_class = if derived { "numeric derived" } else { "numeric" };
     if electricity.points.len() > MAX_SHOWN {
         return too_many(electricity.points.len());
     }
@@ -541,9 +554,9 @@ fn electricity_table(electricity: &Electricity, compares_ev: bool, tz: &'static 
                     td { "{start}" }
                     td { "{end}" }
                     for kwh in import {
-                        td { class: "numeric", "{kwh}" }
+                        td { class: reading_class, "{kwh}" }
                     }
-                    td { class: "numeric", "{export}" }
+                    td { class: reading_class, "{export}" }
                     if compares_ev {
                         td { class: "numeric derived", "{octopus_ev}" }
                     }

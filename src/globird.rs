@@ -1,11 +1,15 @@
 //! The GloBird module, for GloBird Energy's customers in Australia, from its customer portal, see client.rs.
 //!
 //! It fetches the smart meter's 5 minute readings and each day's costs into the cache, and shows the readings on its
-//! Meters page and Home's Electricity page, see power.rs, and each day's totals and costs.
+//! Meters page and Home's Electricity page, see power.rs, and each day's totals and costs, and its bills, beside the
+//! days' costs, see bills.rs.
 
+mod bill_pages;
+mod bills;
 mod client;
 mod electricity;
 mod fetch;
+mod rates;
 
 pub use fetch::LABELS;
 
@@ -86,6 +90,9 @@ pub struct GlobirdContext {
     cache_config: Arc<CacheConfig>,
     /// To save the session when it changes, see save_session.
     context: Arc<MarcoSparkoContext>,
+    /// The bills read from their PDFs, by document ID, or why they could not be, see bill, kept as reading one takes a
+    /// while and a bill never changes.
+    bills: std::sync::Mutex<std::collections::BTreeMap<i64, Result<bills::Bill, String>>>,
 }
 
 impl GlobirdContext {
@@ -94,6 +101,23 @@ impl GlobirdContext {
         let result = fetch::fetch(&self.client, &self.cache_config, progress).await;
         self.save_session()?;
         result
+    }
+
+    /// Makes the next request for the bills, see bills::fetch_next, and saves the session if it changed.
+    async fn fetch_bills(&self) -> anyhow::Result<Option<String>> {
+        let result = bills::fetch_next(&self.client, &self.cache_config, fetch::CURRENT_USER_KEY).await;
+        self.save_session()?;
+        result
+    }
+
+    /// The cached bill of a document, read from its PDF the first time it is asked for, see bills::read_bill.
+    fn bill(&self, document_id: i64) -> Result<bills::Bill, String> {
+        if let Some(bill) = self.bills.lock().unwrap().get(&document_id) {
+            return bill.clone();
+        }
+        let bill = bills::read_bill(&bills::document_path(&self.cache_config, document_id)).map_err(|error| format!("{error:#}"));
+        self.bills.lock().unwrap().insert(document_id, bill.clone());
+        bill
     }
 
     fn save_session(&self) -> anyhow::Result<()> {
@@ -172,6 +196,7 @@ impl Module for GlobirdModule {
         vec![
             PageInfo { label: "Meters", path: "meters" },
             PageInfo { label: "Days", path: "days" },
+            PageInfo { label: "Bills", path: "bills" },
             PageInfo { label: "Cache Files", path: "cache" },
         ]
     }
@@ -201,6 +226,10 @@ impl Module for GlobirdModule {
                 None => rsx! { MetersPage { context } },
             },
             "days" => rsx! { DaysPage { context } },
+            "bills" => match path.first().and_then(|document_id| document_id.parse::<i64>().ok()) {
+                Some(document_id) => rsx! { bill_pages::BillPage { key: "{document_id}", context, document_id } },
+                None => rsx! { bill_pages::BillsPage { context } },
+            },
             "cache" => rsx! {
                 h1 { "Cache Files" }
                 CacheBrowser { dir: self.context.cache_config.dir_path().to_path_buf(), generation: 0 }
@@ -269,7 +298,8 @@ fn RegisterRow(register: fetch::Register) -> Element {
     }
 }
 
-/// Each cached day's import, export and costs, and a button to fetch the latest.
+/// Each cached day's import, export and costs, the rates worked out from them, see rates.rs, and a button to fetch the
+/// latest.
 #[component]
 fn DaysPage(context: SharedProp<GlobirdContext>) -> Element {
     let mut generation = use_signal(|| 0u32);
@@ -281,6 +311,7 @@ fn DaysPage(context: SharedProp<GlobirdContext>) -> Element {
     let latest = fetch::latest_reading(&context.0.cache_config).map(crate::util::local_date_time);
     let bands: Vec<String> = summaries.iter().flat_map(|day| day.import.keys().cloned()).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
     let categories: Vec<String> = summaries.iter().flat_map(|day| day.cost.keys().cloned()).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+    let tariffs = rates::tariffs(&summaries);
     let fetch = move |_| {
         let context = context.clone();
         spawn(async move {
@@ -308,6 +339,16 @@ fn DaysPage(context: SharedProp<GlobirdContext>) -> Element {
         for message in messages.read().iter() {
             p { "{message}" }
         }
+        if !tariffs.is_empty() {
+            h2 { "Rates" }
+            p {
+                "The rates, as GloBird charges them, worked out from each day's costs and the meter's kWh, as the portal does not give them. Each day's cost is rounded to the cent, so the rate of a charge type little used, e.g. Peak Usage when batteries run the house then, is less exact, and one with too few kWh is not known. Days whose charges do not fit the rates are said in the Check column below; a new set of rates starts where they change."
+            }
+            for tariff in tariffs.iter() {
+                TariffTable { tariff: tariff.clone() }
+            }
+            h2 { "Days" }
+        }
         table { class: "display",
             tr {
                 th { "Date" }
@@ -320,18 +361,84 @@ fn DaysPage(context: SharedProp<GlobirdContext>) -> Element {
                     th { "{category} $" }
                 }
                 th { "Total $" }
+                th { "Check" }
             }
             for summary in summaries {
-                DayRow { summary, bands: bands.clone(), categories: categories.clone() }
+                DayRow {
+                    tariff: summary.date.and_then(|date| rates::tariff_of(&tariffs, date)).cloned(),
+                    summary,
+                    bands: bands.clone(),
+                    categories: categories.clone(),
+                }
             }
         }
     }
 }
 
+/// The rates of a run of days, in cents a kWh, and the daily charge.
 #[component]
-fn DayRow(summary: DaySummary, bands: Vec<String>, categories: Vec<String>) -> Element {
+fn TariffTable(tariff: rates::Tariff) -> Element {
+    let cents = |rate: Option<f64>| rate.map(|rate| format!("{:.2}", rate.abs() * 100.0)).unwrap_or_else(|| String::from("not known"));
+    rsx! {
+        p { "From {tariff.first} to {tariff.last}, worked out from {tariff.days} days:" }
+        table { class: "display",
+            tr {
+                th { "Charge type" }
+                th { "c/kWh" }
+            }
+            for rate in tariff.usage.iter() {
+                tr {
+                    td { "{rate.charge_type}" }
+                    td { class: "number derived", {cents(rate.rate)} }
+                }
+            }
+            for rate in tariff.feed_in.iter() {
+                tr {
+                    td { "{rate.charge_type}, a credit" }
+                    td { class: "number derived", {cents(rate.rate)} }
+                }
+            }
+            if let Some(daily) = tariff.daily {
+                tr {
+                    td { "Daily charge, $ a day" }
+                    td { class: "number derived", {format!("{daily:.2}")} }
+                }
+            }
+        }
+    }
+}
+
+/// What a day's check says: nothing if it fits its rates, or how far each category is out, and why, if it is known,
+/// e.g. GloBird charged for 25.3 kWh, the meter says 30.3.
+fn check_text(summary: &DaySummary, tariff: Option<&rates::Tariff>) -> String {
+    let Some(tariff) = tariff else { return String::new() };
+    rates::check(summary, tariff).iter().map(|check| {
+        let why = check.kwh.map(|(charged, meter)| format!(", charged for {charged:.2} kWh, the meter says {meter:.2}")).unwrap_or_default();
+        format!("{} {:+.2} from the rates{why}", check.category, check.charged - check.expected)
+    }).collect::<Vec<_>>().join("; ")
+}
+
+/// The split of a day's cost of a category, by charge type, at its rates, e.g. Peak Usage 0.23 kWh x 37.31c = $0.09.
+fn cost_split(summary: &DaySummary, category: &str, tariff: Option<&rates::Tariff>) -> Option<String> {
+    let tariff = tariff?;
+    let (kwh, rates) = match category {
+        rates::USAGE => (&summary.import, &tariff.usage),
+        rates::SOLAR => (&summary.export_by_type, &tariff.feed_in),
+        _ => return None,
+    };
+    let lines: Vec<String> = rates.iter().filter_map(|rate| {
+        let kwh = *kwh.get(&rate.charge_type)?;
+        let cents = rate.rate? * 100.0;
+        Some(format!("{} {kwh:.2} kWh x {cents:.2}c = ${:.2}", rate.charge_type, kwh * cents / 100.0))
+    }).collect();
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
+#[component]
+fn DayRow(summary: DaySummary, bands: Vec<String>, categories: Vec<String>, tariff: Option<rates::Tariff>) -> Element {
     let optional = |value: Option<&f64>, decimals: usize| value.map(|value| format!("{value:.decimals$}")).unwrap_or_default();
     let readings = if summary.estimated { format!("{} estimated", summary.readings) } else { summary.readings.to_string() };
+    let check = check_text(&summary, tariff.as_ref());
     rsx! {
         tr {
             td { {summary.date.map(|date| date.to_string()).unwrap_or_default()} }
@@ -339,13 +446,14 @@ fn DayRow(summary: DaySummary, bands: Vec<String>, categories: Vec<String>) -> E
                 td { class: "number", {optional(summary.import.get(band), 3)} }
             }
             td { class: "number", {format!("{:.3}", summary.export)} }
-            td { class: "number", "{readings}" }
+            td { class: "number derived", "{readings}" }
             for category in categories.iter() {
-                td { class: "number", {optional(summary.cost.get(category), 2)} }
+                td { class: "number", title: cost_split(&summary, category, tariff.as_ref()), {optional(summary.cost.get(category), 2)} }
             }
-            td { class: "number",
+            td { class: "number derived",
                 if summary.cost.is_empty() { "" } else { {format!("{:.2}", summary.total_cost())} }
             }
+            td { class: if check.is_empty() { "" } else { "error" }, "{check}" }
         }
     }
 }
@@ -474,6 +582,7 @@ impl ModuleFactory for GlobirdModuleFactory {
                 client,
                 cache_config: self.cache_config.clone(),
                 context: self.context.clone(),
+                bills: Default::default(),
             }),
         }))
     }

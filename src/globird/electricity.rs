@@ -25,7 +25,7 @@ use super::fetch::{self, Reading};
 const SITE_TIMEZONE: &Tz = time_tz::timezones::db::australia::SYDNEY;
 
 /// The periods which can be chosen: none shorter than the readings, which are 5 minutes.
-const PERIODS: [Period; 5] = [Period::TenMinutes, Period::HalfHour, Period::Day, Period::Week, Period::Month];
+const PERIODS: [Period; 6] = [Period::FiveMinutes, Period::TenMinutes, Period::HalfHour, Period::Day, Period::Week, Period::Month];
 
 /// The meter's readings, of all its registers, or of one, e.g. E1, for the Meters page, see register.
 pub struct GlobirdElectricity {
@@ -77,6 +77,11 @@ impl ElectricitySource for GlobirdElectricity {
 
     fn periods(&self) -> Vec<Period> {
         PERIODS.to_vec()
+    }
+
+    /// The smart meter's 5 minute readings, as GloBird's usageArray gives them.
+    fn reading_period(&self) -> Option<Period> {
+        Some(Period::FiveMinutes)
     }
 
     fn reload_title(&self) -> String {

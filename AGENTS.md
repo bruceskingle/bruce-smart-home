@@ -71,6 +71,18 @@ not on `main`.
   clicked (`components/tooltips.rs`, `assets/scripts/tooltips.js`). Clickable things are left out of both: keep the
   `:not(...)` list in `main.css` and `CLICKABLE` in `tooltips.js` in step. A heading which sorts its column when clicked
   is a `th.sortable`, with arrows, and has no tooltip.
+- **Module pages are faithful.** A module's own pages show its source's data as it gave it: the shortest period is the
+  readings themselves, e.g. GloBird's 5 minutes or an Octopus meter's half hours, and longer ones only add them up,
+  shown as derived. Nothing is interpolated, estimated or blended with another module's data on them; that is done
+  only on Home's pages, e.g. Electricity, which put the modules together.
+- **Caches hold only what the source sent.** A cache of an API's or a device's data holds its replies or records as
+  they came, never values worked out from them, so that what was given can always be told from what was worked out.
+  Computed values, if worth caching at all, go in a cache of their own, read alongside. The Octopus meter readings'
+  cache breaks this, see bruce-db's docs/design.md, and is to be fixed with the data store.
+- **Derived numbers.** A number shown as a source gave it, e.g. GloBird's cost of a day or Octopus's kWh, is in the
+  default colour; one the app works out, e.g. a total, a count, a rate fitted to costs or a split, has the `derived`
+  class (`--derived` in `main.css`, pink), e.g. `td { class: "number derived", ... }`. Check the cache to tell which a
+  value is: a sum of a source's several rows is derived, its only row is not. Say so in the page's help.
 - **Errors** are shown briefly with the detail as a tooltip, with `ErrorText` (`components/error_text.rs`). Format an
   error with `{error:#}`, its chain of causes, not `{error:?}`, which includes a stack trace.
 - **Help.** A change to what a screen shows or does is made to its page in `docs/help/` too. A new page is added to
