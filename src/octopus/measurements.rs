@@ -1052,8 +1052,22 @@ impl MeasurementsConsumptionSource {
         }
 }
 
+/// A measurement as the store keeps it, see SlotSource::Stored: as Octopus gave it, with when it was fetched, which
+/// with its time says whether it is final, see MeasurementsReading::from, or, from a profile made before the store, as
+/// a reading an older version of the app made of it, whose figures it worked out are not marked as such.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum StoredMeasurement {
+    Given {
+        node: meter::home_and_ev_consumption_breakdown::MeasurementInterface,
+        fetched: DateTime,
+    },
+    Converted(MeasurementsReading),
+}
+
 impl SlotSource for MeasurementsConsumptionSource {
     type Value = MeasurementsReading;
+    type Stored = StoredMeasurement;
 
     type Response = meter::home_and_ev_consumption_breakdown::Response;
 
@@ -1103,42 +1117,30 @@ impl SlotSource for MeasurementsConsumptionSource {
         })
     }
 
-    fn items(&self, response: Self::Response) -> anyhow::Result<impl IntoIterator<Item = anyhow::Result<Self::Value>>> {
-        // let measurements = response
-        //         .account_
-        //         .ok_or(anyhow!("No account in response"))?
-        //         .properties_.first().ok_or(anyhow!("No property in response"))?
-        //         // .electricity_meter_points_.first().ok_or("No meter points in response")?
-        //         .measurements_;
-        let query_time = DateTime::now(self.tz);
-        // let device = self.device.is_some();
+    /// Each measurement as Octopus gave it, with when it was fetched, see StoredMeasurement.
+    fn items(&self, response: Self::Response) -> anyhow::Result<impl IntoIterator<Item = anyhow::Result<Self::Stored>>> {
+        let fetched = DateTime::now(self.tz);
         Ok(response
             .account_
             .ok_or(anyhow!("No account in response"))?
             .properties_.into_iter().next().ok_or(anyhow!("No property in response"))?
-            // .electricity_meter_points_.first().ok_or("No meter points in response")?
             .measurements_
             .edges
             .into_iter()
-            .map(move |edge| {
-                MeasurementsReading::from(edge.node, &query_time /* , device */)
-                // match edge.node {
-                    
-                //     meter::home_and_ev_consumption_breakdown::MeasurementInterface::MeasurementType(abstract_measurement_interface) => {
-                //         println!("Unexpected abstract measurement {:?}", abstract_measurement_interface);
-                //         None
-                //     },
-                //     meter::home_and_ev_consumption_breakdown::MeasurementInterface::IntervalMeasurementType(interval_measurement_type) => {
-                //         if let Some(meta_data) = interval_measurement_type.measurement_interface_.meta_data_ {
-                //             for stat in meta_data.statistics_ {
-                //                 stat.label_
-                //             }
-                //         }
-                //         Some(interval_measurement_type)
-                //     },
-                // }
-            })
-        )
+            .map(move |edge| Ok(StoredMeasurement::Given { node: edge.node, fetched: fetched.clone() })))
+    }
+
+    /// The reading, made from the measurement as Octopus gave it each time it is read, so that what was worked out,
+    /// e.g. the units of the old format, is marked as such, see MeasurementsReadingConsumption.
+    fn value(&self, stored: &Self::Stored) -> anyhow::Result<Self::Value> {
+        match stored {
+            StoredMeasurement::Given { node, fetched } => MeasurementsReading::from(node.clone(), fetched),
+            StoredMeasurement::Converted(reading) => Ok(reading.clone()),
+        }
+    }
+
+    fn stored_from_value(&self, value: serde_json::Value) -> Option<Self::Stored> {
+        serde_json::from_value(value).ok().map(StoredMeasurement::Converted)
     }
 
     fn index(&self, value: &Self::Value) -> anyhow::Result<(DateTime, DateTime, bool)> {

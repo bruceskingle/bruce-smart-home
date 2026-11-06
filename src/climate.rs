@@ -7,22 +7,23 @@
 //! one time to another, see the capture firmware's climate.rs, and gives the one still open again, with its end moved
 //! on, each time it is read, so a period is saved by its start, replacing what was saved of it before.
 //!
-//! They are kept in the profile's <profile>-climate directory in the cache directory, which is counted and deleted with
-//! the profile's other data: a directory for each device, by its ID, with its name, as it last said, in device.json,
-//! and a directory for each series, of a file for each UTC day, of the periods which start on it, by their starts.
+//! They are kept in the profile's store, see store.rs, as the kind `climate.period`: a DataSet for each device and
+//! series, by the device's ID, of each period as the device gave it, by its start, versioned by its end, written by the
+//! device, so that a period given again with its end moved on replaces what was kept of it. Where the app has got to in
+//! reading a device is a `#read` record in each of its DataSets, and the device's name, as it last said, is in
+//! `device.info`.
 
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
+use bruce_db::{Flow, Item, Micros, Part, Store, Version};
 use dioxus::prelude::*;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::capture_device::{CaptureReader, DeviceProfile};
-use crate::{MarcoSparkoContext, Module, PageInfo};
+use crate::{Module, PageInfo};
 
 /// The id the reader is polled as, see polling.rs.
 pub const MODULE_ID: &str = "climate";
@@ -48,17 +49,11 @@ pub struct Series {
     pub decimals: usize,
 }
 
-/// A period as it is saved, by its start, see DayFile.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
-struct Saved {
-    end: String,
-    value: f64,
-    /// Whether the device was still in it when it gave it, so that the end may move on.
-    open: bool,
-}
-
-/// The periods of a series which start on a UTC day, by their starts, as RFC 3339 times, which sort in time order.
-type DayFile = BTreeMap<String, Saved>;
+/// The kind of the periods, and of the devices' names, see the module documentation.
+const KIND: &str = "climate.period";
+const DEVICE_KIND: &str = "device.info";
+/// The sort key of where the app has got to in reading a DataSet's device.
+const READ: &str = "#read";
 
 /// A period as the page draws it, in unix seconds.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -77,104 +72,106 @@ pub struct DeviceClimate {
     pub series: [Vec<Period>; 2],
 }
 
-/// The profile's directory of the readings.
-pub fn dir(profile_name: &str) -> anyhow::Result<PathBuf> {
-    Ok(MarcoSparkoContext::get_cache_dir_path()?.join(format!("{profile_name}-{MODULE_ID}")))
+/// The profile's store, which the readings are kept in, see store.rs.
+pub fn store(profile_name: &str) -> anyhow::Result<Arc<Store>> {
+    crate::store::for_profile(profile_name)
 }
 
-/// A device's directory, by its ID, a MAC address, whose colons are left out of the name.
-fn device_dir(dir: &Path, id: &str) -> PathBuf {
-    dir.join(id.replace(':', ""))
+fn series_key(store: &Store, device_id: &str, series: &str) -> anyhow::Result<String> {
+    store.hash_key(KIND, &[Part::Name(crate::store::device_part(device_id)), Part::Name(series.to_string())])
 }
 
-fn day_path(dir: &Path, id: &str, series: &str, day: time::Date) -> PathBuf {
-    device_dir(dir, id).join(series).join(format!("{day}.json"))
-}
-
-fn read_day(path: &Path) -> DayFile {
-    std::fs::read_to_string(path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
+fn device_key(store: &Store, device_id: &str) -> anyhow::Result<String> {
+    store.hash_key(DEVICE_KIND, &[Part::Name(crate::store::device_part(device_id))])
 }
 
 fn parse(time: &str) -> Option<OffsetDateTime> {
     OffsetDateTime::parse(time, &Rfc3339).ok()
 }
 
-/// Saves the records read from device, see the module documentation, each file once, returning how many were new or
-/// moved a period's end on.
-fn save(dir: &Path, device: &DeviceProfile, records: &[Value]) -> anyhow::Result<usize> {
-    let mut files: BTreeMap<PathBuf, Vec<(String, Saved)>> = BTreeMap::new();
+/// A period's version: its end, and a microsecond more once it is closed, so that the period closed replaces the same
+/// period open with the same end, written by the device.
+fn period_version(device_id: &str, end: OffsetDateTime, open: bool) -> Version {
+    let end = Micros::from_datetime(end);
+    Version::new(Micros(if open { end.0 } else { end.0 + 1 }), &crate::store::device_part(device_id))
+}
+
+/// Saves the records read from device, each as the device gave it, see the module documentation, returning how many
+/// were new or moved a period's end on.
+pub(crate) fn save(store: &Store, device_id: &str, records: &[Value]) -> anyhow::Result<usize> {
     let mut name = None;
     // Records which are not periods, e.g. another feature's on a damaged SD card, counted, with the first, for one
     // warning, rather than one each, which can be hundreds a read.
     let mut not_periods = (0, None);
+    let mut changed = 0;
+    let mut latest: std::collections::BTreeMap<String, OffsetDateTime> = std::collections::BTreeMap::new();
     for record in records {
         let field = |key: &str| record.get(key).and_then(Value::as_str);
-        let (Some(series), Some(start), Some(end), Some(value)) =
-            (field("series"), field("start"), field("end"), record.get("value").and_then(Value::as_f64)) else {
+        let (Some(series), Some(start), Some(end)) = (field("series"), field("start"), field("end").and_then(parse)) else {
             not_periods.0 += 1;
             not_periods.1.get_or_insert(record);
             continue;
         };
-        let Some(start_time) = parse(start) else { continue };
+        if record.get("value").and_then(Value::as_f64).is_none() || parse(start).is_none() {
+            not_periods.0 += 1;
+            not_periods.1.get_or_insert(record);
+            continue;
+        }
         let open = record.get("open").and_then(Value::as_bool).unwrap_or(false);
-        files.entry(day_path(dir, &device.id, series, start_time.date()))
-            .or_default()
-            .push((start.to_string(), Saved { end: end.to_string(), value, open }));
+        let item = Item::new(&series_key(store, device_id, series)?, start, period_version(device_id, end, open), record.clone());
+        if store.put(&item)? == bruce_db::Put::Stored {
+            changed += 1;
+        }
+        let latest_end = latest.entry(series.to_string()).or_insert(end);
+        *latest_end = (*latest_end).max(end);
         name = field("capturedBy").or(name);
     }
     if let (count, Some(first)) = not_periods {
-        crate::log_warning!("{count} of the temperature and humidity records from {} are not periods, e.g. {first}", device.id);
+        crate::log_warning!("{count} of the temperature and humidity records from {device_id} are not periods, e.g. {first}");
     }
-    let mut changed = 0;
-    for (path, periods) in files {
-        let mut day = read_day(&path);
-        for (start, saved) in periods {
-            // Unless what is saved already ends later, e.g. records read again.
-            let later = day.get(&start).is_none_or(|old| parse(&old.end) < parse(&saved.end) || (old.open && !saved.open));
-            if later {
-                day.insert(start, saved);
-                changed += 1;
-            }
+    for (series, end) in latest {
+        let item = Item::new(&series_key(store, device_id, &series)?, READ, crate::store::version_now(),
+            serde_json::json!({ "end": end.format(&Rfc3339)? }));
+        if latest_end_of(store, device_id, &series).is_none_or(|read| read < end) {
+            store.put(&item)?;
         }
-        // The profile's directory, the device's and the series', each private, as the profile's other data is.
-        for level in [dir.to_path_buf(), device_dir(dir, &device.id), path.parent().unwrap_or(dir).to_path_buf()] {
-            if !level.exists() {
-                crate::private_file::create_private_dir(&level)?;
-            }
-        }
-        std::fs::write(&path, serde_json::to_vec(&day)?)?;
     }
     if let Some(name) = name {
-        std::fs::write(device_dir(dir, &device.id).join("device.json"), serde_json::to_vec(&serde_json::json!({ "id": device.id, "name": name }))?)?;
+        let known = store.get(&device_key(store, device_id)?, "-")?
+            .and_then(|item| item.attributes?.get("name")?.as_str().map(str::to_string));
+        if known.as_deref() != Some(name) {
+            store.put(&Item::new(&device_key(store, device_id)?, "-", crate::store::version_now(),
+                serde_json::json!({ "id": device_id, "name": name })))?;
+        }
     }
     Ok(changed)
 }
 
-/// The end of the latest period saved of device, to read only those after it.
-fn latest_end(dir: &Path, id: &str) -> Option<OffsetDateTime> {
-    SERIES.iter()
-        .filter_map(|series| {
-            let series_dir = device_dir(dir, id).join(series.name);
-            let latest = std::fs::read_dir(&series_dir).ok()?
-                .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
-                .filter(|name| name.ends_with(".json"))
-                .max()?;
-            read_day(&series_dir.join(latest)).values().filter_map(|saved| parse(&saved.end)).max()
-        })
-        .min()
+/// The end of the latest period read of a device's series, see READ.
+fn latest_end_of(store: &Store, id: &str, series: &str) -> Option<OffsetDateTime> {
+    let item = store.get(&series_key(store, id, series).ok()?, READ).ok()??;
+    parse(item.attributes?.get("end")?.as_str()?)
+}
+
+/// The end of the latest period read of device, of the series it has least of, to read only those after it.
+fn latest_end(store: &Store, id: &str) -> Option<OffsetDateTime> {
+    SERIES.iter().filter_map(|series| latest_end_of(store, id, series.name)).min()
 }
 
 /// The periods of every device which has any, of those saved, which overlap from to to, by its name.
-pub fn load(dir: &Path, from: OffsetDateTime, to: OffsetDateTime) -> Vec<DeviceClimate> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
-    let mut devices: Vec<DeviceClimate> = entries
-        .filter_map(|entry| {
-            let path = entry.ok()?.path();
-            let named: Value = std::fs::read_to_string(path.join("device.json")).ok().and_then(|text| serde_json::from_str(&text).ok())?;
-            let id = named.get("id")?.as_str()?.to_string();
-            let name = named.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()).unwrap_or(&id).to_string();
-            let series = SERIES.map(|series| load_series(dir, &id, &series, from, to));
-            Some(DeviceClimate { id, name, series })
+pub fn load(store: &Store, from: OffsetDateTime, to: OffsetDateTime) -> Vec<DeviceClimate> {
+    let prefix = format!("{}/{KIND}/", store.site());
+    let mut ids: Vec<String> = store.data_sets(&prefix).unwrap_or_default().iter()
+        .filter_map(|hk| hk.strip_prefix(&prefix)?.split('/').next().map(str::to_string))
+        .collect();
+    ids.dedup();
+    let mut devices: Vec<DeviceClimate> = ids.into_iter()
+        .map(|id| {
+            let named = device_key(store, &id).ok().and_then(|key| store.get(&key, "-").ok().flatten()).and_then(|item| item.attributes);
+            let name = named.as_ref().and_then(|named| named.get("name")?.as_str()).filter(|name| !name.is_empty()).unwrap_or(&id).to_string();
+            let id = named.as_ref().and_then(|named| named.get("id")?.as_str()).unwrap_or(&id).to_string();
+            let series = SERIES.map(|series| load_series(store, &id, &series, from, to));
+            DeviceClimate { id, name, series }
         })
         .filter(|device| device.series.iter().any(|periods| !periods.is_empty()))
         .collect();
@@ -183,20 +180,24 @@ pub fn load(dir: &Path, from: OffsetDateTime, to: OffsetDateTime) -> Vec<DeviceC
 }
 
 /// A device's periods of a series, of those saved, which overlap from to to, in time order.
-pub fn load_series(dir: &Path, id: &str, series: &Series, from: OffsetDateTime, to: OffsetDateTime) -> Vec<Period> {
+pub fn load_series(store: &Store, id: &str, series: &Series, from: OffsetDateTime, to: OffsetDateTime) -> Vec<Period> {
+    let Ok(hk) = series_key(store, id, series.name) else { return Vec::new() };
     // A period which starts the day before may reach into the range.
-    let mut day = from.date().previous_day().unwrap_or(from.date());
+    let start = from.date().previous_day().unwrap_or(from.date()).to_string();
+    let end = (to + time::Duration::seconds(1)).format(&Rfc3339).unwrap_or_default();
     let mut periods = Vec::new();
-    while day <= to.date() {
-        for (start, saved) in read_day(&day_path(dir, id, series.name, day)) {
-            let (Some(start), Some(end)) = (parse(&start), parse(&saved.end)) else { continue };
-            if end > from && start < to {
-                periods.push(Period { start: start.unix_timestamp(), end: end.unix_timestamp(), value: saved.value });
-            }
+    let _ = store.query(&hk, start.as_str()..end.as_str(), &mut |item| {
+        let record = item.attributes.unwrap_or_default();
+        let (Some(start), Some(end), Some(value)) = (
+            record.get("start").and_then(Value::as_str).and_then(parse),
+            record.get("end").and_then(Value::as_str).and_then(parse),
+            record.get("value").and_then(Value::as_f64),
+        ) else { return Ok(Flow::Continue) };
+        if end > from && start < to {
+            periods.push(Period { start: start.unix_timestamp(), end: end.unix_timestamp(), value });
         }
-        let Some(next) = day.next_day() else { break };
-        day = next;
-    }
+        Ok(Flow::Continue)
+    });
     periods
 }
 
@@ -250,10 +251,10 @@ impl Module for ClimateReader {
     /// that a device with none, e.g. one without a sensor, does not make the others give all they have, saving them a
     /// device at a time, as reading and writing a day's file for each period would be slow when catching up.
     async fn poll(&self, _slot: Option<OffsetDateTime>) -> anyhow::Result<String> {
-        let dir = dir(&self.profile_name)?;
+        let store = store(&self.profile_name)?;
         let devices = crate::capture_device::adopted_devices(&self.profile_name);
         let mut read: Vec<(DeviceProfile, Vec<Value>)> = Vec::new();
-        let takes = self.capture.read_each(&devices, &|device| latest_end(&dir, &device.id), &mut |device, record| {
+        let takes = self.capture.read_each(&devices, &|device| latest_end(&store, &device.id), &mut |device, record| {
             match read.last_mut() {
                 Some((last, records)) if last.id == device.id => records.push(record.clone()),
                 _ => read.push((device.clone(), vec![record.clone()])),
@@ -266,7 +267,7 @@ impl Module for ClimateReader {
         let mut changed = 0;
         let count: usize = read.iter().map(|(_, records)| records.len()).sum();
         for (device, records) in &read {
-            changed += save(&dir, device, records)?;
+            changed += save(&store, &device.id, records)?;
         }
         Ok(format!("Read {count} temperature and humidity periods, {changed} new or longer"))
     }
@@ -280,28 +281,35 @@ mod tests {
     fn an_open_period_read_again_replaces_what_was_saved() {
         let dir = std::env::temp_dir().join(format!("marco-sparko-climate-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
+        let site = bruce_db::Id::of(&serde_json::json!({"site": "climate test"})).unwrap();
+        let store = Store::open(&format!("file://{}", dir.display()), &site).unwrap();
         let device = DeviceProfile { id: "44:1B:F6:CC:7F:CC".to_string(), address: String::new(), fingerprint: String::new(), key: String::new() };
         let record = |start: &str, end: &str, value: f64, open: bool| serde_json::json!({
             "series": "temperature", "start": start, "end": end, "value": value, "unit": "°C", "open": open, "capturedBy": "rlcd",
         });
-        assert_eq!(save(&dir, &device, &[record("2026-11-04T10:00:00Z", "2026-11-04T10:01:00Z", 23.4, true)]).unwrap(), 1);
+        assert_eq!(save(&store, &device.id, &[record("2026-11-04T10:00:00Z", "2026-11-04T10:01:00Z", 23.4, true)]).unwrap(), 1);
         // The open period again, with its end moved on, then closed, and the next one.
-        assert_eq!(save(&dir, &device, &[
+        assert_eq!(save(&store, &device.id, &[
             record("2026-11-04T10:00:00Z", "2026-11-04T10:02:00Z", 23.4, true),
             record("2026-11-04T10:00:00Z", "2026-11-04T10:02:30Z", 23.4, false),
             record("2026-11-04T10:02:30Z", "2026-11-04T10:02:30Z", 23.5, true),
         ]).unwrap(), 3);
         // Read again, nothing changes.
-        assert_eq!(save(&dir, &device, &[record("2026-11-04T10:00:00Z", "2026-11-04T10:02:00Z", 23.4, true)]).unwrap(), 0);
+        assert_eq!(save(&store, &device.id, &[record("2026-11-04T10:00:00Z", "2026-11-04T10:02:00Z", 23.4, true)]).unwrap(), 0);
         let at = |text: &str| parse(text).unwrap();
-        let devices = load(&dir, at("2026-11-04T00:00:00Z"), at("2026-11-05T00:00:00Z"));
+        let devices = load(&store, at("2026-11-04T00:00:00Z"), at("2026-11-05T00:00:00Z"));
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].name, "rlcd");
+        assert_eq!(devices[0].id, device.id);
         assert_eq!(devices[0].series[0], vec![
             Period { start: at("2026-11-04T10:00:00Z").unix_timestamp(), end: at("2026-11-04T10:02:30Z").unix_timestamp(), value: 23.4 },
             Period { start: at("2026-11-04T10:02:30Z").unix_timestamp(), end: at("2026-11-04T10:02:30Z").unix_timestamp(), value: 23.5 },
         ]);
-        assert_eq!(latest_end(&dir, &device.id), Some(at("2026-11-04T10:02:30Z")));
+        assert_eq!(latest_end_of(&store, &device.id, "temperature"), Some(at("2026-11-04T10:02:30Z")));
+        // The periods are kept as the device gave them.
+        let hk = series_key(&store, &device.id, "temperature").unwrap();
+        assert_eq!(store.get(&hk, "2026-11-04T10:00:00Z").unwrap().unwrap().attributes,
+            Some(record("2026-11-04T10:00:00Z", "2026-11-04T10:02:30Z", 23.4, false)));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

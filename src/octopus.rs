@@ -17,6 +17,7 @@ mod measurements;
 mod fetch;
 mod logging_caller;
 mod trend_graph;
+mod convert;
 mod context;
 mod pages;
 mod flex_poll;
@@ -163,7 +164,7 @@ impl std::fmt::Debug for LoginForm {
 }
 
 impl OctopusModule {
-    async fn new(octopus_args: OctopusArgs, cache_config: Arc<CacheConfig>, profile: Profile, 
+    async fn new(octopus_args: OctopusArgs, cache_config: Arc<CacheConfig>, store: Arc<bruce_db::Store>, profile: Profile,
         request_manager: Arc<RequestManager>, _verbose: bool) -> anyhow::Result<OctopusModule> {   
 
         let billing_timezone = Self::get_billing_timezone(&profile);
@@ -174,6 +175,7 @@ impl OctopusModule {
             billing_timezone,
             cache_config,
             request_manager,
+            store,
         });
 
         Ok(OctopusModule {
@@ -205,6 +207,7 @@ impl OctopusModule {
         ModuleRegistration {
             module_id: MODULE_ID.to_string(),
             constructor: Arc::new(OctopusModule::constructor),
+            convert: Some(convert::convert_legacy),
         }
     }
     
@@ -238,12 +241,12 @@ impl Module for OctopusModule {
     /// If any of the profile's capture devices polls Octopus's smart charging, reads the polls they took instead, so
     /// that the app does not poll it too.
     async fn poll(&self, slot: Option<time::OffsetDateTime>) -> anyhow::Result<String> {
-        let cache_config = &self.context.cache_config;
+        let context = &self.context;
         let devices = crate::capture_device::adopted_devices(&self.profile_name);
-        let since = flex_poll::latest(cache_config).and_then(|(time, _)| time);
-        if !cache_config.offline
-            && self.capture.read(&devices, since, &mut |_, record| flex_poll::save_if_new(cache_config, record), &mut |_| {}).await? {
-            return Ok(flex_poll::latest(cache_config).map(|(_, summary)| summary).unwrap_or_default());
+        let since = flex_poll::latest(context).and_then(|(time, _)| time);
+        if !context.cache_config.offline
+            && self.capture.read(&devices, since, &mut |device, record| flex_poll::save(context, record, Some(&device.id)), &mut |_| {}).await? {
+            return Ok(flex_poll::latest(context).map(|(_, summary)| summary).unwrap_or_default());
         }
         flex_poll::poll(&self.context, slot, &self.call_budget, &self.charging_device).await
     }
@@ -533,7 +536,7 @@ impl OctopusModuleFactory {
 
         let authenticated_request_manager = Arc::new(logging_caller::LoggingCaller(sparko_graphql::AuthenticatedRequestManager::new(self.request_manager.clone(), self.token_manager.clone())?));
        
-        let mut client = OctopusModule::new(self.octopus_args.clone(), self.cache_config.clone(), self.profile.clone(),
+        let mut client = OctopusModule::new(self.octopus_args.clone(), self.cache_config.clone(), self.context.store()?, self.profile.clone(),
             authenticated_request_manager, self.verbose
         ).await?;
         client.profile_name = self.context.profile.active_profile.name.clone();
@@ -906,7 +909,7 @@ impl OctopusModuleFactoryBuilder {
         }
         
         let request_manager = Arc::new(sparko_graphql::RequestManager::new(url, verbose, create_info::USER_AGENT)?);
-        let cache_config = self.context.create_cache_config(crate::octopus::MODULE_ID, verbose)?;
+        let cache_config = self.context.create_cache_config(crate::octopus::MODULE_ID)?;
 
         Ok(OctopusModuleFactory {
             context: self.context.clone(),

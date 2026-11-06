@@ -12,7 +12,7 @@
 - [Viewing Bills](octopus/bills.md)
 - [Viewing Meter Readings](octopus/meters/index.md)
 - [Profiles](gettingStarted/profiles.md)
-- [Cached Data](gettingStarted/cachedData.md)
+- [Your Data](gettingStarted/cachedData.md)
 
 # Screen by Screen
 

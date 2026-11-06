@@ -31,6 +31,8 @@ pub mod window_state;
 
 mod data_set;
 mod cache;
+pub mod store;
+pub mod convert;
 use cache::CacheConfig;
 
 use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
@@ -45,7 +47,6 @@ use crate::profile::ActiveProfile;
 
 const NONE: &'static str = "None";
 const NULL: &'static str = "Null";
-const CACHE_DIRECTORY_NAME: &'static str = ".marco-sparko-cache";
 
 /*
  * It is important that the names of all args here do not contain hyphens or underscores
@@ -90,6 +91,11 @@ pub struct MarcoSparkoArgs {
     /// --deviceget 441bf6cc7fcc "capture/climate/records?limit=5". No hyphen, see redact.
     #[arg(long, num_args = 2, value_names = ["DEVICE", "PATH"])]
     deviceget: Vec<String>,
+    /// Upgrade a profile to the current version, as the Home page does when asked, e.g. converting what one made before
+    /// the store kept in the cache directory into its store, leaving the cache as it was, see profile::upgrade_profile,
+    /// then exit. No hyphen, see redact.
+    #[arg(long, value_name = "PROFILE")]
+    upgrade: Option<String>,
 }
 
 pub struct Args {
@@ -180,6 +186,11 @@ impl Args {
     /// The shot list, if --screenshots was given, see screenshots.rs.
     pub fn screenshots(&self) -> Option<PathBuf> {
         self.marco_sparko_args.screenshots.clone()
+    }
+
+    /// The profile to upgrade, if --upgrade was given, see profile::upgrade_profile.
+    pub fn upgrade(&self) -> Option<&str> {
+        self.marco_sparko_args.upgrade.as_deref()
     }
 
     /// Whether --redact docs was given, see redact::redact_docs.
@@ -330,6 +341,9 @@ pub type ModuleFactoryConstructor = dyn Fn(Arc<MarcoSparkoContext>, Option<serde
 pub struct ModuleRegistration {
     pub module_id: String,
     pub constructor: Arc<ModuleFactoryConstructor>,
+    /// Converts what the module kept in its directory of the cache before the store into the profile's store, for
+    /// --convert, see convert.rs, None if it has nothing to convert.
+    pub convert: Option<convert::Converter>,
 }
 
 #[derive(Clone, Default)]
@@ -365,6 +379,21 @@ impl PartialEq for ModuleRegistrations {
 }
 
 impl ModuleRegistrations {
+    /// Every module's registration.
+    fn all() -> Vec<ModuleRegistration> {
+        vec![
+            octopus::OctopusModule::registration(),
+            myenergi::MyenergiModule::registration(),
+            tesla::TeslaModule::registration(),
+            globird::GlobirdModule::registration(),
+        ]
+    }
+
+    /// Each module's converter, by its ID, see ModuleRegistration::convert.
+    pub fn converters() -> Vec<(String, convert::Converter)> {
+        Self::all().into_iter().filter_map(|registration| Some((registration.module_id, registration.convert?))).collect()
+    }
+
     pub async fn module_factory(&self, module_id: &str, context: &Arc<MarcoSparkoContext>) -> anyhow::Result<Arc<dyn ModuleFactory + Send>> {
         if let Some(module_registration) = self.0.get(module_id) {
             let constructor = module_registration.constructor.as_ref();
@@ -403,10 +432,9 @@ impl ModuleRegistrations {
 
         let mut module_registrations = HashMap::new();
 
-        Self::load_module(&mut module_registrations, octopus::OctopusModule::registration(), verbose);
-        Self::load_module(&mut module_registrations, myenergi::MyenergiModule::registration(), verbose);
-        Self::load_module(&mut module_registrations, tesla::TeslaModule::registration(), verbose);
-        Self::load_module(&mut module_registrations, globird::GlobirdModule::registration(), verbose);
+        for registration in Self::all() {
+            Self::load_module(&mut module_registrations, registration, verbose);
+        }
 
         if verbose {
             println!("Loaded {} modules", module_registrations.len());
@@ -429,6 +457,8 @@ impl ModuleRegistrations {
  pub struct MarcoSparkoContext {
     pub args: Args,
     pub profile: ActiveProfile,
+    /// The profile's site's store, opened the first time it is needed, see store.
+    pub store: std::sync::OnceLock<Arc<bruce_db::Store>>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -446,16 +476,16 @@ pub struct InitRequested(pub bool);
 impl MarcoSparkoContext {
     /// The profile file, see data_home.
     pub fn get_file_path() -> anyhow::Result<PathBuf> {
-        Ok(data_home::data_home()?.join(".marco-sparko"))
+        data_home::profiles_path()
     }
 
-    /// The directory holding the cache files of every profile, see data_home.
+    /// Marco Sparko's cache directory, from before 0.5.0, holding each profile's modules' data, which is only read, to
+    /// convert a profile's data into its store, see data_home::old_cache_dir.
     pub fn get_cache_dir_path() -> anyhow::Result<PathBuf> {
-        Ok(data_home::data_home()?.join(CACHE_DIRECTORY_NAME))
+        data_home::old_cache_dir()
     }
 
     pub fn new(args: Args) -> anyhow::Result<Arc<MarcoSparkoContext>> {
-        private_file::create_private_dir(&Self::get_cache_dir_path()?)?;
 
        
         let profile = crate::profile::fetch_active_profile(&args.marco_sparko_args.profile)?;
@@ -472,6 +502,7 @@ impl MarcoSparkoContext {
         Arc::new(MarcoSparkoContext {
             args,
             profile,
+            store: Default::default(),
         })
     }
 
@@ -482,9 +513,18 @@ impl MarcoSparkoContext {
     //    }))
     // }
 
+    /// The profile's site's store, see store.rs, opened, and the site made, the first time it is needed.
+    pub fn store(&self) -> anyhow::Result<Arc<bruce_db::Store>> {
+        if let Some(store) = self.store.get() {
+            return Ok(store.clone());
+        }
+        let store = store::for_profile(&self.profile.active_profile.name)?;
+        Ok(self.store.get_or_init(|| store).clone())
+    }
+
     fn get_cache_file_path(&self, module_id: &str) -> anyhow::Result<PathBuf> {
         let profile_name = &self.profile.active_profile.name;
-        Ok(Self::get_cache_dir_path()?.join(format!("{}-{}.json", profile_name, module_id)))
+        Ok(data_home::tokens_dir()?.join(format!("{}-{}.json", profile_name, module_id)))
     }
 
     fn get_cache_data_dir_path(&self, module_id: &str) -> anyhow::Result<PathBuf> {
@@ -492,11 +532,11 @@ impl MarcoSparkoContext {
         Ok(Self::get_cache_dir_path()?.join(format!("{}-{}", profile_name, module_id)))
     }
       
-    fn create_cache_config(&self, module_id: &str, verbose: bool) -> anyhow::Result<Arc<CacheConfig>> {
+    fn create_cache_config(&self, module_id: &str) -> anyhow::Result<Arc<CacheConfig>> {
+        // Only read, see get_cache_dir_path, so not made if it is not there.
         let dir_path = self.get_cache_data_dir_path(module_id)?;
-        private_file::create_private_dir(&dir_path)?;
 
-        Ok(Arc::new(CacheConfig::new(dir_path, verbose, self.profile.active_profile.offline)))
+        Ok(Arc::new(CacheConfig::new(dir_path, self.profile.active_profile.offline).with_store(self.store()?)))
     }
 
     pub fn read_cache<T>(&self, module_id: &str) -> Option<T>

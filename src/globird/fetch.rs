@@ -1,7 +1,9 @@
-//! Fetching GloBird data into the cache, and what the cached days hold.
+//! Fetching GloBird data into the profile's store, see store.rs, and what the days kept hold.
 //!
-//! The usage and costs are cached a file for each NEM day and NMI, e.g. 2026/November/1#usage-<nmi>, holding the rows
-//! of that day as GloBird sent them. GloBird only keeps a few weeks of readings, 35 days when first asked, so they
+//! The replies are kept as GloBird sent them: the account, `globird.account`, each power service's meters,
+//! `globird.meters`, and each row of the usage and costs, `globird.usage` and `globird.cost`, a DataSet for each NMI, by
+//! its hash, of each row by its NEM day and the fields which tell it from the day's others, e.g. its register and
+//! charge type. GloBird only keeps a few weeks of readings, 35 days when first asked, so they
 //! are kept for ever, as captured data is, and the last few days are fetched again, as the meter's readings arrive a
 //! day or so late and may be corrected. A NEM day is the day in Australia's National Electricity Market time, UTC+10
 //! all year, whatever the clocks in Sydney say, and GloBird's tariff periods are in NEM time too.
@@ -11,6 +13,8 @@ use std::collections::BTreeMap;
 use anyhow::anyhow;
 use serde::Deserialize;
 use time::{Date, Duration, OffsetDateTime, UtcOffset};
+
+use bruce_db::{Id, Item, Part, Store};
 
 use crate::CacheConfig;
 
@@ -25,10 +29,11 @@ pub const FETCH_DAYS: i64 = 40;
 /// How many of the latest days are fetched again, even if cached, as their readings may still arrive or change.
 pub const REFETCH_DAYS: i64 = 7;
 
-pub const CURRENT_USER_KEY: &str = "currentuser";
-const METERS_KEY: &str = "readmeters-";
-const USAGE_KEY: &str = "usage-";
-const COST_KEY: &str = "cost-";
+/// The kinds the replies are kept as in the profile's store, see the module documentation.
+const ACCOUNT_KIND: &str = "globird.account";
+const METERS_KIND: &str = "globird.meters";
+const USAGE_KIND: &str = "globird.usage";
+const COST_KIND: &str = "globird.cost";
 
 /// The offset of NEM time from UTC.
 pub fn nem_offset() -> UtcOffset {
@@ -267,19 +272,34 @@ pub fn summarise(usage: &[UsageRow], cost: &[CostRow]) -> Vec<DaySummary> {
     days.into_values().rev().collect()
 }
 
-pub(super) fn write_json(path: &std::path::Path, json: &serde_json::Value) -> anyhow::Result<()> {
-    // Compact, as the other modules' cache files are, which Cache Files shows pretty printed.
-    serde_json::to_writer(crate::private_file::create_private_file(path)?, json)?;
+/// The DataSet of a kind of rows of a power service, by the hash of its NMI, see the design's IDs.
+fn rows_key(store: &Store, kind: &str, nmi: &str) -> anyhow::Result<String> {
+    store.hash_key(kind, &[Part::Id(Id::of(&serde_json::json!({"nmi": nmi}))?)])
+}
+
+/// The account, as GloBird last gave it, None if it has not been fetched.
+pub fn account(cache_config: &CacheConfig) -> Option<serde_json::Value> {
+    let store = cache_config.store().ok()?;
+    store.get(&store.hash_key(ACCOUNT_KIND, &[]).ok()?, "-").ok()??.attributes
+}
+
+/// Saves the account, as GloBird gave it.
+pub(super) fn save_account(cache_config: &CacheConfig, user: &serde_json::Value) -> anyhow::Result<()> {
+    let store = cache_config.store()?;
+    store.put(&Item::new(&store.hash_key(ACCOUNT_KIND, &[])?, "-", crate::store::version_now(), user.clone()))?;
     Ok(())
 }
 
-/// Every row of the cached files of key, e.g. every day's usage.
-fn cached_rows<T: serde::de::DeserializeOwned>(cache_config: &CacheConfig, key: &str) -> Vec<T> {
+/// Every row of every DataSet of the kind, e.g. every day's usage, as GloBird gave it.
+fn cached_rows<T: serde::de::DeserializeOwned>(cache_config: &CacheConfig, kind: &str) -> Vec<T> {
+    let Ok(store) = cache_config.store() else { return Vec::new() };
     let mut rows = Vec::new();
-    for path in cache_config.files_with_key(key) {
-        match CacheConfig::read_json(&path).map(serde_json::from_value::<Vec<T>>) {
-            Some(Ok(day)) => rows.extend(day),
-            _ => crate::log_warning!("Unable to read the GloBird cache file {}", path.display()),
+    for hk in store.data_sets(&format!("{}/{kind}/", store.site())).unwrap_or_default() {
+        for item in store.all(&hk).unwrap_or_default() {
+            match item.attributes.map(serde_json::from_value::<T>) {
+                Some(Ok(row)) => rows.push(row),
+                _ => crate::log_warning!("Unable to read the GloBird row {} of {hk}", item.sk),
+            }
         }
     }
     rows
@@ -287,7 +307,7 @@ fn cached_rows<T: serde::de::DeserializeOwned>(cache_config: &CacheConfig, key: 
 
 /// The readings of every cached day, see readings.
 pub fn cached_readings(cache_config: &CacheConfig) -> Vec<Reading> {
-    readings(&cached_rows(cache_config, USAGE_KEY))
+    readings(&cached_rows(cache_config, USAGE_KIND))
 }
 
 /// A meter, as the cached readmeters replies list it.
@@ -303,11 +323,9 @@ pub struct Meter {
 /// The meters of every power service, see Meter.
 pub fn meters(cache_config: &CacheConfig) -> Vec<Meter> {
     let text = |meter: &serde_json::Value, field: &str| meter.get(field).and_then(|value| value.as_str()).unwrap_or_default().to_string();
-    // Saved by hash key alone, see fetch, so not found by files_with_key, which looks for day and month files.
-    let Ok(entries) = std::fs::read_dir(cache_config.dir_path()) else { return Vec::new() };
-    entries.flatten()
-        .filter(|entry| entry.file_name().to_str().is_some_and(|name| name.starts_with(METERS_KEY)))
-        .filter_map(|entry| CacheConfig::read_json(&entry.path()))
+    let Ok(store) = cache_config.store() else { return Vec::new() };
+    store.data_sets(&format!("{}/{METERS_KIND}/", store.site())).unwrap_or_default().iter()
+        .filter_map(|hk| store.get(hk, "-").ok()?.and_then(|item| item.attributes))
         .flat_map(|meters| meters.as_array().cloned().unwrap_or_default())
         .map(|meter| Meter { serial: text(&meter, "serialNumber"), read_type: text(&meter, "meterReadType"), status: text(&meter, "serialStatus") })
         .collect()
@@ -333,7 +351,7 @@ impl Register {
 /// Each register of the cached readings, see Register.
 pub fn registers(cache_config: &CacheConfig) -> Vec<Register> {
     let mut registers: BTreeMap<String, (std::collections::BTreeSet<String>, std::collections::BTreeSet<String>)> = BTreeMap::new();
-    for row in cached_rows::<UsageRow>(cache_config, USAGE_KEY) {
+    for row in cached_rows::<UsageRow>(cache_config, USAGE_KIND) {
         let Some(name) = row.suffix.clone() else { continue };
         let (bands, days) = registers.entry(name).or_default();
         bands.extend(row.charge_type.clone());
@@ -346,30 +364,35 @@ pub fn registers(cache_config: &CacheConfig) -> Vec<Register> {
 
 /// The summary of every cached day, newest first.
 pub fn summaries(cache_config: &CacheConfig) -> Vec<DaySummary> {
-    summarise(&cached_rows(cache_config, USAGE_KEY), &cached_rows(cache_config, COST_KEY))
+    summarise(&cached_rows(cache_config, USAGE_KIND), &cached_rows(cache_config, COST_KIND))
 }
 
-/// Saves the rows of a reply's data, a list of rows each with a NEM day in date_field, a file for each day, e.g.
-/// 2026/November/1#usage-<nmi>, returning how many days.
-fn save_days(cache_config: &CacheConfig, key: &str, data: &serde_json::Value, date_field: &str) -> anyhow::Result<usize> {
-    let mut days: BTreeMap<Date, Vec<serde_json::Value>> = BTreeMap::new();
+/// Saves the rows of a reply's data, a list of rows each with a NEM day in date_field, each as GloBird gave it, in the
+/// DataSet hk, by its day and the fields which tell it from the day's others, returning how many days.
+fn save_rows(store: &Store, hk: &str, data: &serde_json::Value, date_field: &str, fields: &[&str]) -> anyhow::Result<usize> {
+    let mut days = std::collections::BTreeSet::new();
     for row in data.as_array().into_iter().flatten() {
-        if let Some(date) = row.get(date_field).and_then(|date| date.as_str()).and_then(parse_date) {
-            days.entry(date).or_default().push(row.clone());
+        let Some(date) = row.get(date_field).and_then(|date| date.as_str()).and_then(parse_date) else { continue };
+        let mut sk = date.to_string();
+        for field in fields {
+            sk.push('#');
+            sk.push_str(row.get(*field).and_then(|value| value.as_str()).unwrap_or_default());
         }
-    }
-    for (date, rows) in &days {
-        write_json(&cache_config.path_for_day(key, &(*date).into())?, &serde_json::Value::Array(rows.clone()))?;
+        store.put(&Item::new(hk, &sk, crate::store::version_now(), row.clone()))?;
+        days.insert(date);
     }
     Ok(days.len())
 }
 
 /// The first day from today - FETCH_DAYS which needs fetching: one which is not cached, or one of the last
 /// REFETCH_DAYS days. None if none does.
-fn first_day_to_fetch(cache_config: &CacheConfig, key: &str, today: Date) -> Option<Date> {
+fn first_day_to_fetch(store: &Store, hk: &str, today: Date) -> Option<Date> {
     (0..=FETCH_DAYS).rev()
         .map(|days_ago| today - Duration::days(days_ago))
-        .find(|date| *date > today - Duration::days(REFETCH_DAYS) || !cache_config.existing_path_for_day(key, &(*date).into()).exists())
+        .find(|date| {
+            let (from, to) = (date.to_string(), date.next_day().map(|next| next.to_string()).unwrap_or_default());
+            *date > today - Duration::days(REFETCH_DAYS) || store.query_all(hk, from.as_str()..to.as_str()).map_or(true, |rows| rows.is_empty())
+        })
 }
 
 /// Fetches the account, its power services' meters, and the usage and costs of every day which needs it, see
@@ -379,8 +402,9 @@ pub async fn fetch(client: &GlobirdClient, cache_config: &CacheConfig, progress:
         return Err(anyhow!("This profile is offline, so nothing can be fetched"));
     }
     progress("Fetching the account".to_string());
+    let store = cache_config.store()?;
     let user = client.current_user().await?;
-    write_json(&cache_config.path_for_hash_key(CURRENT_USER_KEY), &user)?;
+    save_account(cache_config, &user)?;
     let services = power_services(&user);
     if services.is_empty() {
         progress("The account has no open power service".to_string());
@@ -388,23 +412,24 @@ pub async fn fetch(client: &GlobirdClient, cache_config: &CacheConfig, progress:
     let today = nem_today();
     for service in &services {
         let meters = client.read_meters(service.account_service_id).await?;
-        write_json(&cache_config.path_for_hash_key(&format!("{METERS_KEY}{}", service.account_service_id)), &meters)?;
+        let meters_key = store.hash_key(METERS_KIND, &[Part::Id(Id::of(&serde_json::json!({"globird-service": service.account_service_id}))?)])?;
+        store.put(&Item::new(&meters_key, "-", crate::store::version_now(), meters.clone()))?;
         let Some(serial) = smart_meter_serial(&meters) else {
             progress(format!("Service {} has no energised smart meter, so it has no readings", service.account_service_id));
             continue;
         };
-        let usage_key = format!("{USAGE_KEY}{}", service.nmi);
-        if let Some(from) = first_day_to_fetch(cache_config, &usage_key, today) {
+        let usage_key = rows_key(store, USAGE_KIND, &service.nmi)?;
+        if let Some(from) = first_day_to_fetch(store, &usage_key, today) {
             progress(format!("Fetching the readings from {from} to {today}"));
             let usage = client.usage(service.account_service_id, &service.nmi, &serial, from, today).await?;
-            let days = save_days(cache_config, &usage_key, &usage, "readDate")?;
+            let days = save_rows(store, &usage_key, &usage, "readDate", &["suffix", "chargeType"])?;
             progress(format!("Saved the readings of {days} day(s)"));
         }
-        let cost_key = format!("{COST_KEY}{}", service.nmi);
-        if let Some(from) = first_day_to_fetch(cache_config, &cost_key, today) {
+        let cost_key = rows_key(store, COST_KIND, &service.nmi)?;
+        if let Some(from) = first_day_to_fetch(store, &cost_key, today) {
             progress(format!("Fetching the costs from {from} to {today}"));
             let cost = client.cost(service.account_service_id, &service.nmi, from, today).await?;
-            let days = save_days(cache_config, &cost_key, &cost, "date")?;
+            let days = save_rows(store, &cost_key, &cost, "date", &["chargeCategory", "chargeType"])?;
             progress(format!("Saved the costs of {days} day(s)"));
         }
     }
@@ -417,6 +442,37 @@ pub fn latest_reading(cache_config: &CacheConfig) -> Option<OffsetDateTime> {
     let end = cached_readings(cache_config).iter().map(|reading| reading.end).max()?;
     OffsetDateTime::from_unix_timestamp(end).ok()
 }
+
+/// Converts what the module kept in its directory of the cache before the store: the account, `currentuser`, the
+/// meters, `readmeters-<service>`, the days' rows, `<day>#usage-<nmi>` and `<day>#cost-<nmi>`, and the bills, see
+/// bills::convert_legacy, see convert.rs.
+pub fn convert_legacy(store: &std::sync::Arc<Store>, dir: &std::path::Path, progress: &mut dyn bruce_db::progress::Progress) -> anyhow::Result<String> {
+    let config = CacheConfig::new(dir.to_path_buf(), false).with_store(store.clone());
+    let (mut usage, mut cost) = (0, 0);
+    let files = crate::convert::legacy_files(dir);
+    for (index, file) in files.iter().enumerate() {
+        crate::convert::step(progress, index, files.len())?;
+        if file.key == "currentuser" {
+            save_account(&config, &file.json()?)?;
+        }
+        else if let Some(service) = file.key.strip_prefix("readmeters-").and_then(|service| service.parse::<i64>().ok()) {
+            let meters_key = store.hash_key(METERS_KIND, &[Part::Id(Id::of(&serde_json::json!({"globird-service": service}))?)])?;
+            store.put(&Item::new(&meters_key, "-", crate::store::version_now(), file.json()?))?;
+        }
+        else if let Some(nmi) = file.key.strip_prefix(USAGE_KEY_PREFIX) {
+            usage += save_rows(store, &rows_key(store, USAGE_KIND, nmi)?, &file.json()?, "readDate", &["suffix", "chargeType"])?;
+        }
+        else if let Some(nmi) = file.key.strip_prefix(COST_KEY_PREFIX) {
+            cost += save_rows(store, &rows_key(store, COST_KIND, nmi)?, &file.json()?, "date", &["chargeCategory", "chargeType"])?;
+        }
+    }
+    let bills = super::bills::convert_legacy(&config, &dir.join("correspondence"))?;
+    Ok(format!("{usage} days of usage, {cost} days of costs, {bills}"))
+}
+
+/// The keys of the days' files of usage and costs in the old layout, see convert_legacy.
+const USAGE_KEY_PREFIX: &str = "usage-";
+const COST_KEY_PREFIX: &str = "cost-";
 
 #[cfg(test)]
 mod tests {

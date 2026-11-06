@@ -1,14 +1,13 @@
 //! Smart meter telemetry: a reading every 10 seconds from the meter, made available by a consumer access device such as
 //! an Octopus Home Mini.
 //!
-//! The server only has the last 30 days, so older data exists only in the cache. It is cached a day per file, and
-//! readings are only ever added to a file, never removed, so a reload which gets less than before cannot lose data. A
-//! day which is too old to fetch again is never fetched, and its file is made read only.
+//! The server only has the last 30 days, so older data exists only in the store. Each reading is kept as the server
+//! gave it, in the profile's store, see store.rs and data_set/records.rs, by its time, with a `#fetched/<date>` record
+//! of when each day was last fetched, and whether all of its missing hours were. Readings are only ever added, never
+//! removed, so a reload which gets less than before cannot lose data, and a day which is too old to fetch again is
+//! never fetched.
 
 use std::collections::BTreeMap;
-use std::fs::{self, File, FileTimes, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -108,44 +107,30 @@ fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|now| now.as_secs() as i64).unwrap_or_default()
 }
 
-fn modified(path: &Path) -> Option<i64> {
-    let modified = fs::metadata(path).ok()?.modified().ok()?;
-    modified.duration_since(UNIX_EPOCH).ok().map(|age| age.as_secs() as i64)
+/// The sort key of a day's #fetched record.
+fn fetched_key(day: &sparko_graphql::types::Date) -> String {
+    format!("#fetched/{day}")
 }
 
-/// The readings in a day's cache file, those which cannot be read are left out.
-fn load_day(path: &Path) -> BTreeMap<i64, TelemetryReading> {
-    let Ok(file) = File::open(path) else {
-        return BTreeMap::new();
-    };
-    BufReader::new(file).lines()
-        .map_while(Result::ok)
-        .filter_map(|line| serde_json::from_str::<TelemetryReading>(&line).ok())
+/// When a day was last fetched, as a unix timestamp, 0 if not all its missing hours were, so that it is fetched again,
+/// as a file dated the epoch was, None if it never has been.
+fn modified(records: &crate::data_set::Records, day: &sparko_graphql::types::Date) -> anyhow::Result<Option<i64>> {
+    let key = fetched_key(day);
+    let stale = records.get(&key)?.map(|fetched| fetched.get("stale").and_then(|stale| stale.as_bool()) == Some(true));
+    Ok(match stale {
+        None => None,
+        Some(true) => Some(0),
+        Some(false) => records.fetched_at(&key)?.map(|at| at.unix_timestamp()),
+    })
+}
+
+/// The readings from start up to end, as unix timestamps, made from those kept, which cannot be read are left out.
+fn load(records: &crate::data_set::Records, start: i64, end: i64) -> anyhow::Result<BTreeMap<i64, TelemetryReading>> {
+    let key = |time: i64| bruce_db::Micros(time * 1_000_000).to_text();
+    Ok(records.range(key(start).as_str()..key(end).as_str())?.into_iter()
+        .filter_map(|(_, item)| TelemetryReading::from(serde_json::from_value(item).ok()?))
         .map(|reading| (reading.read_at, reading))
-        .collect()
-}
-
-/// Writes a day's readings, dated now if fetched, or the epoch if not all of them were, so that it is fetched again.
-fn save_day(path: &Path, readings: &BTreeMap<i64, TelemetryReading>, fetched: bool) -> anyhow::Result<()> {
-    let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
-    for reading in readings.values() {
-        writeln!(file, "{}", serde_json::to_string(reading)?)?;
-    }
-    file.set_times(FileTimes::new().set_modified(if fetched { SystemTime::now() } else { UNIX_EPOCH }))?;
-    Ok(())
-}
-
-/// Makes a day's cache file read only, as its day can no longer be fetched so its data cannot be replaced.
-fn protect(path: &Path) {
-    if let Ok(metadata) = fs::metadata(path) {
-        let mut permissions = metadata.permissions();
-        if !permissions.readonly() {
-            permissions.set_readonly(true);
-            if let Err(error) = fs::set_permissions(path, permissions) {
-                crate::log_warning!("Failed to make {} read only: {error}", path.display());
-            }
-        }
-    }
+        .collect())
 }
 
 /// The hours of a day which the server has, as their start times, and those of them which are missing readings.
@@ -218,7 +203,7 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
     struct DayFetch {
         day_start: i64,
         day_end: i64,
-        path: std::path::PathBuf,
+        day: sparko_graphql::types::Date,
         readings: BTreeMap<i64, TelemetryReading>,
         /// The hours to fetch, and the day's missing hours, whether they are fetched or not.
         hours: Vec<i64>,
@@ -226,6 +211,7 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
         requests: Vec<(i64, i64)>,
     }
     let now = now();
+    let records = crate::data_set::Records::open(config, &hash_key)?;
     let mut days = Vec::new();
     let mut day = DateTime::from_unix_timestamp(start)?.to_timezone(tz).to_date();
     loop {
@@ -233,14 +219,11 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
         if day_start >= end {
             break;
         }
-        let path = config.path_for_day(&hash_key, &day)?;
-        let readings = load_day(&path);
+        // With the readings just before and after it, see BOUNDARY_SECONDS.
+        let readings = load(&records, day_start - BOUNDARY_SECONDS, day_end + BOUNDARY_SECONDS)?;
         let (mut hours, mut missing) = (Vec::new(), Vec::new());
-        if day_end <= now - SERVER_HISTORY_SECONDS {
-            protect(&path);
-        }
-        else {
-            let day = day_hours(&readings, day_start, day_end, modified(&path), now);
+        if day_end > now - SERVER_HISTORY_SECONDS {
+            let day = day_hours(&readings, day_start, day_end, modified(&records, &day)?, now);
             // The missing hours in the range shown, unless the day is up to date, and every hour in the reload period.
             hours = day.fetchable.iter()
                 .copied()
@@ -252,14 +235,14 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
         }
         // An offline profile only has what is cached.
         let requests = if config.offline { Vec::new() } else { requests(&hours) };
-        days.push(DayFetch { day_start, day_end, path, readings, hours, missing, requests });
+        days.push(DayFetch { day_start, day_end, day: day.clone(), readings, hours, missing, requests });
         day = day.next_day();
     }
 
     let force = reload.is_some();
     let total_requests: usize = days.iter().map(|day| day.requests.len()).sum();
     let mut request_number = 0;
-    for DayFetch { day_start, day_end, path, mut readings, hours, missing, requests } in days {
+    for DayFetch { day_start, day_end, day, mut readings, hours, missing, requests } in days {
         let mut fetched = 0;
         let mut error = None;
         for (request_start, request_end) in &requests {
@@ -289,9 +272,15 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
             match call_unless_cancelled(request_manager, &query, cancel, progress, &message, &rate_limit).await {
                 Ok(None) => break,
                 Ok(Some(response)) => {
-                    // Readings are added, never removed, see the module comment.
-                    for reading in response.smart_meter_telemetry_.into_iter().filter_map(TelemetryReading::from) {
-                        readings.insert(reading.read_at, reading);
+                    // Readings are added, never removed, see the module comment, each kept as the server gave it.
+                    for item in response.smart_meter_telemetry_ {
+                        let kept = serde_json::to_value(&item)?;
+                        if let Some(reading) = TelemetryReading::from(item) {
+                            if readings.get(&reading.read_at) != Some(&reading) {
+                                records.put(&bruce_db::Micros(reading.read_at * 1_000_000).to_text(), kept)?;
+                            }
+                            readings.insert(reading.read_at, reading);
+                        }
                     }
                     fetched += 1;
                 },
@@ -305,7 +294,7 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
             // What was fetched is kept even if the rest was not, but the day is only dated as fetched if all its
             // missing hours were, not just those in the range shown, so that the rest are fetched next time.
             let all_fetched = fetched == requests.len() && missing.iter().all(|hour| hours.contains(hour));
-            save_day(&path, &readings, all_fetched)?;
+            records.put(&fetched_key(&day), if all_fetched { serde_json::json!({}) } else { serde_json::json!({ "stale": true }) })?;
         }
         if let Some(error) = error {
             return Err(error);

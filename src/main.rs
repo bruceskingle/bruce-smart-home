@@ -11,6 +11,13 @@ fn main() {
         }
         std::process::exit(0);
     }
+    if let Some(profile) = args.upgrade() {
+        if let Err(error) = marco_sparko::convert::upgrade(profile) {
+            eprintln!("{error:#}");
+            std::process::exit(1);
+        }
+        std::process::exit(0);
+    }
     if args.redact_docs() {
         if let Err(error) = marco_sparko::redact::redact_docs() {
             eprintln!("{error:#}");

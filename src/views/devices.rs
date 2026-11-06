@@ -38,9 +38,8 @@ fn from_profile(profile_name: &str, feature: &str) -> Edits {
         .collect();
     // The account the Octopus module uses, its default, the first of its cached viewer's, see ViewerDataSet.
     if feature == "OctopusCapture" {
-        let viewer = crate::MarcoSparkoContext::get_cache_dir_path().ok()
-            .map(|dir| dir.join(format!("{profile_name}-octopus")).join("#Viewer"))
-            .and_then(|path| crate::cache::CacheConfig::read_json(&path));
+        let viewer = crate::store::for_profile(profile_name).ok()
+            .and_then(|store| crate::data_set::Records::in_store(store, "#Viewer").ok()?.get("-").ok().flatten());
         if let Some(account) = viewer.as_ref().and_then(|viewer| viewer["viewer"]["accounts"][0]["number"].as_str()) {
             edits.insert((feature.to_string(), "octopus_account".to_string()), json!(account));
         }
@@ -993,7 +992,7 @@ fn BatteryHistory(profile_name: String, device_id: String) -> Element {
     let tz = time_tz::system::get_timezone().unwrap_or(time_tz::timezones::db::UTC);
     let now = crate::clock::now_utc();
     let from = now - time::Duration::days(BATTERY_DAYS);
-    let periods = crate::climate::dir(&profile_name)
+    let periods = crate::climate::store(&profile_name)
         .map(|dir| crate::climate::load_series(&dir, &device_id, &crate::climate::BATTERY, from, now))
         .unwrap_or_default();
     let Some(latest) = periods.last().map(|period| period.value) else {
@@ -1020,7 +1019,7 @@ fn Calibrate(profile_name: String, device_id: String, feature: String, setting: 
     let mut actual = use_signal(String::new);
     let mut note = use_signal(|| None::<Result<String, String>>);
     let now = crate::clock::now_utc();
-    let latest = crate::climate::dir(&profile_name).ok()
+    let latest = crate::climate::store(&profile_name).ok()
         .map(|dir| crate::climate::load_series(&dir, &device_id, &crate::climate::SERIES[0], now - time::Duration::minutes(30), now))
         .and_then(|periods| periods.last().map(|period| period.value));
     let offset = setting["value"].as_f64().unwrap_or(0.0) / 10.0;

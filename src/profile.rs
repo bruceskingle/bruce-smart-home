@@ -10,7 +10,17 @@ use anyhow::anyhow;
 use crate::{MarcoSparkoContext, private_file};
 
 const DEFAULT_PROFILE: &str = "default";
-pub const CURRENT_VERSION: &str = "0.4.3";
+/// The version of the profile's format, and of the data kept for it. A change to either which needs a profile's data
+/// changing too adds a step to upgrade_profile, and makes this the version it is in.
+pub const CURRENT_VERSION: &str = "0.5.0";
+
+/// The last version whose profiles kept their data in Marco Sparko's cache directory, for a profile whose data is
+/// still made there, e.g. a redacted copy, see save_redacted_profile, which is upgraded to the store when it is opened.
+const LAST_CACHE_VERSION: &str = "0.4.3";
+
+/// The version whose profiles keep their data in the store, see store.rs, rather than in the cache directory, see
+/// upgrade_profile.
+const STORE_VERSION: &str = "0.5.0";
 
 #[derive(PartialEq)]
 pub struct ActiveProfile {
@@ -139,6 +149,36 @@ pub fn set_active_profile(profile_name: &String) -> anyhow::Result<ActiveProfile
     }
 }
 
+/// Upgrades the profile from its version to CURRENT_VERSION, doing each step its version needs, then saves it as the
+/// current version and makes it the active profile, which it returns. A step for each version which changed what is
+/// kept, in order:
+///
+/// - 0.5.0: the data kept in the cache directory is converted into the profile's site's store, see convert.rs.
+///
+/// Called when the user agrees to upgrade a profile on the Home page, and for --upgrade, saying how far it is with
+/// progress. If a step fails, or progress is cancelled, the profile is left at its version, its old data as it was, so
+/// that it can be upgraded again.
+pub fn upgrade_profile(profile_name: &str, progress: &mut dyn bruce_db::progress::Progress) -> anyhow::Result<ActiveProfile> {
+    let profile_file: ProfileFile = serde_json::from_reader(fs::File::open(&MarcoSparkoContext::get_file_path()?)?)?;
+    let profile = profile_file.iter()
+        .find(|profile| profile_names_equal(&profile.name, profile_name))
+        .ok_or_else(|| anyhow!("No such profile \"{}\"", profile_name))?;
+    let name = profile.name.clone();
+    // A profile with no version is from before they had one, so older than any.
+    let version = Version::parse(profile.version.trim()).unwrap_or_else(|_| Version::new(0, 0, 0));
+    if version < Version::parse(STORE_VERSION)? {
+        crate::convert::convert_profile(&name, progress)?;
+    }
+
+    // Read again, as a step may have changed it, e.g. given it a site.
+    let mut profile_file: ProfileFile = serde_json::from_reader(fs::File::open(&MarcoSparkoContext::get_file_path()?)?)?;
+    if let Some(profile) = profile_file.iter_mut().find(|profile| profile_names_equal(&profile.name, &name)) {
+        profile.version = CURRENT_VERSION.to_string();
+    }
+    serde_json::to_writer_pretty(private_file::create_private_file(&MarcoSparkoContext::get_file_path()?)?, &profile_file)?;
+    set_active_profile(&name)
+}
+
 /// Whether a profile may have the name, which is letters, digits and underscores, so that the hyphen in the name of a
 /// cache directory, e.g. n2-octopus, ends the profile's name, see cache_usage_in.
 pub fn is_valid_profile_name(name: &str) -> bool {
@@ -230,19 +270,22 @@ pub fn save_redacted_profile(source: &Profile, name: &str, as_of: Option<i64>) -
         .collect();
     profiles.push(Profile {
         name: name.to_string(),
-        version: source.version.clone(),
+        // Its data is in Marco Sparko's layout, see redact.rs, so it is converted into its store when it is upgraded.
+        version: String::from(LAST_CACHE_VERSION),
         modules,
         // Not the capture devices, whose keys would let anyone with the copy manage them.
         settings: Settings { capture_devices: Vec::new(), ..source.settings.clone() },
         offline: true,
         as_of,
+        // A site of its own, made when it is first used.
+        site: None,
     });
     serde_json::to_writer_pretty(private_file::create_private_file(&MarcoSparkoContext::get_file_path()?)?, &profiles)?;
     Ok(())
 }
 
-/// The cache files of a profile, for each plugin a <profile>-<plugin> directory of cached data and a
-/// <profile>-<plugin>.json file of tokens.
+/// The files of a profile, for each plugin a <profile>-<plugin> directory of data, in Marco Sparko's cache directory,
+/// and a <profile>-<plugin>.json file of tokens, in the tokens directory, see data_home.rs, and its store.
 #[derive(Debug, Default, PartialEq)]
 pub struct ProfileCacheUsage {
     /// The bytes used by each plugin, by plugin id.
@@ -259,9 +302,26 @@ impl ProfileCacheUsage {
     }
 }
 
-/// The cache files of the given profile and the disk space they use.
+/// The cache files of the given profile and the disk space they use, with its site's store, see store.rs, as "store",
+/// which is not one of its data_dirs, as it is named by the site, not the profile, so it is kept when the profile is
+/// renamed.
 pub fn profile_cache_usage(profile_name: &str) -> anyhow::Result<ProfileCacheUsage> {
-    cache_usage_in(&MarcoSparkoContext::get_cache_dir_path()?, profile_name)
+    // Its data in Marco Sparko's cache directory, and old copies of its tokens there, see data_home.rs, and its tokens.
+    let mut usage = cache_usage_in(&MarcoSparkoContext::get_cache_dir_path()?, profile_name)?;
+    let tokens = cache_usage_in(&crate::data_home::tokens_dir()?, profile_name)?;
+    usage.token_files.extend(tokens.token_files);
+    for (module, bytes) in tokens.plugins {
+        *usage.plugins.entry(module).or_default() += bytes;
+    }
+    let profiles: ProfileFile = serde_json::from_reader(fs::File::open(&MarcoSparkoContext::get_file_path()?)?)?;
+    let site = profiles.iter()
+        .find(|profile| profile_names_equal(&profile.name, profile_name))
+        .and_then(|profile| profile.site.as_deref())
+        .and_then(|site| bruce_db::Id::parse(site).ok());
+    if let Some(dir) = site.map(|site| crate::store::site_dir(&site)).transpose()?.filter(|dir| dir.exists()) {
+        usage.plugins.insert(String::from("store"), disk_usage(&dir)?);
+    }
+    Ok(usage)
 }
 
 fn cache_usage_in(cache_dir: &Path, profile_name: &str) -> anyhow::Result<ProfileCacheUsage> {
@@ -316,6 +376,13 @@ pub fn delete_profile(profile_name: &str, active_profile: &str) -> anyhow::Resul
     let file = fs::File::open(&MarcoSparkoContext::get_file_path()?)?;
     let mut profiles: ProfileFile = serde_json::from_reader(file)?;
     let count = profiles.len();
+    // Its site's store goes to the trash with its other data, see store.rs.
+    let site_dir = profiles.iter()
+        .find(|profile| profile_names_equal(&profile.name, profile_name))
+        .and_then(|profile| profile.site.as_deref())
+        .map(|site| bruce_db::Id::parse(site).and_then(|site| crate::store::site_dir(&site)))
+        .transpose()?
+        .filter(|dir| dir.exists());
     profiles.retain(|profile| !profile_names_equal(&profile.name, profile_name));
     if profiles.len() == count {
         return Err(anyhow!("No such profile \"{}\"", profile_name));
@@ -328,7 +395,7 @@ pub fn delete_profile(profile_name: &str, active_profile: &str) -> anyhow::Resul
     }
     // The log files go to the trash with the data.
     let logs = crate::logging::log_files(profile_name)?;
-    let trashed: Vec<PathBuf> = usage.data_dirs.iter().cloned().chain(logs.into_iter().filter(|log| log.exists())).collect();
+    let trashed: Vec<PathBuf> = usage.data_dirs.iter().cloned().chain(logs.into_iter().filter(|log| log.exists())).chain(site_dir).collect();
     if !trashed.is_empty() {
         trash::delete_all(&trashed)?;
     }
@@ -415,7 +482,17 @@ pub fn copy_profile(from: &str, to: &str, offline: bool) -> anyhow::Result<()> {
             fs::copy(file, renamed(file, &source.name, to)?)?;
         }
     }
-    let mut copy = Profile { name: to.to_string(), ..source };
+    // A site of its own, with a copy of the source's store, so that each is deleted alone, see delete_profile.
+    let site = match source.site.as_deref().map(bruce_db::Id::parse).transpose()? {
+        Some(from) if crate::store::site_dir(&from)?.exists() => {
+            let site = crate::store::new_site(to)?;
+            let location = format!("file://{}", crate::store::store_dir()?.display());
+            bruce_db::Store::copy_site(&location, &from, &site)?;
+            Some(site.to_string())
+        },
+        _ => None,
+    };
+    let mut copy = Profile { name: to.to_string(), site, ..source };
     if offline {
         copy.offline = true;
         copy.as_of = copy.as_of.or_else(|| Some(crate::clock::now_utc().unix_timestamp()));
@@ -497,6 +574,10 @@ pub struct Profile {
     /// see clock.rs, so that its pages show the latest data.
     #[serde(default, rename = "asOf", skip_serializing_if = "Option::is_none")]
     pub as_of: Option<i64>,
+    /// The ID of the profile's site in the store, see store.rs, made the first time it is needed, and kept when the
+    /// profile is renamed, so that its data goes with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site: Option<String>,
 }
 
 /// The settings of a profile which are the app's rather than a module's, set on the Settings page.
@@ -596,6 +677,21 @@ pub fn update_topology(profile_name: &str, topology: Option<&crate::power::topol
     Ok(())
 }
 
+/// The ID of the profile's site, see Profile::site, made and saved if it has none yet.
+pub fn ensure_site(profile_name: &str) -> anyhow::Result<bruce_db::Id> {
+    let mut profile_file: ProfileFile = serde_json::from_reader(fs::File::open(&MarcoSparkoContext::get_file_path()?)?)?;
+    let profile = profile_file.iter_mut()
+        .find(|profile| profile_names_equal(&profile.name, profile_name))
+        .ok_or_else(|| anyhow!("No such profile \"{}\"", profile_name))?;
+    if let Some(site) = &profile.site {
+        return bruce_db::Id::parse(site);
+    }
+    let site = crate::store::new_site(&profile.name)?;
+    profile.site = Some(site.to_string());
+    serde_json::to_writer_pretty(private_file::create_private_file(&MarcoSparkoContext::get_file_path()?)?, &profile_file)?;
+    Ok(site)
+}
+
 /// Saves the help settings of the profile, see help::set_shown.
 pub fn update_help_settings(profile_name: &str, help: &crate::help::HelpSettings) -> anyhow::Result<()> {
     let file = fs::File::open(&MarcoSparkoContext::get_file_path()?)?;
@@ -617,6 +713,7 @@ impl Profile {
             settings: Settings::default(),
             offline: false,
             as_of: None,
+            site: None,
         }
     }
 }

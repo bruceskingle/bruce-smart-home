@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::Write;
 use std::time::Duration;
 
 use sparko_graphql::{GraphQLCaller, GraphQLQueryBuilder};
@@ -46,7 +45,7 @@ impl MeterAgreementDataSet {
             request_manager).await?;
 
         if !data._attributes.cached {
-            if let Err(error) = record_tariffs(config, account_number, &data.data) {
+            if let Err(error) = config.store().and_then(|store| record_tariffs(store, account_number, &data.data)) {
                 crate::log_warning!("Unable to record the tariffs' history, {error:#}");
             }
         }
@@ -82,23 +81,28 @@ impl MeterAgreementDataSet {
 
 }
 
-/// Adds each agreement in force now, with its whole tariff, to <account>#TariffHistory, a JSON line each, when it
-/// differs from the last recorded for the agreement, e.g. a new standing charge or new unit rates. Octopus only returns
-/// a tariff as it is now, e.g. the unit rates which apply now, so this is the only record of what it was before, and of
-/// when it changed. Agreements which have ended are left as they were last recorded, as Octopus returns nulls for
-/// their rates.
-fn record_tariffs(config: &CacheConfig, account_number: &str, responses: &[meter::meter_agreements::Response]) -> anyhow::Result<()> {
-    let path = config.path_for_hash_key(&format!("{}#TariffHistory", account_number));
-    let mut last = HashMap::new();
-    if let Ok(history) = std::fs::read_to_string(&path) {
-        for line in history.lines() {
-            if let Ok(mut record) = serde_json::from_str::<serde_json::Value>(line) {
-                if let Some(id) = record["agreement"]["id"].as_i64() {
-                    last.insert(id, record["agreement"].take());
-                }
-            }
-        }
+/// The account's DataSet of each type of meter's tariffs, import, export or gas, by the hash of the account's number.
+pub(super) fn history_key(store: &bruce_db::Store, account_number: &str, kind: &str) -> anyhow::Result<String> {
+    let account = bruce_db::Id::of(&serde_json::json!({"octopus": account_number}))?;
+    store.hash_key("octopus.tariff", &[bruce_db::Part::Id(account), bruce_db::Part::from(kind)])
+}
+
+/// The agreement with its unit rates sorted, so that the same rates in another order are not a change.
+fn comparable(agreement: &serde_json::Value) -> serde_json::Value {
+    let mut agreement = agreement.clone();
+    if let Some(rates) = agreement["tariff"]["unitRates"].as_array_mut() {
+        rates.sort_by_key(|rate| rate.to_string());
     }
+    agreement
+}
+
+/// Records each agreement in force now, with its whole tariff, as Octopus gave it, when it differs from the last
+/// recorded for the agreement, e.g. a new standing charge or new unit rates, in the profile's store, see store.rs, as
+/// the kind `octopus.tariff`, a DataSet for each type of meter of the account, of {"seen", "meter", "agreement"} by when
+/// it was seen and the agreement's ID, so that every change is kept. Octopus only returns a tariff as it is now, e.g.
+/// the unit rates which apply now, so this is the only record of what it was before, and of when it changed.
+/// Agreements which have ended are left as they were last recorded, as Octopus returns nulls for their rates.
+fn record_tariffs(store: &bruce_db::Store, account_number: &str, responses: &[meter::meter_agreements::Response]) -> anyhow::Result<()> {
     let now = DateTime::from_unix_timestamp(crate::clock::now_utc().unix_timestamp())?;
     let in_force = |valid_from: &DateTime, valid_to: &Option<DateTime>| valid_from <= &now && valid_to.as_ref().is_none_or(|valid_to| valid_to > &now);
     let mut agreements = Vec::new();
@@ -122,32 +126,24 @@ fn record_tariffs(config: &CacheConfig, account_number: &str, responses: &[meter
             _ => {},
         }
     }
-    let mut file = None;
-    for (kind, mut agreement) in agreements {
-        // Sorted, so that the same rates in another order are not a change.
-        if let Some(rates) = agreement["tariff"]["unitRates"].as_array_mut() {
-            rates.sort_by_key(|rate| rate.to_string());
-        }
+    for (kind, agreement) in agreements {
         let Some(id) = agreement["id"].as_i64() else { continue };
-        let previous = last.get(&id);
-        if previous == Some(&agreement) {
+        let hk = history_key(store, account_number, kind)?;
+        // The last recorded of this agreement, records being in the order seen.
+        let previous = store.all(&hk)?.into_iter().rev()
+            .filter_map(|item| item.attributes)
+            .find(|record| record["agreement"]["id"].as_i64() == Some(id));
+        if previous.as_ref().is_some_and(|previous| comparable(&previous["agreement"]) == comparable(&agreement)) {
             continue;
         }
         if previous.is_some() {
             crate::log_info!("The {kind} tariff {} {} has changed", agreement["tariff"]["displayName"].as_str().unwrap_or(""),
                 agreement["tariff"]["tariffCode"].as_str().unwrap_or(""));
         }
-        let record = serde_json::json!({
-            "seen": crate::clock::now_utc().format(&time::format_description::well_known::Rfc3339)?,
-            "meter": kind,
-            "agreement": agreement,
-        });
-        if file.is_none() {
-            file = Some(std::fs::OpenOptions::new().create(true).append(true).open(&path)?);
-        }
-        if let Some(file) = &mut file {
-            writeln!(file, "{record}")?;
-        }
+        let version = crate::store::version_now();
+        let seen = version.time.to_text();
+        let record = serde_json::json!({ "seen": seen, "meter": kind, "agreement": agreement });
+        store.put(&bruce_db::Item::new(&hk, &format!("{seen}#{id}"), version, record))?;
     }
     Ok(())
 }
@@ -233,25 +229,26 @@ mod tests {
     #[test]
     fn a_tariff_is_recorded_again_only_when_it_changes() {
         let dir = std::env::temp_dir().join(format!("marco-sparko-tariff-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let config = CacheConfig::new(dir.clone(), false, false);
-        let path = config.path_for_hash_key("A#TariffHistory");
-        let _ = std::fs::remove_file(&path);
-        let lines = || std::fs::read_to_string(&path).unwrap().lines().count();
+        let _ = std::fs::remove_dir_all(&dir);
+        let site = bruce_db::Id::of(&serde_json::json!({"site": "tariff test"})).unwrap();
+        let store = bruce_db::Store::open(&format!("file://{}", dir.display()), &site).unwrap();
+        let hk = history_key(&store, "A", "import").unwrap();
+        let records = || store.all(&hk).unwrap();
         let off_peak = serde_json::json!({ "value": 6.6, "rateType": "EV_DEVICE_OFF_PEAK" });
         let peak = serde_json::json!({ "value": 36.294, "rateType": "EV_DEVICE_PEAK" });
 
-        record_tariffs(&config, "A", &[response(50.0, serde_json::json!([off_peak, peak]))]).unwrap();
-        assert_eq!(lines(), 1);
+        record_tariffs(&store, "A", &[response(50.0, serde_json::json!([off_peak, peak]))]).unwrap();
+        assert_eq!(records().len(), 1);
         // The same rates in another order are not a change.
-        record_tariffs(&config, "A", &[response(50.0, serde_json::json!([peak, off_peak]))]).unwrap();
-        assert_eq!(lines(), 1);
-        record_tariffs(&config, "A", &[response(55.0, serde_json::json!([peak, off_peak]))]).unwrap();
-        assert_eq!(lines(), 2);
-        let last: serde_json::Value = serde_json::from_str(std::fs::read_to_string(&path).unwrap().lines().last().unwrap()).unwrap();
+        record_tariffs(&store, "A", &[response(50.0, serde_json::json!([peak, off_peak]))]).unwrap();
+        assert_eq!(records().len(), 1);
+        record_tariffs(&store, "A", &[response(55.0, serde_json::json!([peak, off_peak]))]).unwrap();
+        assert_eq!(records().len(), 2);
+        let last = records().last().unwrap().attributes.clone().unwrap();
         assert_eq!(last["meter"], "import");
         assert_eq!(last["agreement"]["id"], 1, "only the agreement in force is recorded");
         assert_eq!(last["agreement"]["tariff"]["standingCharge"], 55.0);
+        assert_eq!(last["agreement"]["tariff"]["unitRates"][0]["rateType"], "EV_DEVICE_PEAK", "kept in the order Octopus gave them");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

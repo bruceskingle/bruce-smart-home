@@ -7,7 +7,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use crate::CacheConfig;
 use crate::power::measured::{Flow, MeasurementSource, Measurements};
 use crate::power::topology::{Channel, Use};
 
@@ -51,8 +50,8 @@ fn grid_channel(serial: &str) -> String {
 }
 
 /// The channels of the zappis in the latest status: each one's charging, and its grid clamp if it has one.
-pub fn channels(cache_config: &CacheConfig) -> Vec<Channel> {
-    fetch::zappis(cache_config).into_iter()
+pub fn channels(store: &bruce_db::Store) -> Vec<Channel> {
+    fetch::zappis(store).into_iter()
         .flat_map(|(serial, grid)| {
             let mut channels = vec![Channel {
                 id: charging_channel(&serial),
@@ -161,14 +160,14 @@ impl Measurements for ZappiMeasurements {
 
 /// The zappis' records, read from the day files, which are large, off the page's thread.
 pub struct ZappiMeasurementSource {
-    pub cache_config: Arc<CacheConfig>,
+    pub store: Arc<bruce_db::Store>,
 }
 
 impl MeasurementSource for ZappiMeasurementSource {
     fn load(&self, start: i64, end: i64) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn Measurements>>>>> {
-        let cache_config = self.cache_config.clone();
+        let store = self.store.clone();
         Box::pin(async move {
-            let zappis = tokio::task::spawn_blocking(move || load(&cache_config, start, end)).await?;
+            let zappis = tokio::task::spawn_blocking(move || load(&store, start, end)).await?;
             let measurements: Arc<dyn Measurements> = Arc::new(ZappiMeasurements { zappis });
             anyhow::Ok(measurements)
         })
@@ -176,17 +175,17 @@ impl MeasurementSource for ZappiMeasurementSource {
 }
 
 /// Each zappi's records from start to end, from the UTC days which have them.
-fn load(cache_config: &CacheConfig, start: i64, end: i64) -> Vec<(String, BTreeMap<i64, Minute>)> {
+fn load(store: &bruce_db::Store, start: i64, end: i64) -> Vec<(String, BTreeMap<i64, Minute>)> {
     let date = |time: i64| time::OffsetDateTime::from_unix_timestamp(time).map(|time| time.date()).ok();
     let (Some(first), Some(last)) = (date(start), date(end)) else {
         return Vec::new();
     };
-    fetch::zappis(cache_config).into_iter()
+    fetch::zappis(store).into_iter()
         .map(|(serial, _)| {
             let mut minutes = BTreeMap::new();
             let mut day = first;
             while day <= last {
-                minutes.extend(fetch::zappi_day(cache_config, &serial, day).iter()
+                minutes.extend(fetch::zappi_day(store, &serial, day).iter()
                     .filter_map(Minute::from_record)
                     .filter(|(minute, _)| *minute + 60 > start && *minute < end));
                 let Some(next) = day.next_day() else { break };

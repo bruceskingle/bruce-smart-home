@@ -1,18 +1,20 @@
 //! GloBird's bills, from the account's correspondence: the emails GloBird has sent, each bill's with the bill attached
 //! as a PDF, whose text is read for its charges, see parse_bill.
 //!
-//! What GloBird sent is cached as it sent it, in the correspondence directory of the module's cache: each page of the
-//! list of emails, list-<offset>, each bill's email, detail-<emailId>, and each bill, document-<documentId>.pdf. A bill
-//! never changes once it is issued, so nothing but the first page of the list is fetched again. Each Fetch makes one
+//! What GloBird sent is kept as it sent it, in the profile's store, see store.rs, in DataSets of the account, by the
+//! hash of its ID: each email listed, `globird.mail`, by when it was sent and its ID, with a `#list/<offset>` record of
+//! each page fetched, saying how many emails there are; each bill's email, `globird.mail.detail`, by its ID; and each
+//! bill's PDF in the store's blobs, with a `globird.document` record of it, by the document's ID. A bill never changes
+//! once it is issued, so nothing but the first page of the list is fetched again. Each Fetch makes one
 //! request, the next which is needed, see next_request, so that a long history is fetched a little at a time, newest
 //! first, rather than all at once.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::sync::OnceLock;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use anyhow::anyhow;
+use bruce_db::{Id, Item, Micros, Part, Store};
 use regex::Regex;
 use serde::Deserialize;
 use time::Date;
@@ -21,8 +23,10 @@ use crate::CacheConfig;
 
 use super::client::GlobirdClient;
 
-/// The directory of the correspondence in the module's cache.
-const DIR: &str = "correspondence";
+/// The kinds of the correspondence, see the module documentation.
+const MAIL_KIND: &str = "globird.mail";
+const DETAIL_KIND: &str = "globird.mail.detail";
+const DOCUMENT_KIND: &str = "globird.document";
 /// How many emails a page of the list has, the most the portal's own page offers, as the list is small, about 100
 /// bytes an email, so that the whole history is listed in a request or two, whose bills are then fetched one a Fetch.
 pub const PAGE_SIZE: usize = 100;
@@ -50,16 +54,6 @@ impl ListItem {
         let format = time::macros::format_description!("[year]-[month]-[day]");
         Date::parse(self.created_date.as_deref()?.get(..10)?, &format).ok()
     }
-}
-
-/// A page of the list, as GloBird sends it.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ListPage {
-    /// How many emails there are in all.
-    pub total_count: Option<usize>,
-    #[serde(default)]
-    pub data: Vec<ListItem>,
 }
 
 /// A document attached to an email, e.g. a bill.
@@ -106,8 +100,8 @@ pub struct Cached {
     pub first_page_age: Option<Duration>,
     /// The details of the emails cached, by email ID.
     pub details: BTreeMap<i64, Detail>,
-    /// The bills whose PDFs are cached, by document ID.
-    pub documents: BTreeMap<i64, PathBuf>,
+    /// The bills whose PDFs are cached, by document ID, with their blobs' IDs.
+    pub documents: BTreeMap<i64, Id>,
 }
 
 impl Cached {
@@ -117,61 +111,54 @@ impl Cached {
     }
 }
 
-fn dir(cache_config: &CacheConfig) -> PathBuf {
-    cache_config.dir_path().join(DIR)
+/// A DataSet of the kind of the account, by the hash of its ID.
+fn account_key(store: &Store, kind: &str, account_id: i64) -> anyhow::Result<String> {
+    store.hash_key(kind, &[Part::Id(Id::of(&serde_json::json!({"globird-account": account_id}))?)])
 }
 
-fn list_path(cache_config: &CacheConfig, offset: usize) -> PathBuf {
-    dir(cache_config).join(format!("list-{offset}"))
+/// The sort key of a page of the list's record.
+fn list_key(offset: usize) -> String {
+    format!("#list/{offset}")
 }
 
-fn detail_path(cache_config: &CacheConfig, email_id: i64) -> PathBuf {
-    dir(cache_config).join(format!("detail-{email_id}"))
-}
-
-pub fn document_path(cache_config: &CacheConfig, document_id: i64) -> PathBuf {
-    dir(cache_config).join(format!("document-{document_id}.pdf"))
-}
-
-/// What is cached, see Cached. The pages are read by their offset, newest first, so that where the first page was
-/// fetched again after new emails came, its emails come before the older pages', and each email is kept once.
+/// What is cached, see Cached, of the account, if it has been fetched. The emails are by when they were sent, so newest
+/// first is the reverse of their order.
 pub fn cached(cache_config: &CacheConfig) -> Cached {
     let mut result = Cached::default();
-    let mut pages: Vec<(usize, PathBuf)> = Vec::new();
-    for entry in std::fs::read_dir(dir(cache_config)).into_iter().flatten().flatten() {
-        let path = entry.path();
-        let Some(name) = path.file_name().and_then(|name| name.to_str()).map(str::to_string) else { continue };
-        if let Some(offset) = name.strip_prefix("list-").and_then(|offset| offset.parse().ok()) {
-            pages.push((offset, path));
+    let (Ok(store), Some(account_id)) = (cache_config.store(), super::fetch::account(cache_config).as_ref().and_then(account_id)) else {
+        return result;
+    };
+    if let Ok(hk) = account_key(store, MAIL_KIND, account_id) {
+        if let Ok(Some(first)) = store.get(&hk, &list_key(0)) {
+            result.total_count = first.attributes.as_ref().and_then(|page| page.get("totalCount")?.as_u64()).map(|total| total as usize);
+            result.first_page_age = Micros::now().0.checked_sub(first.version.time.0).map(|age| Duration::from_micros(age.max(0) as u64));
         }
-        else if let Some(email_id) = name.strip_prefix("detail-").and_then(|id| id.parse().ok()) {
-            match CacheConfig::read_json(&path).map(serde_json::from_value::<Detail>) {
-                Some(Ok(detail)) => { result.details.insert(email_id, detail); },
-                _ => crate::log_warning!("Unable to read the GloBird cache file {}", path.display()),
+        let items = store.query_all(&hk, "0".."\u{10FFFF}").unwrap_or_default();
+        result.items = items.into_iter().rev().filter_map(|item| serde_json::from_value(item.attributes?).ok()).collect();
+    }
+    if let Ok(hk) = account_key(store, DETAIL_KIND, account_id) {
+        for item in store.all(&hk).unwrap_or_default() {
+            match (item.sk.parse::<i64>(), item.attributes.map(serde_json::from_value::<Detail>)) {
+                (Ok(email_id), Some(Ok(detail))) => { result.details.insert(email_id, detail); },
+                _ => crate::log_warning!("Unable to read the GloBird email {}", item.sk),
             }
         }
-        else if let Some(document_id) = name.strip_prefix("document-").and_then(|id| id.strip_suffix(".pdf")).and_then(|id| id.parse().ok()) {
-            result.documents.insert(document_id, path);
-        }
     }
-    pages.sort();
-    let mut seen = std::collections::HashSet::new();
-    for (offset, path) in pages {
-        let page: ListPage = match CacheConfig::read_json(&path).map(serde_json::from_value) {
-            Some(Ok(page)) => page,
-            _ => {
-                crate::log_warning!("Unable to read the GloBird cache file {}", path.display());
-                continue;
-            },
-        };
-        if offset == 0 {
-            result.total_count = page.total_count;
-            result.first_page_age = std::fs::metadata(&path).and_then(|metadata| metadata.modified()).ok()
-                .and_then(|modified| SystemTime::now().duration_since(modified).ok());
+    if let Ok(hk) = account_key(store, DOCUMENT_KIND, account_id) {
+        for item in store.all(&hk).unwrap_or_default() {
+            let blob = item.attributes.as_ref().and_then(|document| Id::parse(document.get("blob")?.as_str()?).ok());
+            if let (Ok(document_id), Some(blob)) = (item.sk.parse::<i64>(), blob) {
+                result.documents.insert(document_id, blob);
+            }
         }
-        result.items.extend(page.data.into_iter().filter(|item| seen.insert(item.id)));
     }
     result
+}
+
+/// The PDF of a cached document.
+pub fn document(cache_config: &CacheConfig, document_id: i64) -> anyhow::Result<Vec<u8>> {
+    let blob = cached(cache_config).documents.get(&document_id).cloned().ok_or_else(|| anyhow!("The bill's PDF has not been fetched"))?;
+    cache_config.store()?.get_blob(&blob)?.ok_or_else(|| anyhow!("The bill's PDF is missing from the store"))
 }
 
 /// The next request a Fetch makes, None if there is nothing to fetch: the account if it is not cached, then the first
@@ -225,38 +212,50 @@ pub fn account_id(user: &serde_json::Value) -> Option<i64> {
     user.get("accounts")?.as_array()?.first()?.get("accountId")?.as_i64()
 }
 
-/// Makes the next request, see next_request, and caches its reply, returning what it fetched, or None if there was
+/// Saves a page of the list, {"totalCount": ..., "data": [emails]}, each email as GloBird gave it, by when it was sent
+/// and its ID, and the page's record, see the module documentation.
+fn save_list_page(store: &Store, account_id: i64, offset: usize, page: &serde_json::Value) -> anyhow::Result<()> {
+    let hk = account_key(store, MAIL_KIND, account_id)?;
+    for item in page.get("data").and_then(|data| data.as_array()).into_iter().flatten() {
+        let (Some(id), Some(created)) = (item.get("id").and_then(|id| id.as_i64()), item.get("createdDate").and_then(|date| date.as_str())) else { continue };
+        store.put(&Item::new(&hk, &format!("{created}#{id}"), crate::store::version_now(), item.clone()))?;
+    }
+    store.put(&Item::new(&hk, &list_key(offset), crate::store::version_now(), serde_json::json!({ "totalCount": page.get("totalCount") })))?;
+    Ok(())
+}
+
+/// Makes the next request, see next_request, and keeps its reply, returning what it fetched, or None if there was
 /// nothing to fetch.
-pub async fn fetch_next(client: &GlobirdClient, cache_config: &CacheConfig, user_key: &str) -> anyhow::Result<Option<String>> {
+pub async fn fetch_next(client: &GlobirdClient, cache_config: &CacheConfig) -> anyhow::Result<Option<String>> {
     if cache_config.offline {
         return Err(anyhow!("This profile is offline, so nothing can be fetched"));
     }
-    let user_path = cache_config.path_for_hash_key(user_key);
-    let user = CacheConfig::read_json(&user_path);
+    let store = cache_config.store()?;
+    let user = super::fetch::account(cache_config);
     let cached = cached(cache_config);
     let Some(request) = next_request(&cached, user.is_some()) else { return Ok(None) };
     let description = describe(&request, &cached);
-    crate::private_file::create_private_dir(dir(cache_config))?;
     if request == Request::Account {
-        let user = client.current_user().await?;
-        super::fetch::write_json(&user_path, &user)?;
+        super::fetch::save_account(cache_config, &client.current_user().await?)?;
         return Ok(Some(description));
     }
-    let account_id = user.as_ref().and_then(account_id).ok_or_else(|| anyhow!("The cached GloBird account has no account ID"))?;
+    let account_id = user.as_ref().and_then(account_id).ok_or_else(|| anyhow!("The GloBird account has no account ID"))?;
+    let version = crate::store::version_now;
     match request {
         Request::Account => {},
         Request::List { offset } => {
             let page = client.correspondence_list(account_id, offset, PAGE_SIZE).await?;
-            super::fetch::write_json(&list_path(cache_config, offset), &page)?;
+            save_list_page(store, account_id, offset, &page)?;
         },
         Request::Detail { email_id } => {
             let detail = client.correspondence_detail(account_id, email_id).await?;
-            super::fetch::write_json(&detail_path(cache_config, email_id), &detail)?;
+            store.put(&Item::new(&account_key(store, DETAIL_KIND, account_id)?, &email_id.to_string(), version(), detail))?;
         },
         Request::Document { document_id } => {
             let pdf = client.document(account_id, document_id).await?;
-            use std::io::Write;
-            crate::private_file::create_private_file(document_path(cache_config, document_id))?.write_all(&pdf)?;
+            let blob = store.put_blob(&pdf)?;
+            store.put(&Item::new(&account_key(store, DOCUMENT_KIND, account_id)?, &document_id.to_string(), version(),
+                serde_json::json!({ "documentId": document_id, "blob": blob.as_str(), "bytes": pdf.len() })))?;
         },
     }
     Ok(Some(description))
@@ -402,13 +401,44 @@ pub fn pdf_text(bytes: &[u8]) -> anyhow::Result<String> {
     }
 }
 
-/// The cached bill of a document, read from its PDF, see parse_bill, or why it could not be.
-pub fn read_bill(path: &std::path::Path) -> anyhow::Result<Bill> {
-    let bill = parse_bill(&pdf_text(&std::fs::read(path)?)?);
+/// A bill, read from its PDF, see parse_bill, or why it could not be.
+pub fn read_bill(pdf: &[u8]) -> anyhow::Result<Bill> {
+    let bill = parse_bill(&pdf_text(pdf)?);
     if bill.lines.is_empty() || bill.total.is_none() {
         return Err(anyhow!("No charges or total were found in the bill's text, which may be in a form not known yet"));
     }
     Ok(bill)
+}
+
+/// Converts the correspondence kept in the module's directory of the cache before the store, `list-<offset>`,
+/// `detail-<email>` and `document-<document>.pdf`, see convert.rs, once the account has been, as the DataSets are the
+/// account's.
+pub fn convert_legacy(cache_config: &CacheConfig, dir: &std::path::Path) -> anyhow::Result<String> {
+    let store = cache_config.store()?;
+    let Some(account_id) = super::fetch::account(cache_config).as_ref().and_then(account_id) else {
+        return Ok(String::from("no bills, as the account was not fetched"));
+    };
+    let (mut emails, mut bills) = (0, 0);
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let path = entry.path();
+        let json = || -> anyhow::Result<serde_json::Value> { Ok(serde_json::from_str(&std::fs::read_to_string(&path)?)?) };
+        if let Some(offset) = name.strip_prefix("list-").and_then(|offset| offset.parse::<usize>().ok()) {
+            save_list_page(store, account_id, offset, &json()?)?;
+        }
+        else if let Some(email_id) = name.strip_prefix("detail-") {
+            store.put(&Item::new(&account_key(store, DETAIL_KIND, account_id)?, email_id, crate::store::version_now(), json()?))?;
+            emails += 1;
+        }
+        else if let Some(document_id) = name.strip_prefix("document-").and_then(|id| id.strip_suffix(".pdf")) {
+            let pdf = std::fs::read(&path)?;
+            let blob = store.put_blob(&pdf)?;
+            store.put(&Item::new(&account_key(store, DOCUMENT_KIND, account_id)?, document_id, crate::store::version_now(),
+                serde_json::json!({ "documentId": document_id.parse::<i64>().ok(), "blob": blob.as_str(), "bytes": pdf.len() })))?;
+            bills += 1;
+        }
+    }
+    Ok(format!("{emails} bill emails, {bills} bills"))
 }
 
 #[cfg(test)]
@@ -437,7 +467,7 @@ mod tests {
         cached.details.insert(2, Detail { document_list: vec![document(20)] });
         assert_eq!(next_request(&cached, true), Some(Request::Document { document_id: 20 }));
 
-        cached.documents.insert(20, PathBuf::from("x"));
+        cached.documents.insert(20, Id::of_bytes(b"x"));
         assert_eq!(next_request(&cached, true), Some(Request::Detail { email_id: 1 }));
 
         cached.details.insert(1, Detail::default());
@@ -455,16 +485,20 @@ mod tests {
     fn pages_fetched_again_after_new_emails_keep_each_email_once_newest_first() {
         let dir = std::env::temp_dir().join(format!("globird-bills-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let cache_config = CacheConfig::new(dir.clone(), false, false);
-        std::fs::create_dir_all(dir.join(DIR)).unwrap();
-        let page = |ids: &[i64]| serde_json::json!({"totalCount": 4, "data": ids.iter().map(|id| serde_json::json!({"id": id, "title": "bill"})).collect::<Vec<_>>()});
+        let site = Id::of(&serde_json::json!({"site": "bills test"})).unwrap();
+        let store = std::sync::Arc::new(Store::open(&format!("file://{}", dir.display()), &site).unwrap());
+        let cache_config = CacheConfig::new(dir.join("cache"), false).with_store(store.clone());
+        super::super::fetch::save_account(&cache_config, &serde_json::json!({"accounts": [{"accountId": 7}]})).unwrap();
+        let page = |ids: &[i64]| serde_json::json!({"totalCount": 4, "data": ids.iter()
+            .map(|id| serde_json::json!({"id": id, "title": "bill", "createdDate": format!("2026-0{id}-01T00:00:00")})).collect::<Vec<_>>()});
         // The first page was fetched again after email 4 came, so the second page, fetched before, repeats email 2.
-        std::fs::write(list_path(&cache_config, 0), page(&[4, 3]).to_string()).unwrap();
-        std::fs::write(list_path(&cache_config, 2), page(&[2, 1]).to_string()).unwrap();
-        std::fs::write(list_path(&cache_config, 1), page(&[3, 2]).to_string()).unwrap();
+        save_list_page(&store, 7, 2, &page(&[2, 1])).unwrap();
+        save_list_page(&store, 7, 0, &page(&[4, 3])).unwrap();
+        save_list_page(&store, 7, 1, &page(&[3, 2])).unwrap();
         let cached = cached(&cache_config);
         assert_eq!(cached.items.iter().map(|item| item.id).collect::<Vec<_>>(), vec![4, 3, 2, 1]);
         assert_eq!(cached.total_count, Some(4));
+        assert!(cached.first_page_age.is_some_and(|age| age < Duration::from_secs(60)));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

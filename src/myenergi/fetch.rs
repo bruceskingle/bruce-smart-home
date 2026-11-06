@@ -1,31 +1,73 @@
-//! Fetching myenergi data into the cache, and what the cached days add up to.
+//! Fetching myenergi data into the profile's store, see store.rs, and what the days kept add up to.
 //!
-//! For now this is only to see what the API returns: the status as it is each time, and each device's records of a
-//! few days, a file for each device and UTC day. A day is fetched again until it has ended.
-
-use std::path::Path;
+//! The status, as it is each time, is the kind `myenergi.status`, a DataSet for the site's hub, of each status as it was
+//! saved, by its time to the second, written by what took it, the app or a capture device, the app's a microsecond
+//! newer, as Tesla's snapshots are. Each device's records are the kind `myenergi.minutes`, a DataSet for each device, by
+//! the hash of its letter and serial number, of each record as myenergi gave it, by its minute, with a `#fetched/<date>`
+//! record for each UTC day fetched: whether the day had ended when it was, and the name of the device in the response,
+//! e.g. U12345678. A day is fetched again until it has ended.
 
 use anyhow::anyhow;
+use bruce_db::{Flow, Id, Item, Micros, Part, Put, Store, Version};
 use time::{Date, Duration};
-
-use crate::CacheConfig;
 
 use super::client::{Device, MyenergiClient};
 
 /// How many days are fetched, including today.
 pub const DAYS: i64 = 3;
 
-const STATUS_KEY: &str = "status";
-const DAY_KEY: &str = "jday-";
+const STATUS_KIND: &str = "myenergi.status";
+const MINUTES_KIND: &str = "myenergi.minutes";
+const HUB: &str = "hub";
 
-fn write_json(path: &Path, json: &serde_json::Value) -> anyhow::Result<()> {
-    // Compact, one record a line, as the Octopus cache files are, which Cache Files shows pretty printed.
-    serde_json::to_writer(crate::private_file::create_private_file(path)?, json)?;
-    Ok(())
+fn status_key(store: &Store) -> anyhow::Result<String> {
+    store.hash_key(STATUS_KIND, &[Part::from(HUB)])
 }
 
-/// Fetches the status into the cache, which lists the devices.
-async fn fetch_status(client: &MyenergiClient, cache_config: &CacheConfig, slot: Option<time::OffsetDateTime>,
+/// A device's DataSet of records, by the hash of its letter and serial number, e.g. Z12345678, see the design's IDs.
+fn minutes_key(store: &Store, letter: char, serial: &str) -> anyhow::Result<String> {
+    store.hash_key(MINUTES_KIND, &[Part::Id(Id::of(&serde_json::json!({"myenergi": format!("{letter}{serial}")}))?)])
+}
+
+/// The sort key of a day's #fetched record.
+fn fetched_key(date: Date) -> String {
+    format!("#fetched/{date}")
+}
+
+/// The sort key of a time, to the second, e.g. 2026-11-04T07:17:10Z.
+fn second_key(time: time::OffsetDateTime) -> String {
+    let format = time::macros::format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]Z");
+    time.to_offset(time::UtcOffset::UTC).format(format).unwrap_or_default()
+}
+
+/// The sort key of a record's minute, e.g. 2026-10-27T13:05:00Z, from its yr, mon, dom, hr and min, which are left
+/// out when they are zero.
+fn minute_key(record: &serde_json::Value) -> String {
+    let part = |name: &str| record.get(name).and_then(|value| value.as_i64()).unwrap_or_default();
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:00Z", part("yr"), part("mon"), part("dom"), part("hr"), part("min"))
+}
+
+/// Saves a status, {"slot": ..., "requested": ..., "received": ..., "response": status}, taken by the capture device
+/// device, or by the app if it is None, see the module documentation, returning whether it was new.
+pub fn save_status(store: &Store, saved: &serde_json::Value, device: Option<&str>) -> anyhow::Result<bool> {
+    save_status_at(store, saved, None, device)
+}
+
+/// Saves a status, see save_status, of time if the status does not say, e.g. one saved before the times were recorded,
+/// whose time is in its old file's name, see convert_legacy.
+fn save_status_at(store: &Store, saved: &serde_json::Value, time: Option<time::OffsetDateTime>, device: Option<&str>) -> anyhow::Result<bool> {
+    let time = saved_time(saved).or(time).ok_or_else(|| anyhow!("the status has no time"))?;
+    let sk = second_key(time);
+    let second = Micros::parse(&sk)?;
+    let version = match device {
+        Some(device) => Version::new(second, &crate::store::device_part(device)),
+        None => Version::new(Micros(second.0 + 1), &crate::store::origin()),
+    };
+    Ok(store.put(&Item::new(&status_key(store)?, &sk, version, saved.clone()))? == Put::Stored)
+}
+
+/// Fetches the status into the store, which lists the devices.
+async fn fetch_status(client: &MyenergiClient, store: &Store, slot: Option<time::OffsetDateTime>,
     progress: &mut dyn FnMut(String)) -> anyhow::Result<serde_json::Value> {
     let rfc3339 = &time::format_description::well_known::Rfc3339;
     progress("Fetching the status".to_string());
@@ -38,32 +80,36 @@ async fn fetch_status(client: &MyenergiClient, cache_config: &CacheConfig, slot:
         "received": received.format(rfc3339)?,
         "response": status,
     });
-    write_json(&status_path(cache_config, slot.unwrap_or(requested))?, &saved)?;
+    save_status(store, &saved, None)?;
     Ok(status)
 }
 
-/// The cache file of the status of time, e.g. 2026/October/28#status-134000.
-fn status_path(cache_config: &CacheConfig, time_of: time::OffsetDateTime) -> anyhow::Result<std::path::PathBuf> {
-    let time = time_of.time();
-    let key = format!("{STATUS_KEY}-{:02}{:02}{:02}", time.hour(), time.minute(), time.second());
-    cache_config.path_for_day(&key, &time_of.date().into())
-}
-
-/// Saves a status taken elsewhere, e.g. by a capture device, in the same form as fetch_status, unless there is one for
-/// its time already, returning whether it was saved.
-pub fn save_status_if_new(cache_config: &CacheConfig, saved: &serde_json::Value) -> anyhow::Result<bool> {
-    let time = saved_time(saved).ok_or_else(|| anyhow!("the status has no time"))?;
-    let path = status_path(cache_config, time)?;
-    if path.exists() {
-        return Ok(false);
+/// The latest saved statuses, up to limit, newest first: of the last day, or of the last week if there are fewer.
+fn latest_statuses(store: &Store, limit: usize) -> Vec<serde_json::Value> {
+    let Ok(hk) = status_key(store) else { return Vec::new() };
+    let mut statuses = Vec::new();
+    for days in [1, 7, 3650] {
+        let from = second_key(crate::clock::now_utc() - Duration::days(days));
+        statuses.clear();
+        let _ = store.query(&hk, from.as_str()..bruce_db::ALL.end, &mut |item| {
+            statuses.extend(item.attributes);
+            Ok(Flow::Continue)
+        });
+        if statuses.len() >= limit {
+            break;
+        }
     }
-    write_json(&path, saved)?;
-    Ok(true)
+    statuses.into_iter().rev().take(limit).collect()
 }
 
-/// The time of the latest status in the cache.
-pub fn latest_status_time(cache_config: &CacheConfig) -> Option<time::OffsetDateTime> {
-    saved_time(&cache_config.latest_json(STATUS_KEY)?)
+/// The latest saved status, as it was saved.
+fn latest_saved(store: &Store) -> Option<serde_json::Value> {
+    latest_statuses(store, 1).into_iter().next()
+}
+
+/// The time of the latest status saved.
+pub fn latest_status_time(store: &Store) -> Option<time::OffsetDateTime> {
+    saved_time(&latest_saved(store)?)
 }
 
 /// The status in a saved status, which is {"slot": ..., "requested": ..., "received": ..., "response": status}, see
@@ -80,20 +126,39 @@ fn saved_time(saved: &serde_json::Value) -> Option<time::OffsetDateTime> {
         .and_then(|time| time::OffsetDateTime::parse(time, &time::format_description::well_known::Rfc3339).ok())
 }
 
-/// Fetches the device's records of the UTC day date into the cache, unless the day has ended and they are cached
-/// already, or force. Says how many minutes have records, so that a day long ago shows whether myenergi still has it.
-async fn fetch_day(client: &MyenergiClient, cache_config: &CacheConfig, device: &Device, date: Date, force: bool,
+/// Saves the records of a response of MyenergiClient::day or part_of_day, {"U<serial>": [records]}, each by its minute,
+/// and, for a whole day, date's #fetched record, returning how many records there were.
+fn save_records(store: &Store, device: &Device, date: Option<Date>, json: &serde_json::Value) -> anyhow::Result<usize> {
+    let Some((name, records)) = json.as_object().and_then(|object| object.iter().next()) else { return Ok(0) };
+    let hk = minutes_key(store, device.letter, &device.serial)?;
+    let records = records.as_array().cloned().unwrap_or_default();
+    // A record of a minute given twice in a response, the last is kept, as a newer version.
+    for record in &records {
+        store.put(&Item::new(&hk, &minute_key(record), crate::store::version_now(), record.clone()))?;
+    }
+    if let Some(date) = date {
+        let ended = date < crate::clock::now_utc().date();
+        store.put(&Item::new(&hk, &fetched_key(date), crate::store::version_now(),
+            serde_json::json!({ "ended": ended, "name": name, "records": records.len() })))?;
+    }
+    Ok(records.len())
+}
+
+/// Fetches the device's records of the UTC day date into the store, unless the day had ended when it was fetched
+/// before, or force. Says how many minutes have records, so that a day long ago shows whether myenergi still has it.
+async fn fetch_day(client: &MyenergiClient, store: &Store, device: &Device, date: Date, force: bool,
     progress: &mut dyn FnMut(String)) -> anyhow::Result<()> {
-    let today = crate::clock::now_utc().date();
-    let path = cache_config.path_for_day(&format!("{DAY_KEY}{}{}", device.letter, device.serial), &date.into())?;
-    if date < today && path.exists() && !force {
+    let hk = minutes_key(store, device.letter, &device.serial)?;
+    let ended = store.get(&hk, &fetched_key(date))?
+        .and_then(|item| item.attributes?.get("ended")?.as_bool())
+        .unwrap_or(false);
+    if ended && !force {
         return Ok(());
     }
     progress(format!("Fetching {} {} {date}", device.kind, device.serial));
     match client.day(device, date).await {
         Ok(json) => {
-            write_json(&path, &json)?;
-            let minutes = json.as_object().and_then(|object| object.values().next()).and_then(|records| records.as_array()).map_or(0, Vec::len);
+            let minutes = save_records(store, device, Some(date), &json)?;
             progress(format!("{} {} {date} has {minutes} minutes of records", device.kind, device.serial));
         },
         // e.g. a harvi, which may not have records of its own.
@@ -106,18 +171,18 @@ async fn fetch_day(client: &MyenergiClient, cache_config: &CacheConfig, device: 
 }
 
 /// Fetches the status and the last DAYS days of every device which has records, saying what it did with progress.
-pub async fn fetch(client: &MyenergiClient, cache_config: &CacheConfig, progress: &mut dyn FnMut(String)) -> anyhow::Result<()> {
-    if cache_config.offline {
+pub async fn fetch(client: &MyenergiClient, store: &Store, offline: bool, progress: &mut dyn FnMut(String)) -> anyhow::Result<()> {
+    if offline {
         return Err(anyhow!("This profile is offline, so nothing can be fetched"));
     }
     let today = crate::clock::now_utc().date();
-    let devices = Device::from_status(&fetch_status(client, cache_config, None, progress).await?);
+    let devices = Device::from_status(&fetch_status(client, store, None, progress).await?);
     if devices.is_empty() {
         progress("The status lists no devices".to_string());
     }
     for device in &devices {
         for days_ago in 0..DAYS {
-            fetch_day(client, cache_config, device, today - Duration::days(days_ago), false, progress).await?;
+            fetch_day(client, store, device, today - Duration::days(days_ago), false, progress).await?;
         }
     }
     progress(format!("Fetched {} device(s) at {}", devices.len(), client.host()));
@@ -140,33 +205,12 @@ fn plug_state(pst: &str) -> &str {
     }
 }
 
-/// Merges the records in json, a response of MyenergiClient::part_of_day, into the device's cache file for the day date,
-/// replacing those of the same minutes.
-fn merge_into_day(cache_config: &CacheConfig, device: &Device, date: Date, json: &serde_json::Value) -> anyhow::Result<()> {
-    let Some((name, new)) = json.as_object().and_then(|object| object.iter().next()) else { return Ok(()) };
-    let path = cache_config.path_for_day(&format!("{DAY_KEY}{}{}", device.letter, device.serial), &date.into())?;
-    let part = |record: &serde_json::Value, name: &str| record.get(name).and_then(|value| value.as_i64()).unwrap_or_default();
-    // By the minute, which with the date also orders the next day's first minute last, as a whole day's response does.
-    let minute = |record: &serde_json::Value| (part(record, "yr"), part(record, "mon"), part(record, "dom"), part(record, "hr"), part(record, "min"));
-    let mut records: std::collections::BTreeMap<_, serde_json::Value> = CacheConfig::read_json(&path)
-        .and_then(|existing| existing.as_object()?.values().next()?.as_array().cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .map(|record| (minute(&record), record))
-        .collect();
-    for record in new.as_array().into_iter().flatten() {
-        records.insert(minute(record), record.clone());
-    }
-    let records: Vec<serde_json::Value> = records.into_values().collect();
-    write_json(&path, &serde_json::json!({ name: records }))
-}
-
-/// Fetches the device's records of the last RECENT_MINUTES minutes before now into the cache, two parts if they start
+/// Fetches the device's records of the last RECENT_MINUTES minutes before now into the store, two parts if they start
 /// yesterday.
-async fn fetch_recent(client: &MyenergiClient, cache_config: &CacheConfig, device: &Device, now: time::OffsetDateTime) -> anyhow::Result<()> {
+async fn fetch_recent(client: &MyenergiClient, store: &Store, device: &Device, now: time::OffsetDateTime) -> anyhow::Result<()> {
     for (from, count) in recent_parts(now) {
         let json = client.part_of_day(device, from.date(), from.hour(), from.minute(), count as u16).await?;
-        merge_into_day(cache_config, device, from.date(), &json)?;
+        save_records(store, device, None, &json)?;
     }
     Ok(())
 }
@@ -194,15 +238,15 @@ fn recent_parts(now: time::OffsetDateTime) -> Vec<(time::OffsetDateTime, i64)> {
 ///
 /// If captured, a capture device has polled the status, see MyenergiModule::poll, so the latest saved is used instead
 /// of fetching it.
-pub async fn poll(client: &MyenergiClient, cache_config: &CacheConfig, slot: Option<time::OffsetDateTime>,
+pub async fn poll(client: &MyenergiClient, store: &Store, offline: bool, slot: Option<time::OffsetDateTime>,
     whole_days_fetched: &std::sync::Mutex<Option<Date>>, captured: bool) -> anyhow::Result<String> {
-    if cache_config.offline {
+    if offline {
         return Err(anyhow!("This profile is offline, so nothing can be fetched"));
     }
-    let latest = if captured { cache_config.latest_json(STATUS_KEY).map(|saved| saved_status(&saved).clone()) } else { None };
+    let latest = if captured { latest_saved(store).map(|saved| saved_status(&saved).clone()) } else { None };
     let status = match latest {
         Some(status) => status,
-        None => fetch_status(client, cache_config, slot, &mut |_| {}).await?,
+        None => fetch_status(client, store, slot, &mut |_| {}).await?,
     };
     let now = crate::clock::now_utc();
     let today = now.date();
@@ -214,9 +258,9 @@ pub async fn poll(client: &MyenergiClient, cache_config: &CacheConfig, slot: Opt
     };
     for device in &Device::from_status(&status) {
         for date in &whole_days {
-            fetch_day(client, cache_config, device, *date, true, &mut |_| {}).await?;
+            fetch_day(client, store, device, *date, true, &mut |_| {}).await?;
         }
-        fetch_recent(client, cache_config, device, now).await?;
+        fetch_recent(client, store, device, now).await?;
     }
     *whole_days_fetched.lock().unwrap() = Some(today);
     let zappis: Vec<String> = status.as_array().into_iter().flatten()
@@ -238,19 +282,19 @@ pub async fn poll(client: &MyenergiClient, cache_config: &CacheConfig, slot: Opt
 
 /// Fetches the UTC day date of every device in the latest status, fetching the status first if there is none. The
 /// day is fetched again even if it is cached, to see what myenergi has now.
-pub async fn fetch_date(client: &MyenergiClient, cache_config: &CacheConfig, date: Date, progress: &mut dyn FnMut(String)) -> anyhow::Result<()> {
-    if cache_config.offline {
+pub async fn fetch_date(client: &MyenergiClient, store: &Store, offline: bool, date: Date, progress: &mut dyn FnMut(String)) -> anyhow::Result<()> {
+    if offline {
         return Err(anyhow!("This profile is offline, so nothing can be fetched"));
     }
     if date > crate::clock::now_utc().date() {
         return Err(anyhow!("{date} has not happened yet"));
     }
-    let status = match cache_config.latest_json(STATUS_KEY) {
+    let status = match latest_saved(store) {
         Some(saved) => saved_status(&saved).clone(),
-        None => fetch_status(client, cache_config, None, progress).await?,
+        None => fetch_status(client, store, None, progress).await?,
     };
     for device in &Device::from_status(&status) {
-        fetch_day(client, cache_config, device, date, true, progress).await?;
+        fetch_day(client, store, device, date, true, progress).await?;
     }
     Ok(())
 }
@@ -339,9 +383,9 @@ impl DaySummary {
 
 /// What the CT clamps of the device measure, e.g. Grid, by the types set for them in the latest status, or CT1, CT2
 /// and CT3 if there is no status yet. In the status ectt1 is the zappi's internal CT, so the clamps are ectt2 to ectt4.
-pub fn ct_names(cache_config: &CacheConfig) -> [String; 3] {
+pub fn ct_names(store: &Store) -> [String; 3] {
     let mut names = [1, 2, 3].map(|n| format!("CT{n}"));
-    let status = cache_config.latest_json(STATUS_KEY).map(|saved| saved_status(&saved).clone());
+    let status = latest_saved(store).map(|saved| saved_status(&saved).clone());
     // The first zappi's, as only a zappi is known to have them.
     let zappi = status.as_ref()
         .and_then(|status| status.as_array())
@@ -471,10 +515,8 @@ impl StatusSample {
 
 /// The zappis' samples in the latest limit statuses, newest first, each with its zappi's record of the minute it is
 /// from, if that day has been fetched.
-pub fn status_samples(cache_config: &CacheConfig, limit: usize) -> Vec<StatusSample> {
-    let mut samples: Vec<StatusSample> = cache_config.files_with_key(STATUS_KEY).iter()
-        .take(limit)
-        .filter_map(|path| CacheConfig::read_json(path))
+pub fn status_samples(store: &Store, limit: usize) -> Vec<StatusSample> {
+    let mut samples: Vec<StatusSample> = latest_statuses(store, limit).into_iter()
         .flat_map(|saved| {
             let time = saved_time(&saved);
             let captured_by = saved.get("capturedBy").and_then(|value| value.as_str()).map(String::from);
@@ -491,10 +533,7 @@ pub fn status_samples(cache_config: &CacheConfig, limit: usize) -> Vec<StatusSam
         let Some(device_time) = sample.device_time else { continue };
         let date = device_time.date();
         let records = days.entry((sample.serial.clone(), date)).or_insert_with(|| {
-            let path = cache_config.existing_path_for_day(&format!("{DAY_KEY}Z{}", sample.serial), &date.into());
-            CacheConfig::read_json(&path)
-                .and_then(|json| json.as_object()?.values().next()?.as_array().cloned())
-                .unwrap_or_default()
+            zappi_day(store, &sample.serial, date)
                 .into_iter()
                 .filter(|record| record.get("dom").and_then(|dom| dom.as_i64()) == Some(date.day() as i64))
                 .map(|record| {
@@ -513,8 +552,8 @@ pub fn status_samples(cache_config: &CacheConfig, limit: usize) -> Vec<StatusSam
 
 /// The zappis in the latest status, by serial number, with whether one of its CT clamps is set to measure the grid,
 /// whose readings are its records' imp and exp, true if the status does not say.
-pub fn zappis(cache_config: &CacheConfig) -> Vec<(String, bool)> {
-    let Some(status) = cache_config.latest_json(STATUS_KEY).map(|saved| saved_status(&saved).clone()) else {
+pub fn zappis(store: &Store) -> Vec<(String, bool)> {
+    let Some(status) = latest_saved(store).map(|saved| saved_status(&saved).clone()) else {
         return Vec::new();
     };
     status.as_array().into_iter().flatten()
@@ -532,21 +571,57 @@ pub fn zappis(cache_config: &CacheConfig) -> Vec<(String, bool)> {
         .collect()
 }
 
-/// A zappi's cached records of the UTC day date, see MyenergiClient::day, none if it is not cached.
-pub fn zappi_day(cache_config: &CacheConfig, serial: &str, date: Date) -> Vec<serde_json::Value> {
-    CacheConfig::read_json(&cache_config.existing_path_for_day(&format!("{DAY_KEY}Z{serial}"), &date.into()))
-        .and_then(|json| json.as_object()?.values().next()?.as_array().cloned())
-        .unwrap_or_default()
+/// A zappi's records of the UTC day date, see MyenergiClient::day, in order, none if it has not been fetched.
+pub fn zappi_day(store: &Store, serial: &str, date: Date) -> Vec<serde_json::Value> {
+    let Ok(hk) = minutes_key(store, 'Z', serial) else { return Vec::new() };
+    day_records(store, &hk, date)
 }
 
-/// The summaries of every cached day, newest first.
-pub fn summaries(cache_config: &CacheConfig) -> Vec<DaySummary> {
+/// The records of a DataSet of the UTC day date, in order.
+fn day_records(store: &Store, hk: &str, date: Date) -> Vec<serde_json::Value> {
+    let (from, to) = (date.to_string(), date.next_day().map(|next| next.to_string()).unwrap_or_default());
+    store.query_all(hk, from.as_str()..to.as_str()).unwrap_or_default().into_iter().filter_map(|item| item.attributes).collect()
+}
+
+/// The summaries of every day fetched, newest first, from each DataSet's #fetched records.
+pub fn summaries(store: &Store) -> Vec<DaySummary> {
     let today = crate::clock::now_utc().date().to_string();
-    let mut summaries: Vec<DaySummary> = cache_config.files_with_key(DAY_KEY).iter()
-        .filter_map(|path| DaySummary::from_day(&CacheConfig::read_json(path)?, &today))
-        .collect();
+    let prefix = format!("{}/{MINUTES_KIND}/", store.site());
+    let mut summaries = Vec::new();
+    for hk in store.data_sets(&prefix).unwrap_or_default() {
+        for fetched in store.query_all(&hk, "#fetched/".."#fetched0").unwrap_or_default() {
+            let Some(date) = fetched.sk.strip_prefix("#fetched/").and_then(|date| Date::parse(date, &time::format_description::well_known::Iso8601::DATE).ok()) else { continue };
+            let name = fetched.attributes.as_ref().and_then(|fetched| fetched.get("name")?.as_str().map(str::to_string)).unwrap_or_default();
+            let records = day_records(store, &hk, date);
+            summaries.extend(DaySummary::from_day(&serde_json::json!({ name: records }), &today));
+        }
+    }
     summaries.sort_by(|a, b| b.date.cmp(&a.date).then(a.device.cmp(&b.device)));
     summaries
+}
+
+/// Converts the statuses and days kept in the module's directory of the cache before the store, `<day>#status-HHMMSS`
+/// and `<day>#jday-<letter><serial>`, see convert.rs.
+pub fn convert_legacy(store: &std::sync::Arc<Store>, dir: &std::path::Path, progress: &mut dyn bruce_db::progress::Progress) -> anyhow::Result<String> {
+    let (mut statuses, mut days) = (0, 0);
+    let files = crate::convert::legacy_files(dir);
+    for (index, file) in files.iter().enumerate() {
+        crate::convert::step(progress, index, files.len())?;
+        if let Some(clock) = file.key.strip_prefix("status-") {
+            let format = time::macros::format_description!("[hour][minute][second]");
+            let time = file.date.zip(time::Time::parse(clock, format).ok()).map(|(date, clock)| date.with_time(clock).assume_utc());
+            statuses += save_status_at(store, &file.json()?, time, None)? as usize;
+        }
+        else if let Some(device) = file.key.strip_prefix("jday-") {
+            let mut characters = device.chars();
+            let Some(letter) = characters.next() else { continue };
+            let kind = match letter { 'Z' => "zappi", 'E' => "eddi", 'H' => "harvi", _ => "device" };
+            let device = Device { kind: kind.to_string(), letter, serial: characters.collect() };
+            save_records(store, &device, file.date, &file.json()?)?;
+            days += 1;
+        }
+    }
+    Ok(format!("{statuses} statuses, {days} days of records"))
 }
 
 #[cfg(test)]
@@ -624,11 +699,11 @@ mod tests {
     }
 
     #[test]
-    fn records_are_merged_into_the_day_by_minute() {
+    fn records_are_kept_by_minute_and_a_day_is_summed_from_them() {
         let dir = std::env::temp_dir().join(format!("marco-sparko-merge-{}", std::process::id()));
-        // As the app makes it, see MarcoSparkoContext::create_cache_config.
-        std::fs::create_dir_all(&dir).unwrap();
-        let cache_config = CacheConfig::new(dir.clone(), false, false);
+        let _ = std::fs::remove_dir_all(&dir);
+        let site = Id::of(&serde_json::json!({"site": "myenergi test"})).unwrap();
+        let store = Store::open(&format!("file://{}", dir.display()), &site).unwrap();
         let device = Device { kind: "zappi".to_string(), letter: 'Z', serial: "12345678".to_string() };
         let date = time::macros::date!(2026-10-28);
         let day = serde_json::json!({"U12345678": [
@@ -636,15 +711,18 @@ mod tests {
             {"yr": 2026, "mon": 10, "dom": 28, "min": 1, "imp": 2},
             {"yr": 2026, "mon": 10, "dom": 29, "imp": 9},
         ]});
-        merge_into_day(&cache_config, &device, date, &day).unwrap();
+        save_records(&store, &device, Some(date), &day).unwrap();
         let part = serde_json::json!({"U12345678": [
             {"yr": 2026, "mon": 10, "dom": 28, "min": 1, "imp": 3},
             {"yr": 2026, "mon": 10, "dom": 28, "min": 2, "imp": 4},
         ]});
-        merge_into_day(&cache_config, &device, date, &part).unwrap();
-        let merged = CacheConfig::read_json(&cache_config.existing_path_for_day("jday-Z12345678", &date.into())).unwrap();
-        let imports: Vec<i64> = merged["U12345678"].as_array().unwrap().iter().map(|record| record["imp"].as_i64().unwrap()).collect();
-        assert_eq!(imports, vec![1, 3, 4, 9]);
+        save_records(&store, &device, None, &part).unwrap();
+        let imports = |date| -> Vec<i64> { zappi_day(&store, "12345678", date).iter().map(|record| record["imp"].as_i64().unwrap()).collect() };
+        assert_eq!(imports(date), vec![1, 3, 4]);
+        assert_eq!(imports(time::macros::date!(2026-10-29)), vec![9], "the next day's first minute is the next day's");
+        let summaries = summaries(&store);
+        assert_eq!(summaries.len(), 1);
+        assert_eq!((summaries[0].date.as_str(), summaries[0].device.as_str(), summaries[0].minutes), ("2026-10-28", "U12345678", 3));
         let _ = std::fs::remove_dir_all(dir);
     }
 

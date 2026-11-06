@@ -25,6 +25,8 @@ display_json = "0.2.1"
 rust_decimal = "1.36.0"
 rust_decimal_macros = "1.36.0"
 sparko_graphql = {version = "0.5.0", path = "../sparko_graphql" }
+# The store every module keeps its data in, see store.rs, in a checkout of bruce-db next to this one until it is published.
+bruce-db = { version = "0.1.0", path = "../bruce-db" }
 #serde_with = "3.9.0"
 #reedline-repl-rs = { version = "1.2.1", features = ["async"] }
 futures = "0.3.31"
@@ -90,6 +92,14 @@ desktop = ["dioxus/desktop"]
 
 # Reading a GloBird bill's PDF takes 600 ms in a debug build, 150 ms with these crates optimised, and 50 ms in a release
 # build, so they are optimised in debug builds too, which only slows their first build.
+# Reading the store parses tens of thousands of records for a week of Tesla snapshots or telemetry, which is several
+# times slower unoptimised, so the store and the JSON parser are optimised in debug builds too.
+[profile.dev.package.bruce-db]
+opt-level = 3
+
+[profile.dev.package.serde_json]
+opt-level = 3
+
 [profile.dev.package.pdf-extract]
 opt-level = 3
 

@@ -73,7 +73,8 @@ pub struct TeslaContext {
     /// The Powerwall samples the profile's capture devices took, see TeslaContext::take_snapshot.
     capture: crate::capture_device::CaptureReader,
     /// Where they, and the app's own, are saved.
-    snapshots: snapshot::Snapshots,
+    /// The profile's store, which the snapshots are kept in, see snapshot.rs.
+    store: Arc<bruce_db::Store>,
     cache_config: Arc<CacheConfig>,
     context: Arc<MarcoSparkoContext>,
     profile: Mutex<Profile>,
@@ -109,8 +110,8 @@ impl TeslaContext {
         self.reload_profile();
         let devices = crate::capture_device::adopted_devices(&self.context.profile.active_profile.name);
         // Those after the latest snapshot, the first time, and only into an online profile, see snapshot::take.
-        let since = snapshot::latest(&self.cache_config).as_ref().and_then(snapshot::time_of);
-        let save = &mut |_: &crate::capture_device::DeviceProfile, record: &serde_json::Value| self.snapshots.save(&self.cache_config, record);
+        let since = snapshot::latest(&self.store).as_ref().and_then(snapshot::time_of);
+        let save = &mut |device: &crate::capture_device::DeviceProfile, record: &serde_json::Value| snapshot::save(&self.store, record, Some(&device.id));
         if !self.cache_config.offline && self.capture.read(&devices, since, save, progress).await? {
             return Ok(());
         }
@@ -131,7 +132,7 @@ impl TeslaContext {
                 self.save_profile(profile)?;
             }
         }
-        let result = snapshot::take(&self.client, &self.cache_config, &self.snapshots, slot, progress).await;
+        let result = snapshot::take(&self.client, &self.store, self.cache_config.offline, slot, progress).await;
         if let Some(token) = self.client.token() {
             self.context.update_cache(MODULE_ID, &StoredToken { token })?;
         }
@@ -160,6 +161,7 @@ impl TeslaModule {
         ModuleRegistration {
             module_id: MODULE_ID.to_string(),
             constructor: Arc::new(TeslaModule::constructor),
+            convert: Some(snapshot::convert_legacy),
         }
     }
 
@@ -178,7 +180,7 @@ impl TeslaModule {
             println!("Tesla Module Args: {:?}", args);
             println!("Tesla Module Profile: {:?}", profile);
         }
-        let cache_config = context.create_cache_config(MODULE_ID, verbose)?;
+        let cache_config = context.create_cache_config(MODULE_ID)?;
         Ok(Arc::new(TeslaModuleFactory { context, profile, cache_config, verbose }))
     }
 }
@@ -187,12 +189,12 @@ impl TeslaModule {
 impl Module for TeslaModule {
     /// The grid's import and export through the gateway, for a profile with no supplier's.
     fn electricity_source(&self) -> Option<Arc<dyn crate::power::ElectricitySource>> {
-        Some(Arc::new(electricity::TeslaElectricity { cache_config: self.context.cache_config.clone() }))
+        Some(Arc::new(electricity::TeslaElectricity { store: self.context.store.clone() }))
     }
 
     /// What the gateway measured of the site's use, which splits a supplier's import by use.
     fn measurement_source(&self) -> Option<Arc<dyn crate::power::measured::MeasurementSource>> {
-        Some(Arc::new(electricity::TeslaMeasurements { cache_config: self.context.cache_config.clone() }))
+        Some(Arc::new(electricity::TeslaMeasurements { store: self.context.store.clone() }))
     }
 
     /// The gateway's meters.
@@ -221,7 +223,7 @@ impl Module for TeslaModule {
 
     async fn poll(&self, slot: Option<time::OffsetDateTime>) -> anyhow::Result<String> {
         self.context.take_snapshot(slot, &mut |_| {}).await?;
-        let latest = snapshot::latest(&self.context.cache_config).ok_or_else(|| anyhow::anyhow!("The snapshot was not saved"))?;
+        let latest = snapshot::latest(&self.context.store).ok_or_else(|| anyhow::anyhow!("The snapshot was not saved"))?;
         let mut summary: Vec<String> = snapshot::meters(&latest).iter()
             .map(|meter| format!("{} {:.2} kW", meter.name, meter.power / 1000.0))
             .collect();
@@ -274,7 +276,7 @@ fn PowerwallPage(context: SharedProp<TeslaContext>) -> Element {
     let mut busy = use_signal(|| false);
     // Read so that a new snapshot, which changes it, is shown.
     generation();
-    let latest = snapshot::latest(&context.0.cache_config);
+    let latest = snapshot::latest(&context.0.store);
     let time = latest.as_ref().and_then(snapshot::time_of).map(crate::util::local_date_time).unwrap_or_default();
     let meters = latest.as_ref().map(snapshot::meters).unwrap_or_default();
     let charge = latest.as_ref().and_then(|snapshot| snapshot.pointer("/responses/system_status~1soe/percentage")).and_then(|value| value.as_f64());
@@ -332,7 +334,7 @@ const SAMPLES_SHOWN: usize = 200;
 /// The latest snapshots, one a row, newest first.
 #[component]
 fn SamplesPage(context: SharedProp<TeslaContext>) -> Element {
-    let samples = snapshot::samples(&context.0.cache_config, SAMPLES_SHOWN);
+    let samples = snapshot::samples(&context.0.store, SAMPLES_SHOWN);
     rsx! {
         h1 { "Samples" }
         p {
@@ -578,7 +580,7 @@ impl ModuleFactory for TeslaModuleFactory {
             context: Arc::new(TeslaContext {
                 client,
                 capture: crate::capture_device::CaptureReader::new("capture/tesla/records"),
-                snapshots: snapshot::Snapshots::default(),
+                store: self.context.store()?,
                 cache_config: self.cache_config.clone(),
                 context: self.context.clone(),
                 profile: Mutex::new(self.profile.clone()),

@@ -1,9 +1,7 @@
-use std::{
-    fs::OpenOptions,
-    io::{BufRead, BufReader, Seek, SeekFrom, Write},
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+//! A DataSet of a list of records, as the API gave them, a page at a time, kept in the store, see records.rs, each by
+//! its place in the list, so that the order they were first given is kept.
+
+use std::{sync::Arc, time::Duration};
 
 use indexmap::IndexMap;
 use serde::{Serialize, de::DeserializeOwned};
@@ -46,45 +44,28 @@ where
 
         let mut attributes = DataSetAttributes { cached: true, };
         let mut data: IndexMap<K, V> = IndexMap::new();
-        let path = config.path_for_hash_key(hash_key);
-
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&path)?;
-        let _guard = file.lock()?;
-        let modified = file.metadata()?.modified()?;
+        let records = super::records::Records::open(config, hash_key)?;
+        let mut place = 0;
+        records.import_legacy(config, hash_key, &mut |records, value| {
+            place += 1;
+            records.put(&format!("{:08}", place - 1), value)
+        })?;
         // An offline profile cannot refresh, so it always reads what is cached, however old.
-        let mut refresh =  if let Some(refresh_after) = refresh_after && !config.offline {
-            SystemTime::now()
-                .duration_since(modified)
-                .map(|age| age > refresh_after)
-                .unwrap_or(false) // If the file is modified in the future, do not refresh it.
-        } else {
-            false
+        let mut refresh = match refresh_after {
+            Some(refresh_after) if !config.offline => records.fetched_age()?.is_none_or(|age| age > refresh_after),
+            _ => false,
         };
 
         if !refresh {
-            let lines = BufReader::new(&file).lines();
-            for line in lines.map_while(Result::ok) {
-                if config.verbose 
-                {
-                    println!("READ {}", line);
-                }
-
-                match serde_json::from_str(&line) {
+            for (sk, value) in records.all()? {
+                match serde_json::from_value::<V>(value) {
                     Ok(value) => {
-                        
                         let index = indexer(&value);
                         data.insert(index, value);
                     },
-                    Err(e) => {
-                        println!("ERROR: failed to read record {:?}", e);
+                    Err(error) => {
+                        crate::log_warning!("Failed to read record {sk} of the cached {hash_key}, fetching it again: {error}");
                         refresh = true;
-
-                        file.seek(SeekFrom::Start(0))?;
-                        file.set_len(0)?;
                         data.clear();
                         break;
                     },
@@ -92,18 +73,18 @@ where
             }
         }
 
-
-
         if data.len() == 0 {
             refresh = true;
         }
-        
+
         // An offline profile only has what is cached.
         if refresh && !config.offline {
             let query = initial_query_provider()?;
             let mut response = request_manager.call(&query).await?;
 
             attributes.cached = false;
+            // The records are kept in the order they were first given, by their place in it.
+            let mut next = records.all()?.len();
 
             loop {
                 let cq = continuation_query_provider(&response);
@@ -111,7 +92,8 @@ where
                 for value in response_iterator(response) {
                     let index = indexer(&value);
                     if ! data.contains_key(&index) {
-                        writeln!(file, "{}", serde_json::to_string(&value)?)?;
+                        records.put(&format!("{next:08}"), serde_json::to_value(&value)?)?;
+                        next += 1;
                         data.insert(index, value);
                     }
                 }
@@ -125,8 +107,7 @@ where
                     break;
                 }
             }
-            
-
+            records.mark_fetched()?;
         };
 
         Ok(Self {

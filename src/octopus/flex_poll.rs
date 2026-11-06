@@ -1,7 +1,9 @@
 //! Polling what Octopus's smart charging (Intelligent Octopus) does, which Octopus only keeps for a few days: the
 //! charging it has planned for each device, the charging it has carried out, and the devices' preferences, including
 //! whether charging is capped to the hours Octopus guarantees are cheap. Each poll's responses are saved, as they came,
-//! in a cache file, see Module::poll.
+//! in the profile's store, see store.rs, as the kind `octopus.flex`, a DataSet for the account, by the hash of its
+//! number, of each poll by its time to the second, written by what took it, the app or a capture device, the app's a
+//! microsecond newer, as Tesla's snapshots are.
 //!
 //! Octopus limits how many requests an account may make, shared with the Octopus app and anything else using the
 //! account, and limits it more after it is exceeded, so polling makes at most CALLS_PER_HOUR requests an hour.
@@ -25,7 +27,7 @@ pub const POLL_INTERVAL: Duration = Duration::from_secs(15 * 60);
 /// the account are not affected.
 const CALLS_PER_HOUR: usize = 20;
 
-const FLEX_KEY: &str = "flex-";
+const KIND: &str = "octopus.flex";
 
 /// The requests made in the last hour, to keep within CALLS_PER_HOUR.
 #[derive(Default)]
@@ -126,34 +128,54 @@ pub async fn poll(context: &OctopusContext, slot: Option<OffsetDateTime>, budget
             "completedDispatches": { "completedDispatches": completed },
         },
     });
-    let path = flex_path(&context.cache_config, slot.unwrap_or(requested))?;
-    // Compact, one record a line, as the other cache files are.
-    serde_json::to_writer(crate::private_file::create_private_file(&path)?, &saved)?;
+    save(context, &saved, None)?;
     Ok(summary(&saved["responses"]))
 }
 
-/// The cache file of the poll of time, e.g. 2026/October/29#flex-172930.
-fn flex_path(cache_config: &crate::CacheConfig, time_of: OffsetDateTime) -> anyhow::Result<std::path::PathBuf> {
-    let time = time_of.time();
-    let key = format!("{FLEX_KEY}{:02}{:02}{:02}", time.hour(), time.minute(), time.second());
-    cache_config.path_for_day(&key, &time_of.date().into())
+/// The account's DataSet of polls, by the hash of its number, see the design's IDs.
+pub(super) fn hash_key(store: &bruce_db::Store, account_id: &str) -> anyhow::Result<String> {
+    let account = bruce_db::Id::of(&serde_json::json!({"octopus": account_id}))?;
+    store.hash_key(KIND, &[bruce_db::Part::Id(account)])
 }
 
-/// Saves a poll taken elsewhere, e.g. by a capture device, which is in the same form as poll saves, unless there is one
-/// for its time already, returning whether it was saved.
-pub fn save_if_new(cache_config: &crate::CacheConfig, saved: &serde_json::Value) -> anyhow::Result<bool> {
+/// The sort key of a time, to the second, e.g. 2026-10-29T17:29:30Z.
+fn second_key(time: OffsetDateTime) -> String {
+    let format = time::macros::format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]Z");
+    time.to_offset(time::UtcOffset::UTC).format(format).unwrap_or_default()
+}
+
+/// Saves a poll, taken by the capture device device, or by the app if it is None, see the module documentation,
+/// returning whether it was new.
+pub fn save(context: &OctopusContext, saved: &serde_json::Value, device: Option<&str>) -> anyhow::Result<bool> {
+    save_to(&context.store, &context.account_id, saved, device)
+}
+
+/// Saves a poll of the account's, see save.
+pub(super) fn save_to(store: &bruce_db::Store, account_id: &str, saved: &serde_json::Value, device: Option<&str>) -> anyhow::Result<bool> {
     let time = crate::capture_device::record_time(saved).ok_or_else(|| anyhow!("the poll has no time"))?;
-    let path = flex_path(cache_config, time)?;
-    if path.exists() {
-        return Ok(false);
-    }
-    serde_json::to_writer(crate::private_file::create_private_file(&path)?, saved)?;
-    Ok(true)
+    let sk = second_key(time);
+    let second = bruce_db::Micros::parse(&sk)?;
+    let version = match device {
+        Some(device) => bruce_db::Version::new(second, &crate::store::device_part(device)),
+        None => bruce_db::Version::new(bruce_db::Micros(second.0 + 1), &crate::store::origin()),
+    };
+    Ok(store.put(&bruce_db::Item::new(&hash_key(store, account_id)?, &sk, version, saved.clone()))? == bruce_db::Put::Stored)
 }
 
-/// The time of the latest poll in the cache, and what it said, see summary.
-pub fn latest(cache_config: &crate::CacheConfig) -> Option<(Option<OffsetDateTime>, String)> {
-    let saved = cache_config.latest_json(FLEX_KEY)?;
+/// The time of the latest poll saved, and what it said, see summary: of the last two days, or of all.
+pub fn latest(context: &OctopusContext) -> Option<(Option<OffsetDateTime>, String)> {
+    let hk = hash_key(&context.store, &context.account_id).ok()?;
+    let mut found = None;
+    for from in [second_key(crate::clock::now_utc() - time::Duration::days(2)), String::from("\0")] {
+        let _ = context.store.query(&hk, from.as_str()..bruce_db::ALL.end, &mut |item| {
+            found = item.attributes;
+            Ok(bruce_db::Flow::Continue)
+        });
+        if found.is_some() {
+            break;
+        }
+    }
+    let saved = found?;
     Some((crate::capture_device::record_time(&saved), summary(&saved["responses"])))
 }
 

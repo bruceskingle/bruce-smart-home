@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque}, fs::{File, FileTimes, OpenOptions}, io::{BufRead, BufReader, Seek, SeekFrom, Write}, path::PathBuf, pin::pin, time::{Duration, SystemTime, UNIX_EPOCH},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque}, pin::pin, time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use futures::future::{Either, select};
@@ -277,6 +277,9 @@ pub async fn call_unless_cancelled<Q: GraphQLQuery<R>, R: GraphQLResponse>(
 
 pub trait SlotSource {
     type Value: DeserializeOwned + Serialize + Clone;
+    /// What is kept of a sample, as the server gave it, from which its Value is made, see value, so that the store
+    /// holds only what the server sent, see AGENTS.md.
+    type Stored: DeserializeOwned + Serialize + Clone;
     type Response: GraphQLResponse;
     type Query: GraphQLQuery<Self::Response>;
 
@@ -285,7 +288,15 @@ pub trait SlotSource {
     fn initial_query(&mut self, start: &DateTime, end: &DateTime) -> anyhow::Result<Self::Query>;
     /// The query for the next page of the samples from start up to end, if there is one.
     fn continuation_query(&mut self, start: &DateTime, end: &DateTime, resp: &Self::Response) -> anyhow::Result<Option<Self::Query>>;
-    fn items(&self, response: Self::Response) -> anyhow::Result<impl IntoIterator<Item = anyhow::Result<Self::Value>>>;
+    /// The samples of a response, as they are kept, see Stored.
+    fn items(&self, response: Self::Response) -> anyhow::Result<impl IntoIterator<Item = anyhow::Result<Self::Stored>>>;
+    /// The value of a sample as it is kept.
+    fn value(&self, stored: &Self::Stored) -> anyhow::Result<Self::Value>;
+    /// What to keep of a value from a DataSet's file in the old layout, which kept values rather than what the server
+    /// gave, see Records::import_legacy, None to leave it out.
+    fn stored_from_value(&self, _value: serde_json::Value) -> Option<Self::Stored> {
+        None
+    }
     fn index(&self, value: &Self::Value) -> anyhow::Result<(DateTime, DateTime, bool)>;
     fn refresh_after(&self) -> Duration;
     /// Whether a sample is missing data which a request for a shorter period may provide, e.g. measurements whose
@@ -302,6 +313,8 @@ pub struct Item<V> {
     pub is_final: bool,
     pub attributes: DataSetAttributes,
     pub value: V,
+    /// The sample as it is kept, see SlotSource::Stored, as JSON.
+    pub stored: serde_json::Value,
 }
 
 /// A monthly dataset of fixed-interval records that may arrive out of order.
@@ -356,43 +369,30 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
         }
     }
 
+    /// The month's samples kept in records, see records.rs, by their starts, a day either side of the month being read,
+    /// as the starts are in UTC, and those which start in the month kept.
     fn load(
         source: &S,
-        config: &CacheConfig,
-        file: &mut File,
+        records: &super::records::Records,
         start_date: Date,
         next_date: Date,
         tz: &'static Tz,
     ) -> anyhow::Result<Self>
     {
         let mut data: BTreeMap<DateTime, Item<<S as SlotSource>::Value>> = BTreeMap::new();
-        let lines = BufReader::new(&mut *file).lines();
-        for line in lines.map_while(Result::ok) {
-            if config.verbose 
-            {
-                println!("READ {}", line);
-            }
-
-            match serde_json::from_str(&line) {
+        let (from, to) = ((*start_date - time::Duration::days(1)).to_string(), (*next_date + time::Duration::days(1)).to_string());
+        for (sk, stored) in records.range(from.as_str()..to.as_str())? {
+            let value = serde_json::from_value::<S::Stored>(stored.clone()).map_err(anyhow::Error::from).and_then(|kept| source.value(&kept));
+            match value {
                 Ok(value) => {
-                    
                     let (start, end, is_final) = source.index(&value)?;
-                    let item = Item {
-                        end,
-                        is_final,
-                        attributes: DataSetAttributes { cached: true, },
-                        value,
-                    };
-
-                    data.insert(start, item);
-
+                    let date = start.to_timezone(tz).to_date();
+                    if date < start_date || date >= next_date {
+                        continue;
+                    }
+                    data.insert(start, Item { end, is_final, attributes: DataSetAttributes { cached: true, }, value, stored });
                 },
-                Err(_) => {
-                    file.seek(SeekFrom::Start(0))?;
-                    file.set_len(0)?;
-                    data.clear();
-                    break;
-                },
+                Err(error) => crate::log_warning!("Unable to read the sample {sk} of {}, {error:#}", source.hash_key()),
             }
         }
 
@@ -575,8 +575,9 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
 
                     // Self::handle_records(response, &response_iterator, &indexer, &mut data, &mut file)?;
 
-                    for value in source.items(response)? {
-                        let value = value?;
+                    for stored in source.items(response)? {
+                        let stored = serde_json::to_value(stored?)?;
+                        let value = source.value(&serde_json::from_value(stored.clone())?)?;
                         rows += 1;
                         let (start, end, is_final) = source.index(&value)?;
                         if start >= window_start && start < window_end && source.is_partial(&value) {
@@ -593,14 +594,8 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
                             data_set_map.get_mut(&key).unwrap()
                         };
 
-                        let update = if let Some(item) = data_set.data_set.data.get(&start) {
-                            let v = serde_json::to_string(&value)?;
-                            let c = serde_json::to_string(&item.value)?;
-                            v != c
-                        }
-                        else {
-                            true
-                        };
+                        // Whether the server gave something different, as it may revise a sample.
+                        let update = data_set.data_set.data.get(&start).is_none_or(|item| item.stored != stored);
 
                         if !update {
                             // Unchanged, but it may have been treated as not final to reload it.
@@ -609,14 +604,15 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
                             }
                         }
                         else {
+                            data_set.changed.insert(start);
                             data_set.data_set.data.insert(start, Item {
                                     end,
                                     is_final,
                                     attributes:DataSetAttributes { cached: false},
                                     value,
+                                    stored,
                                 }
                             );
-                            data_set.is_dirty = true;
                         }
                     }
 
@@ -694,18 +690,21 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
     }
 }
 
+/// A month of samples being read and fetched, see fetch, whose changes are put when it is flushed.
 struct OpenMonthlyFixedSlotDataSet<S: SlotSource>
 {
-    file: File,   // File is exclusive locked
-    path: PathBuf,
-    is_dirty: bool,  // Cache needs updating
+    records: super::records::Records,
+    /// The sort key of the month's #fetched record, which says when it was last fetched, and whether it is stale.
+    fetched_key: String,
+    /// The starts of the samples new or changed, to put.
+    changed: std::collections::BTreeSet<DateTime>,
     fetched: bool,   // A fetch window in this month completed, so the cache is up to date even if nothing changed
     data_set: MonthlyFixedSlotDataSet<S>
 }
 
 impl<S: SlotSource> OpenMonthlyFixedSlotDataSet<S>
 {
-    /// Create a DataSet and load any cached value leaving the cache file locked.
+    /// The month containing date, with the samples kept of it.
     fn new(
         source: &S,
         config: &CacheConfig,
@@ -714,73 +713,55 @@ impl<S: SlotSource> OpenMonthlyFixedSlotDataSet<S>
         tz: &'static Tz,
     ) -> anyhow::Result<Self> 
     {
-        let month_bucket = config.path_for_month(hash_key, date)?;
-        let created = !month_bucket.path.exists();
-
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&month_bucket.path)?;
-        file.lock()?;
-
-        if created {
-            // Nothing has been fetched for this month yet, so it is stale until a fetch of it succeeds, even if we exit
-            // before it is flushed.
-            file.set_times(FileTimes::new().set_modified(UNIX_EPOCH))?;
-        }
-
-        let data_set: MonthlyFixedSlotDataSet<S> = MonthlyFixedSlotDataSet::load(source, config, &mut file, month_bucket.start, month_bucket.next, tz)?;
-        let path = month_bucket.path;
-
+        let (start, next) = super::month_bounds(date)?;
+        let records = super::records::Records::open(config, hash_key)?;
+        // An old file's lines are values, kept as the source says, see SlotSource::stored_from_value.
+        records.import_legacy(config, &super::legacy_month_file(hash_key, &start), &mut |records, json| {
+            let value: S::Value = serde_json::from_value(json.clone())?;
+            let (sample_start, _, _) = source.index(&value)?;
+            match source.stored_from_value(json) {
+                Some(stored) => records.put(&super::time_key(&sample_start), serde_json::to_value(stored)?),
+                None => Ok(()),
+            }
+        })?;
+        let data_set: MonthlyFixedSlotDataSet<S> = MonthlyFixedSlotDataSet::load(source, &records, start, next, tz)?;
         Ok(Self{
-            file,
-            path,
-            is_dirty: false,
+            records,
+            fetched_key: format!("#fetched/{}", &start.to_string()[..7]),
+            changed: Default::default(),
             fetched: false,
             data_set,
         })
     }
 
-    /// Whether the month is due to be fetched again. An empty month, e.g. one before the server has any data, goes by
-    /// the file time like any other: a new file is dated the epoch so it is stale until a fetch of it succeeds.
+    /// Whether the month is due to be fetched again: it never has been, the last fetch left it stale, see flush, or that
+    /// was longer ago than refresh_after. An empty month, e.g. one before the server has any data, goes by its #fetched
+    /// record like any other.
     fn is_stale(&self, refresh_after: &Duration) -> anyhow::Result<bool> {
-        let modified = self.file.metadata()?.modified()?;
-        Ok(SystemTime::now()
-            .duration_since(modified)
-            .map(|age| &age > refresh_after)
-            .unwrap_or(false) // If the file is modified in the future, do not refresh it.
-        )
+        let marked_stale = self.records.get(&self.fetched_key)?.map(|fetched| fetched.get("stale").and_then(|stale| stale.as_bool()) == Some(true));
+        Ok(match marked_stale {
+            None | Some(true) => true,
+            Some(false) => self.records.fetched_at(&self.fetched_key)?
+                .is_some_and(|at| time::OffsetDateTime::now_utc() - at > *refresh_after),
+        })
     }
-    
-    fn flush(mut self, config: &CacheConfig, is_stale: bool) -> anyhow::Result<MonthlyFixedSlotDataSet<S>> {
-        if self.is_dirty {
-            // We added data so update the cache
 
-            if config.verbose 
-            {
-                println!("REWRITING FILE {}", self.path.display());
+    /// Puts the samples which changed, and the month's #fetched record: stale if more may be available, even if
+    /// nothing was fetched, e.g. the fetch failed before reaching this month, so that it is fetched again, otherwise up
+    /// to date, if it was fetched or changed, so that a month which did not change, e.g. one before the server has any
+    /// data, is not fetched again every time.
+    fn flush(self, _config: &CacheConfig, is_stale: bool) -> anyhow::Result<MonthlyFixedSlotDataSet<S>> {
+        for start in &self.changed {
+            if let Some(item) = self.data_set.data.get(start) {
+                self.records.put(&super::time_key(start), item.stored.clone())?;
             }
-            self.file.seek(SeekFrom::Start(0))?;
-            self.file.set_len(0)?;
-            for (_k, item) in &self.data_set.data {
-                writeln!(self.file, "{}", serde_json::to_string(&item.value)?)?;
-            }
-
         }
-
         if is_stale {
-            // We don't know if more data might be available, even if we fetched nothing (e.g. the fetch failed before
-            // reaching this month), so we set the file modify date to the epoch so that if it is read later it will be
-            // treated as stale.
-            self.file.set_times(FileTimes::new().set_modified(UNIX_EPOCH))?;
+            self.records.put(&self.fetched_key, serde_json::json!({ "stale": true }))?;
         }
-        else if self.fetched && !self.is_dirty {
-            // We fetched this month and nothing changed, e.g. a month before the server has any data, so the file is
-            // touched to show it is up to date, otherwise it would be fetched again every time until it changes.
-            self.file.set_times(FileTimes::new().set_modified(SystemTime::now()))?;
+        else if self.fetched || !self.changed.is_empty() {
+            self.records.put(&self.fetched_key, serde_json::json!({}))?;
         }
-
         Ok(self.data_set)
     }
 }
@@ -864,6 +845,7 @@ mod window_complete_tests {
                 is_final: !not_final.contains(slot),
                 attributes: DataSetAttributes { cached: false },
                 value: (),
+                stored: serde_json::Value::Null,
             }))
             .collect()
     }

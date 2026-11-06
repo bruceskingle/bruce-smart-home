@@ -21,7 +21,7 @@ pub fn RenameProfileDialog(name: String, on_close: EventHandler<()>) -> Element 
                 .and_then(|_| crate::profile::fetch_active_profile(&Some(active_name)));
             match result {
                 Ok(profile) => {
-                    context_signal.set(Some(Arc::new(MarcoSparkoContext { args: crate::Args::ms_parse(), profile })));
+                    context_signal.set(Some(Arc::new(MarcoSparkoContext { args: crate::Args::ms_parse(), profile, store: Default::default() })));
                     on_close.call(());
                 }
                 Err(e) => error.set(Some(format!("{e:#}"))),

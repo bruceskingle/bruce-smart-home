@@ -40,14 +40,6 @@ pub fn create_private_file<P: AsRef<Path>>(path: P) -> io::Result<File> {
     options.open(path)
 }
 
-/// Opens a file to add to its end, creating it, private, if it does not exist, see create_private_file.
-pub fn append_private_file<P: AsRef<Path>>(path: P) -> io::Result<File> {
-    if !path.as_ref().exists() {
-        drop(create_private_file(&path)?);
-    }
-    std::fs::OpenOptions::new().append(true).open(path)
-}
-
 pub fn create_private_dir<P: AsRef<Path>>(path: P) -> io::Result<()> {
     use std::fs::DirBuilder;
 

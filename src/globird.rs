@@ -105,7 +105,7 @@ impl GlobirdContext {
 
     /// Makes the next request for the bills, see bills::fetch_next, and saves the session if it changed.
     async fn fetch_bills(&self) -> anyhow::Result<Option<String>> {
-        let result = bills::fetch_next(&self.client, &self.cache_config, fetch::CURRENT_USER_KEY).await;
+        let result = bills::fetch_next(&self.client, &self.cache_config).await;
         self.save_session()?;
         result
     }
@@ -115,7 +115,7 @@ impl GlobirdContext {
         if let Some(bill) = self.bills.lock().unwrap().get(&document_id) {
             return bill.clone();
         }
-        let bill = bills::read_bill(&bills::document_path(&self.cache_config, document_id)).map_err(|error| format!("{error:#}"));
+        let bill = bills::document(&self.cache_config, document_id).and_then(|pdf| bills::read_bill(&pdf)).map_err(|error| format!("{error:#}"));
         self.bills.lock().unwrap().insert(document_id, bill.clone());
         bill
     }
@@ -137,6 +137,7 @@ impl GlobirdModule {
         ModuleRegistration {
             module_id: MODULE_ID.to_string(),
             constructor: Arc::new(GlobirdModule::constructor),
+            convert: Some(fetch::convert_legacy),
         }
     }
 
@@ -158,7 +159,7 @@ impl GlobirdModule {
             println!("GloBird Module Args: {:?}", args);
             println!("GloBird Module Profile: {:?}", profile);
         }
-        let cache_config = context.create_cache_config(MODULE_ID, verbose)?;
+        let cache_config = context.create_cache_config(MODULE_ID)?;
         Ok(Arc::new(GlobirdModuleFactory { context, profile, cache_config, verbose }))
     }
 }

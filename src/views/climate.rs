@@ -43,7 +43,7 @@ pub fn ClimatePage() -> Element {
     // Read so that the page shows what each read of the devices saved, see ClimateReader.
     let _read = statuses.read().get(climate::MODULE_ID).and_then(|status| status.last_time);
 
-    let dir = match climate::dir(&profile_name) {
+    let dir = match climate::store(&profile_name) {
         Ok(dir) => dir,
         Err(error) => return rsx! { ErrorText { error: format!("{error:#}") } },
     };

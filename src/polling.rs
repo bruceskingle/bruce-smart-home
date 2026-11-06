@@ -31,38 +31,30 @@ static RUNNING: std::sync::Mutex<Option<(u64, PollLog)>> = std::sync::Mutex::new
 static NEXT_POLLER_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 /// The poller's own log of a profile: when it started and stopped, a heartbeat every minute, and every poll, so that
-/// whether it was running all the time can be seen, e.g. gaps while the computer was asleep. One JSON record a line,
-/// in a file for each UTC day in the profile's <profile>-polling directory in the cache directory, which is counted and
-/// deleted with the profile's other data.
+/// whether it was running all the time can be seen, e.g. gaps while the computer was asleep. Kept in the profile's
+/// store, see store.rs, as the kind `app.poll`, a DataSet for this installation, each record by its time.
 #[derive(Clone)]
 struct PollLog {
-    dir: std::path::PathBuf,
+    store: Arc<bruce_db::Store>,
+    hk: String,
 }
 
 impl PollLog {
     fn new(profile_name: &str) -> anyhow::Result<PollLog> {
-        Ok(PollLog { dir: MarcoSparkoContext::get_cache_dir_path()?.join(format!("{profile_name}-polling")) })
+        let store = crate::store::for_profile(profile_name)?;
+        let hk = store.hash_key("app.poll", &[bruce_db::Part::Name(crate::store::origin())])?;
+        Ok(PollLog { store, hk })
     }
 
-    /// Appends the record, with the time now, e.g. {"event": "heartbeat"}. Failing to is logged, not an error, as the
+    /// Records the record, with the time now, e.g. {"event": "heartbeat"}. Failing to is logged, not an error, as the
     /// polling matters more than its log.
     fn record(&self, mut record: serde_json::Value) {
-        let now = crate::clock::now_utc();
+        let version = crate::store::version_now();
+        let time = version.time.to_text();
         if let Some(fields) = record.as_object_mut() {
-            fields.insert("time".to_string(), serde_json::Value::String(now.format(&time::format_description::well_known::Rfc3339).unwrap_or_default()));
+            fields.insert("time".to_string(), serde_json::Value::String(time.clone()));
         }
-        let written = (|| -> anyhow::Result<()> {
-            use std::io::Write;
-            crate::private_file::create_private_dir(&self.dir)?;
-            let path = self.dir.join(format!("{}.jsonl", now.date()));
-            if !path.exists() {
-                crate::private_file::create_private_file(&path)?;
-            }
-            let mut file = std::fs::OpenOptions::new().append(true).open(&path)?;
-            writeln!(file, "{record}")?;
-            Ok(())
-        })();
-        if let Err(error) = written {
+        if let Err(error) = self.store.put(&bruce_db::Item::new(&self.hk, &time, version, record)) {
             crate::log_warning!("Unable to write the polling log, {error:#}");
         }
     }

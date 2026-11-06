@@ -5,6 +5,8 @@ mod monthly_fixed_slot;
 mod multi_query;
 mod ordered_list;
 mod single_record;
+mod records;
+pub use records::Records;
 
 pub use cancel::CancelToken;
 pub use list::ListDataSet;
@@ -44,4 +46,29 @@ pub use single_record::SingleRecordDataSet;
 #[derive(Clone, Copy)]
 pub struct DataSetAttributes {
     pub cached: bool,
+}
+
+/// The first day of the month containing date, and of the next month, the month of a monthly DataSet.
+pub(crate) fn month_bounds(date: &sparko_graphql::types::Date) -> anyhow::Result<(sparko_graphql::types::Date, sparko_graphql::types::Date)> {
+    use sparko_graphql::types::Date;
+    let start = Date::from_calendar_date(date.year(), date.month(), 1)?;
+    let next = if date.month() == time::Month::December {
+        Date::from_calendar_date(date.year() + 1, time::Month::January, 1)?
+    }
+    else {
+        Date::from_calendar_date(date.year(), date.month().next(), 1)?
+    };
+    Ok((start, next))
+}
+
+/// The sort key of a record's time, in UTC, so that text order is time order whatever offset the API gave it with,
+/// e.g. 2026-11-04T07:17:10.000000Z.
+pub(crate) fn time_key(time: &time::OffsetDateTime) -> String {
+    bruce_db::Micros::from_datetime(*time).to_text()
+}
+
+/// A monthly DataSet's file in the old layout, relative to the module's cache directory, e.g. 2026/October#<hash key>,
+/// see Records::import_legacy.
+pub(crate) fn legacy_month_file(hash_key: &str, start: &sparko_graphql::types::Date) -> String {
+    format!("{}/{}#{hash_key}", start.year(), start.month())
 }

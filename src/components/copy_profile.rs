@@ -28,7 +28,7 @@ pub fn CopyProfileDialog(name: String, on_close: EventHandler<()>) -> Element {
                 let active_name = context_signal.read().as_ref().unwrap().profile.active_profile.name.clone();
                 match result.and_then(|_| crate::profile::fetch_active_profile(&Some(active_name))) {
                     Ok(profile) => {
-                        context_signal.set(Some(Arc::new(MarcoSparkoContext { args: crate::Args::ms_parse(), profile })));
+                        context_signal.set(Some(Arc::new(MarcoSparkoContext { args: crate::Args::ms_parse(), profile, store: Default::default() })));
                         on_close.call(());
                     }
                     Err(e) => error.set(Some(format!("{e:#}"))),

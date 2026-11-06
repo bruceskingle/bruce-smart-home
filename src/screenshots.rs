@@ -146,14 +146,7 @@ pub fn prepare_data_directory(fresh: &Path) -> anyhow::Result<()> {
         bail!("The shot list starts with a fresh data directory {}, which deletes its profiles and data, so give it with \
             --home, it is not the data directory in use, {}", fresh.display(), data_home.display());
     }
-    let profiles = crate::MarcoSparkoContext::get_file_path()?;
-    if profiles.exists() {
-        std::fs::remove_file(&profiles)?;
-    }
-    let cache = crate::MarcoSparkoContext::get_cache_dir_path()?;
-    if cache.exists() {
-        std::fs::remove_dir_all(&cache)?;
-    }
+    crate::data_home::clear(&data_home)?;
     println!("Cleared the data directory {}", data_home.display());
     Ok(())
 }
@@ -164,12 +157,13 @@ fn load_profile_data(from: &str) -> anyhow::Result<()> {
     use crate::profile::{Profile, ProfileFile, profile_names_equal};
 
     let usual = crate::data_home::usual_data_home()?;
-    let usual_profiles: ProfileFile = serde_json::from_reader(std::fs::File::open(usual.join(".marco-sparko"))?)?;
+    let usual_profiles: ProfileFile = serde_json::from_reader(std::fs::File::open(crate::data_home::profiles_path_in(&usual))?)?;
     let source = usual_profiles.iter().find(|profile| profile_names_equal(&profile.name, from))
         .ok_or_else(|| anyhow!("there is no profile {from} in {}", usual.display()))?;
     let active = crate::profile::fetch_active_profile(&None)?.active_profile.name;
 
-    let usual_cache = usual.join(crate::CACHE_DIRECTORY_NAME);
+    // A redacted profile's data is in the old layout, see redact.rs, which is converted into the copy's store below.
+    let usual_cache = crate::data_home::old_cache_dir_in(&usual);
     let cache = crate::MarcoSparkoContext::get_cache_dir_path()?;
     // Only the modules which a redacted profile can have, see redact::is_redactable.
     for module_id in source.modules.keys().filter(|module_id| crate::redact::is_redactable(module_id)) {
@@ -202,8 +196,14 @@ fn load_profile_data(from: &str) -> anyhow::Result<()> {
         settings: source.settings.clone(),
         offline: true,
         as_of: source.as_of,
+        // A site of its own, in this data home, into which its data is converted, as it is in the old layout.
+        site: None,
     });
     serde_json::to_writer_pretty(crate::private_file::create_private_file(&path)?, &profiles)?;
+    let active = profiles[0].name.clone();
+    if crate::profile::ProfileVersionState::from(&profiles[0].version)? == crate::profile::ProfileVersionState::OlderThanCurrent {
+        crate::profile::upgrade_profile(&active, &mut bruce_db::progress::Silent)?;
+    }
     Ok(())
 }
 

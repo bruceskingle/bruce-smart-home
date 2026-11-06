@@ -1,12 +1,13 @@
-use std::{
-    fs::OpenOptions,
-    io::{BufReader, Seek, SeekFrom, Write},
-    time::{Duration, SystemTime},
-};
+//! A DataSet of one record, as the API gave it, kept in the store, see records.rs, by the sort key RECORD.
+
+use std::time::Duration;
 
 use sparko_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse};
 
 use crate::CacheConfig;
+
+/// The sort key of the record.
+const RECORD: &str = "-";
 
 pub struct SingleRecordDataSet<R: GraphQLResponse>
 {
@@ -26,52 +27,34 @@ impl<R: GraphQLResponse> SingleRecordDataSet<R>
             Q: GraphQLQuery<R>,
             QP: FnOnce() -> Result<Q, sparko_graphql::Error>,
     {
-        let path = config.path_for_hash_key(hash_key);
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&path)?;
-        let _guard = file.lock()?;
-        let modified = file.metadata()?.modified()?;
+        let records = super::records::Records::open(config, hash_key)?;
+        records.import_legacy(config, hash_key, &mut |records, value| records.put(RECORD, value))?;
         // An offline profile cannot refresh, so it always reads what is cached, however old.
-        let mut refresh = !config.offline && SystemTime::now()
-            .duration_since(modified)
-            .map(|age| age > refresh_after)
-            .unwrap_or(false); // If the file is modified in the future, do not refresh it.
+        let mut refresh = !config.offline && records.fetched_age()?.is_none_or(|age| age > refresh_after);
 
-        let mut data: Option<R> = None; // data is always initialized but the compiler can't see it so I need to use an Option.
+        let mut data: Option<R> = None;
 
-        // Need to test refresh twice because a read error sets it to true.
         if !refresh {
-
-            let reader = BufReader::new(&file);
-            match serde_json::from_reader(reader) {
-                Ok(value) => {
-                    data = Some(value);
-                },
-                Err(e) => {
-                    crate::log_warning!("Failed to read the cached {}, fetching it again: {e:?}", path.display());
+            match records.get(RECORD)?.map(serde_json::from_value::<R>) {
+                Some(Ok(value)) => data = Some(value),
+                Some(Err(error)) => {
+                    crate::log_warning!("Failed to read the cached {hash_key}, fetching it again: {error}");
                     refresh = true;
                 },
+                None => refresh = true,
             }
         }
 
         // An offline profile only has what is cached.
         if refresh && !config.offline {
-
             let value = request_manager.call(&query_provider()?).await?;
-
-            let mut file = &file;
-            file.seek(SeekFrom::Start(0))?;
-            file.set_len(0)?;
-            writeln!(file, "{}", serde_json::to_string(&value)?)?;
-
+            records.put(RECORD, serde_json::to_value(&value)?)?;
+            records.mark_fetched()?;
             data = Some(value);
         }
 
         Ok(Self {
-            data: data.ok_or_else(|| anyhow::anyhow!("{} is not in this offline profile's data", path.display()))?
+            data: data.ok_or_else(|| anyhow::anyhow!("{hash_key} is not in this offline profile's data"))?
         })
         
     }

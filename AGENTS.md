@@ -79,6 +79,11 @@ not on `main`.
   they came, never values worked out from them, so that what was given can always be told from what was worked out.
   Computed values, if worth caching at all, go in a cache of their own, read alongside. The Octopus meter readings'
   cache breaks this, see bruce-db's docs/design.md, and is to be fixed with the data store.
+- **Changes to what is stored are profile upgrades.** A change to the format of the data a profile keeps, e.g. a
+  kind's keys or records, or to the profile file, bumps `CURRENT_VERSION` in `src/profile.rs` and adds a step to
+  `upgrade_profile` which converts a profile of the version before, leaving the old data as it was. The Home page asks
+  the user whether to upgrade a profile older than the app, and runs it when they agree; `--upgrade PROFILE` runs it
+  from the command line. 0.5.0 is the move into the store, see `src/convert.rs`.
 - **Derived numbers.** A number shown as a source gave it, e.g. GloBird's cost of a day or Octopus's kWh, is in the
   default colour; one the app works out, e.g. a total, a count, a rate fitted to costs or a split, has the `derived`
   class (`--derived` in `main.css`, pink), e.g. `td { class: "number derived", ... }`. Check the cache to tell which a

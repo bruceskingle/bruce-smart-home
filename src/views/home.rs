@@ -73,7 +73,7 @@ pub fn Home(
         crate::profile::ProfileVersionState::OlderThanCurrent => {
             if upgrade_requested.read().0 {
                 rsx! {
-                    p { "Upgrade requested" }
+                    ProfileUpgrade { name: profile.name.clone() }
                 }
             } else {
                 rsx! {
@@ -264,3 +264,73 @@ const HOME_PAGES: [PageInfo; 7] = [
     PageInfo { label: "Devices", path: "devices" },
     PageInfo { label: "Temp & Humidity", path: "climate" },
 ];
+
+/// Upgrades the profile, see profile::upgrade_profile, which may take a minute or two, e.g. converting its data into the
+/// store, off the page's thread, saying how far it is, then makes the upgraded profile the active one. Cancel stops it
+/// at its next file, which, like a failure, leaves the profile and its old data as they were, so that OK returns to the
+/// question of whether to upgrade it.
+#[component]
+fn ProfileUpgrade(name: String) -> Element {
+    let mut context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let mut upgrade_requested = use_context::<Signal<UpgradeRequested>>();
+    let mut error = use_signal(|| None::<String>);
+    let mut cancelled = use_signal(|| false);
+    // What the upgrade is doing, the latest of what it says, see convert::convert_profile.
+    let mut progress = use_signal(String::new);
+    let cancel = use_hook(bruce_db::progress::Cancel::new);
+    use_hook(|| {
+        let name = name.clone();
+        let cancel = cancel.clone();
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
+        spawn(async move {
+            while let Some(message) = receiver.recv().await {
+                progress.set(message);
+            }
+        });
+        spawn(async move {
+            let upgraded = tokio::task::spawn_blocking(move || {
+                let mut reporter = bruce_db::progress::Reporter::new(|message: &str| {
+                    let _ = sender.send(message.to_string());
+                }).with_cancel(cancel);
+                crate::profile::upgrade_profile(&name, &mut reporter)
+            }).await;
+            match upgraded {
+                Ok(Ok(profile)) => context_signal.set(Some(MarcoSparkoContext::for_profile(crate::Args::ms_parse(), profile))),
+                Ok(Err(upgrade_error)) if upgrade_error.is::<bruce_db::progress::Cancelled>() => cancelled.set(true),
+                Ok(Err(upgrade_error)) => error.set(Some(format!("{upgrade_error:#}"))),
+                Err(join_error) => error.set(Some(join_error.to_string())),
+            }
+        });
+    });
+    let stopped = cancelled() || error().is_some();
+    rsx! {
+        div { class: "dialog",
+            if cancelled() {
+                p { "The upgrade of profile {name} was cancelled. The profile, and its old data, are as they were, so it can be upgraded again." }
+            }
+            else if let Some(error) = error() {
+                p { class: "error",
+                    crate::components::error_text::ErrorText { error, message: format!("Unable to upgrade profile {name}") }
+                }
+                p { "The profile, and its old data, are as they were, so it can be upgraded again." }
+            }
+            else {
+                p { "Upgrading profile {name} to version {CURRENT_VERSION}, which keeps its data in a new store: its data is being copied into it, which may take a minute or two. Its old data is left as it was." }
+                p { "{progress}" }
+            }
+            if stopped {
+                button { onclick: move |_| upgrade_requested.set(UpgradeRequested(false)), "OK" }
+            }
+            else {
+                button {
+                    disabled: cancel.is_cancelled(),
+                    onclick: {
+                        let cancel = cancel.clone();
+                        move |_| cancel.cancel()
+                    },
+                    if cancel.is_cancelled() { "Cancelling..." } else { "Cancel" }
+                }
+            }
+        }
+    }
+}

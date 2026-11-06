@@ -13,6 +13,8 @@ pub struct OctopusContext {
     pub billing_timezone: &'static time_tz::Tz,
     pub cache_config: Arc<CacheConfig>,
     pub request_manager: Arc<RequestManager>,
+    /// The profile's store, see store.rs, which the module's data is moving into from the cache.
+    pub store: Arc<bruce_db::Store>,
 }
 
 #[derive(Props, Clone)]

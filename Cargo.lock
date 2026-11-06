@@ -386,6 +386,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "bruce-db"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "bruce-util-progress",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "sha2",
+ "time",
+]
+
+[[package]]
+name = "bruce-util-progress"
+version = "0.1.0"
+
+[[package]]
 name = "built"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3144,6 +3162,7 @@ dependencies = [
  "arboard",
  "async-trait",
  "base64",
+ "bruce-db",
  "chrono",
  "clap",
  "croner",
@@ -4893,6 +4912,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3cb5ba0dc43242ce17de99c180e96db90b235b8a9fdc9543c96d2209116bd9f"
 
 [[package]]
+name = "ryu-js"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6518fc26bced4d53678a22d6e423e9d8716377def84545fe328236e3af070e7f"
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5029,6 +5054,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.108",
+]
+
+[[package]]
+name = "serde_jcs"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3a60f3fda61525e439ef6d67422118f11e986566997d9021c56867ad814a0aa"
+dependencies = [
+ "ryu-js",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

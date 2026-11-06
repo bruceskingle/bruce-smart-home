@@ -1,34 +1,35 @@
-# Cached Data
-Marco Sparko will create a directory in your home directory (or the data directory, see [Profiles](profiles.md#moving-the-data-directory)) called ```.marco-sparko-cache``` which contains local copies of data retrieved from the various online data sources for which it is configured. Maintaining a local copy of data which has previously been fetched from a server makes the application significantly faster and reduces the load on the cloud services it accesses. Most services will place limits on the number of requests which can be made in any period of time, and some operations (such as generating session authentication tokens) may be sufficiently expensive that the imposed limit is quite small.
+# Your Data
+Marco Sparko keeps what it has in two directories in your home directory, or in the data directory, see
+[Profiles](profiles.md#moving-the-data-directory), kept apart so that your settings and secrets are never mixed with the
+data, which may be large, copied or deleted:
 
-If every time the program runs it was to reauthenticate with the server, then you would quickly find the application failing with a "Too Many Requests" error or similar.
+- ```.bruce-smart-home```, your settings and secrets:
+  - ```profiles.json```, your profiles, their settings, and the credentials of the data sources, see
+    [Profiles](profiles.md).
+  - ```tokens```, each profile's modules' sessions and refresh tokens, a file ```profile-module.json``` each. Reusing
+    them avoids logging in each time, which data sources limit, so that you do not see "Too Many Requests" errors.
+    They are sensitive: do not share them with anyone.
+  - ```node```, this installation's identity in the store, and ```window-state.json```, where the window was.
+- ```.bruce-smart-home-data```, the data, which holds no secrets:
+  - ```store```, each profile's data, a directory for each, named by its site's ID: everything fetched from the data
+    sources, as they sent it, and what the capture devices took. Much of it, e.g. a capture device's snapshots or a
+    source which only keeps a few weeks, can not be fetched again, so it is not a cache to delete lightly.
+  - ```logs```, each profile's log, ```profile.log```.
 
-If you look in the ```.marco-sparko-cache``` directory you will find the files listed below. In each case the name ```profile``` refers to a profile defined in ```~/.marco-sparko``` and ```module``` refers to the name of a module such as (and for the time being only ever) ```octopus```
+Keeping a copy of what has been fetched makes the app faster, and reduces the load on the services it reads, most of
+which limit how many requests can be made in a time.
 
-## profile-history.txt
-This is a text file containing a list of commands previously typed. This is used to provide history completion on the Marco Sparko command line. If you press the ```Up Arrow``` key you will see previous commands which can be re-execured by pressing ```Return```. If you start to type a command which has been previously executed you may see a proposed completion in italics, if you press the ```Right Arrow``` key the command will be completed for you.
+## The store
+Each profile's data is kept in a store, [bruce-db](https://github.com/bruceskingle/bruce-db), which is designed to be
+copied between the app and the capture devices, and later to a cloud database such as Amazon DynamoDB. Every record has
+a ```Hash Key```, which names the set of data it is in, e.g. a meter's readings, and a ```Sort Key```, which orders it in
+the set, e.g. a reading's time, and a version, the newest of which is the record. A profile's directory holds a
+```journal``` of every record as it arrives, and, folded into them a day or so later, a directory for each set of data,
+of files of its records in order of their sort keys, a file for each day of a series. Account and meter numbers are
+replaced by hashes in the keys and the names of the files.
 
-## profile-module.json
-This is the credential cache for the given module in the given profile. It is important to reuse the credentials to prevent "Too Many Requests" errors from the server, but they are, of course, sensitive and you should not share them with anyone.
-
-## profile-module
-This is a directory (folder) containing files which contain various sets of data retrieved from the given module in the given profile.
-
-It is envisaged that there will be an option to maintain this data in the cloud in future, and the data format is designed with the use of a NOSQL data store such as Amazon DynamoDb in mind. These data stores use a ```Hash Key``` and ```Sort Key``` structure. The name of each file in this directory is the ```Hash Key``` under which that data is stored. The contents of the files are lines which each represent one record, consisting of a ```Sort Key``` followed by a TAB character and then a JSON payload (without whitespace padding so there are no unescaped newlines).
-
-The ```Hash Key``` is usually made up of multiple parts concatenated together and separated by # (hash) characters. For technical reasons, (to avoid hot-spots in the data store) where a constant string is used as part of the overall key, it is placed at the end so we have ```A-B1C2D34E#256056501#StatementTransactions``` rather than ```StatementTransactions#A-B1C2D34E#256056501```
-
-In most cases the ```Sort Key``` is the cursor value used by the server for paginated queries, which facilitates the fetching of updates to time series data. The JSON payload is the response as received from the server.
-
-There are three styles of file:
-
-### Single Record
-In this case the data set contains only a single record. An example of this is the ```#Viewer``` query for the Octopus module, which contains information about the user account whose authentication credential is used to access the service. Note that the single record may contain one or more arrays of data, for example the list of utility meters in an account. While this may change over time, it is not expected to do so in the same what that meter readings, for example, naturally grow on a regular basis.
-
-### Multi Record
-In this case the data set is expected to be reasonably small but may grow over time. The data set is stored in a single file with records stored in ascending date order. As new records are detected they will be appended to the file. The system will usually fetch all records from the start of the account as soon as any record is needed to facilitate correct maintenance of the data set. An example of data of this form is the list of Bills in an Octopus account.
-
-### Time Series
-In this case the dataset is expected to grow regularly. This data is chunked into time buckets, currently 1 calendar month. Within the data folder you will see folders with the name of recent (or the current) years. Within that folder you will find files containing data for a single month. When data is required for such a data set, the application will fetch all data from the start of the bucket (month) in which the required data sits. This means that for historic data each file usually contains a whole buckets worth of data, the file for the current period will, of course, be incomplete until the end of the period.
-
-As with the Multi Record format, the data is stored in ascending date order, so as new data is retrieved it can be appended to the existing file.
+## Before version 0.5.0
+Marco Sparko kept the profiles in ```.marco-sparko```, and everything else in a directory ```.marco-sparko-cache```.
+The first time version 0.5.0 runs, the profiles, tokens and logs are copied into the new directories, and each profile
+is offered an upgrade the first time it is opened, which copies its data from ```.marco-sparko-cache``` into its store.
+The old files are left as they were.

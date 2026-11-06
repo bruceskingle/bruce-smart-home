@@ -3,7 +3,6 @@
 //! open_pdf.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 use dioxus::prelude::*;
 use time::Date;
@@ -92,16 +91,25 @@ const PDF_HANDLER: &str = "globird-bill";
 
 /// Opens the cached PDF of a bill in a window of the app's own, see child_windows, or the one already open, shown by
 /// the web view's own PDF viewer, which WebKit on macOS and WebView2 on Windows have. WebKitGTK on Linux has none, so
-/// there it is opened in the system's PDF viewer instead.
-fn open_pdf(path: PathBuf, title: String, document_id: i64) {
+/// there it is written to a private temporary file and opened in the system's PDF viewer instead.
+fn open_pdf(cache_config: &crate::CacheConfig, title: String, document_id: i64) {
+    let pdf = match bills::document(cache_config, document_id) {
+        Ok(pdf) => pdf,
+        Err(error) => {
+            crate::log_warning!("Unable to open the bill's PDF, {error:#}");
+            return;
+        },
+    };
     if cfg!(target_os = "linux") {
-        if let Err(error) = webbrowser::open(&format!("file://{}", path.display())) {
+        let path = std::env::temp_dir().join(format!("globird-bill-{document_id}.pdf"));
+        let written = crate::private_file::create_private_file(&path).and_then(|mut file| std::io::Write::write_all(&mut file, &pdf));
+        if let Err(error) = written.map_err(anyhow::Error::from).and_then(|_| Ok(webbrowser::open(&format!("file://{}", path.display()))?)) {
             crate::log_warning!("Unable to open the bill's PDF, {error:#}");
         }
         return;
     }
     crate::components::child_windows::open_shaped(&format!("globird-bill-{document_id}"), title, None, Some(pdf_window_width),
-        || VirtualDom::new_with_props(BillPdfWindow, BillPdfWindowProps { path }));
+        || VirtualDom::new_with_props(BillPdfWindow, BillPdfWindowProps { pdf: SharedProp(std::sync::Arc::new(pdf)) }));
 }
 
 /// The width of a bill's PDF window for its height, at which exactly one page shows down the window: the viewer fits
@@ -117,16 +125,12 @@ fn pdf_window_width(height: f64) -> f64 {
 }
 
 /// The root of a bill's PDF window, the web view's PDF viewer filling it, given the PDF, as it was cached, by an asset
-/// handler of the window, as it can not read files itself. Escape closes it.
+/// handler of the window, as it can not read the store itself. Escape closes it.
 #[component]
-fn BillPdfWindow(path: PathBuf) -> Element {
+fn BillPdfWindow(pdf: SharedProp<Vec<u8>>) -> Element {
     crate::components::child_windows::use_child_window();
     dioxus::desktop::use_asset_handler(PDF_HANDLER, move |_request, responder| {
-        let response = match std::fs::read(&path) {
-            Ok(pdf) => dioxus::desktop::wry::http::Response::builder().header("Content-Type", "application/pdf").body(pdf),
-            Err(error) => dioxus::desktop::wry::http::Response::builder().status(404)
-                .header("Content-Type", "text/plain").body(format!("Unable to read the bill's PDF, {error:#}").into_bytes()),
-        };
+        let response = dioxus::desktop::wry::http::Response::builder().header("Content-Type", "application/pdf").body(pdf.0.as_ref().clone());
         match response {
             Ok(response) => responder.respond(response),
             Err(error) => crate::log_warning!("Unable to give the bill's PDF, {error:#}"),
@@ -199,7 +203,7 @@ pub fn BillsPage(context: SharedProp<GlobirdContext>) -> Element {
     generation();
     let cache_config = context.0.cache_config.clone();
     let cached = bills::cached(&cache_config);
-    let account_cached = cache_config.path_for_hash_key(fetch::CURRENT_USER_KEY).exists();
+    let account_cached = fetch::account(&cache_config).is_some();
     let next = bills::next_request(&cached, account_cached).map(|request| bills::describe(&request, &cached));
     let rows = bill_rows(&context.0, &cached);
     let summaries = fetch::summaries(&cache_config);
@@ -274,7 +278,7 @@ fn BillRowView(row: BillRow, summaries: Vec<DaySummary>, cache_config: SharedPro
     };
     let document_id = row.document.as_ref().map(|document| document.document_id);
     let pdf = match (&row.document, &row.bill) {
-        (Some(document), Some(_)) => Some((bills::document_path(&cache_config.0, document.document_id),
+        (Some(document), Some(_)) => Some((cache_config.clone(),
             bill.as_ref().map(|bill| pdf_title(bill, &name)).unwrap_or_else(|| format!("GloBird bill {name}")), document.document_id)),
         _ => None,
     };
@@ -307,8 +311,8 @@ fn BillRowView(row: BillRow, summaries: Vec<DaySummary>, cache_config: SharedPro
                 td {}
             }
             td {
-                if let Some((path, title, document_id)) = pdf {
-                    button { onclick: move |_| open_pdf(path.clone(), title.clone(), document_id), "PDF" }
+                if let Some((cache_config, title, document_id)) = pdf {
+                    button { onclick: move |_| open_pdf(&cache_config.0, title.clone(), document_id), "PDF" }
                     " "
                 }
                 if let Some(error) = error {
@@ -323,7 +327,7 @@ fn BillRowView(row: BillRow, summaries: Vec<DaySummary>, cache_config: SharedPro
 /// One bill: its charges, as it says them, beside the days', and its PDF.
 #[component]
 pub fn BillPage(context: SharedProp<GlobirdContext>, document_id: i64) -> Element {
-    let path = bills::document_path(&context.0.cache_config, document_id);
+    let cache_config = context.0.cache_config.clone();
     let bill = match context.0.bill(document_id) {
         Ok(bill) => bill,
         Err(error) => return rsx! { div { class: "error", ErrorText { error, message: String::from("Unable to read the bill") } } },
@@ -331,7 +335,7 @@ pub fn BillPage(context: SharedProp<GlobirdContext>, document_id: i64) -> Elemen
     let summaries = fetch::summaries(&context.0.cache_config);
     let comparison = compare(&bill, &summaries).unwrap_or_default();
     let title = pdf_title(&bill, &document_id.to_string());
-    let open = move |_| open_pdf(path.clone(), title.clone(), document_id);
+    let open = move |_| open_pdf(&cache_config, title.clone(), document_id);
     let unit_rate = |line: &BillLine| if line.per_day() { format!("{:.5}", line.rate) } else { format!("{:.3}", line.rate * 100.0) };
     let ours = |index: usize, line: &BillLine| comparison.lines.get(index).copied().flatten()
         .map(|value| if line.is_daily() { format!("{value:.0}") } else { format!("{value:.2}") }).unwrap_or_default();

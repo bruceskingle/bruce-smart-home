@@ -1,9 +1,8 @@
-use std::{
-    collections::BTreeMap,
-    fs::{FileTimes, OpenOptions},
-    io::{BufRead, BufReader, Seek, SeekFrom, Write},
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+//! A DataSet of records a month at a time, each as the API gave it, kept in the store, see records.rs, by its time in
+//! UTC, see time_key, with a `#fetched/<month>` record of when each month was last fetched, which says whether it is
+//! stale or complete.
+
+use std::{collections::BTreeMap, time::Duration};
 
 use serde::{Serialize, de::DeserializeOwned};
 use sparko_graphql::{
@@ -55,114 +54,47 @@ where
             IN: Fn(&V) -> (DateTime, bool),
             I: IntoIterator<Item = V>,
     {
-        let month_bucket = config.path_for_month(hash_key, date)?;
-        
-    //     Self::init(
-    //         path,
-    //         refresh_after,
-    //         initial_query_provider,
-    //         continuation_query_provider,
-    //         response_iterator,
-    //         indexer,
-    //         config,
-    //         request_manager
-    //     ).await
-    // }
-
-    // async fn init<R, Q, IQP, CQP, RI, IN, I>(
-    //         path: PathBuf,
-    //         refresh_after: Duration,
-    //         initial_query_provider: IQP,
-    //         continuation_query_provider: CQP,
-    //         response_iterator: RI,
-    //         indexer: IN,
-    //         config: &Arc<CacheManager>,
-    //         request_manager: &impl GraphQLCaller
-    //     ) -> anyhow::Result<Self>
-    //     where
-    //         R: GraphQLResponse,
-    //         Q: GraphQLQuery<R>,
-    //         IQP: FnOnce(Option<&V>) -> Result<Q, sparko_graphql::Error>,
-    //         CQP: Fn(&R) -> Option<Result<Q, sparko_graphql::Error>>,
-    //         RI: Fn(R) -> I,
-    //         IN: Fn(&V) -> (DateTime, bool),
-    //         I: IntoIterator<Item = V>,
-    // {
-        let mut data: BTreeMap<DateTime, (DataSetAttributes, V)> = BTreeMap::new();
-        let created = !month_bucket.path.exists();
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&month_bucket.path)?;
-        let _guard = file.lock()?;
-        if created {
-            // Nothing has been fetched for this month yet, so it is stale until a fetch of it succeeds.
-            file.set_times(FileTimes::new().set_modified(UNIX_EPOCH))?;
-        }
-        let modified = file.metadata()?.modified()?;
-        let stale = SystemTime::now()
-            .duration_since(modified)
-            .map(|age| age > refresh_after)
-            .unwrap_or(false); // If the file is modified in the future, do not refresh it.
-        // The end of the month, in UTC, which is close enough as the month is given refresh_after to complete.
-        let month_end = UNIX_EPOCH + Duration::from_secs(
-            month_bucket.next.midnight().assume_utc().unix_timestamp().max(0) as u64);
-        let complete = modified > month_end + refresh_after;
+        let (start, next) = super::month_bounds(date)?;
+        let records = super::records::Records::open(config, hash_key)?;
+        records.import_legacy(config, &super::legacy_month_file(hash_key, &start), &mut |records, json| {
+            let value: V = serde_json::from_value(json.clone())?;
+            records.put(&super::time_key(&indexer(&value).0), json)
+        })?;
+        let fetched_key = format!("#fetched/{}", &start.to_string()[..7]);
+        // When the month was last fetched, from its #fetched record's version, see Records.
+        let fetched_at = records.fetched_at(&fetched_key)?;
+        let now = time::OffsetDateTime::now_utc();
+        let stale = fetched_at.is_none_or(|at| now - at > refresh_after);
+        let month_end = next.midnight().assume_utc();
+        let complete = fetched_at.is_some_and(|at| at > month_end + refresh_after);
         let mut refresh = force || (stale && !complete);
-        let mut rewrite = false;
 
+        let mut data: BTreeMap<DateTime, (DataSetAttributes, V)> = BTreeMap::new();
         let mut last_final_index = None;
         let mut first_non_final_index = None;
-        let lines = BufReader::new(&file).lines();
-        for line in lines.map_while(Result::ok) {
-            if config.verbose 
-            {
-                println!("READ {}", line);
-            }
-
-            match serde_json::from_str(&line) {
+        // A day either side, as the times are in UTC and the month's days in the API's own offset.
+        let (from, to) = ((*start - time::Duration::days(1)).to_string(), (*next + time::Duration::days(1)).to_string());
+        for (sk, value) in records.range(from.as_str()..to.as_str())? {
+            match serde_json::from_value::<V>(value) {
                 Ok(value) => {
-                    
                     let (index, is_final) = indexer(&value);
-
+                    let date: time::Date = index.date();
+                    if date < *start || date >= *next {
+                        continue;
+                    }
                     if is_final {
-                        if let Some(current_final_index) = &last_final_index {
-                            if index > *current_final_index {
-                                last_final_index = Some(index.clone());
-                            }
-                        }
-                        else {
+                        if last_final_index.as_ref().is_none_or(|current| index > *current) {
                             last_final_index = Some(index.clone());
                         }
                     }
-                    else {
-                        if let Some(current) = &first_non_final_index {
-                            if index < *current {
-                                first_non_final_index = Some(index.clone());
-                            }
-                        }
-                        else {
-                            first_non_final_index = Some(index.clone());
-                        }
+                    else if first_non_final_index.as_ref().is_none_or(|current| index < *current) {
+                        first_non_final_index = Some(index.clone());
                     }
                     data.insert(index, (DataSetAttributes { cached: true, }, value));
-
-                    // if is_final {
-                    //     // last_record = Some(&value); //Some(&data.last().unwrap().1 .1);
-                    //     if let Some((_k, (_a,r))) = data.last() {
-                    //             last_record = Some(r)
-                    //         }
-                    // }
                 },
-                Err(e) => {
-                    println!("ERROR: failed to read record {:?}", e);
+                Err(error) => {
+                    crate::log_warning!("Failed to read record {sk} of the cached {hash_key}, fetching the month again: {error}");
                     refresh = true;
-
-                    // Fetched again from the start, and stale until that succeeds.
-                    file.seek(SeekFrom::Start(0))?;
-                    file.set_len(0)?;
-                    file.set_times(FileTimes::new().set_modified(UNIX_EPOCH))?;
                     data.clear();
                     last_final_index = None;
                     first_non_final_index = None;
@@ -171,128 +103,58 @@ where
             }
         }
 
-        // An offline profile only has what is cached.
         if refresh && !config.offline {
-
-            // With force everything is fetched again, in case what was cached is wrong, and replaces what was cached,
-            // so records the server no longer has are dropped. The file is only rewritten if the fetch succeeds.
+            // Forced, the month is fetched whole, and a record no longer returned is deleted.
+            let previous: Vec<DateTime> = if force { data.keys().cloned().collect() } else { Vec::new() };
             if force {
                 data.clear();
-                rewrite = true;
             }
-            let last_index = if force {
-                None
-            }
-            else if let Some(l) = &last_final_index {
-                if let Some(f) = &first_non_final_index {
-                    if f < l {
-                        first_non_final_index
-                    }
-                    else {
-                        last_final_index
-                    }
-                }
-                else {
-                    last_final_index
-                }
-            }
-            else {
-                None
+            let last_index = match (&last_final_index, &first_non_final_index) {
+                _ if force => None,
+                (Some(last_final), Some(first_non_final)) if first_non_final < last_final => first_non_final_index.clone(),
+                (Some(_), _) => last_final_index.clone(),
+                (None, _) => None,
             };
-
-            let last_record = if let Some(index) = last_index {
-                if let Some((_k, r )) = data.get(&index) {
-                    Some(r)
-                }
-                else {
-                    None
-                }
-
-                // let x = Some(data.get(&index).unwrap().1);
-                // Some(data.get(&index).unwrap().1 .1)
-            }
-            else {
-                None
-            };
-            let query = initial_query_provider(&month_bucket.start, last_record)?;
+            let last_record = last_index.and_then(|index| data.get(&index)).map(|(_, record)| record);
+            let query = initial_query_provider(&start, last_record)?;
             let mut response = request_manager.call3(&query, None, progress).await?;
 
-            // Self::handle_records(response, response_iterator, indexer, &mut data, &mut file)?;
-
-            // for value in response_iterator(response) {
-            //         let (index, order) = indexer(&value);
-            //     if ! data.contains_key(&index) {
-            //         writeln!(file, "{}", serde_json::to_string(&value)?)?;
-            //         data.insert(index, order, (DataSetAttributes { cached: false, }, value));
-            //     }
-            // }
-
             loop {
-                let cq = continuation_query_provider(&month_bucket.start, &response);
-
-                // Self::handle_records(response, &response_iterator, &indexer, &mut data, &mut file)?;
+                let cq = continuation_query_provider(&start, &response);
 
                 for value in response_iterator(response) {
                     let (index, _is_final) = indexer(&value);
-
-                    // if index.date() > *end_date {
-                    //     cq = None;  // force a break from the outer loop
-                    //     break;
-                    // }
-
                     let date: time::Date = index.date();
-                    if date >= *month_bucket.start && date < *month_bucket.next {
-
-                        let update = if let Some((_attrs, current_value)) = data.get(&index) {
-                            let v = serde_json::to_string(&value)?;
-                            let c = serde_json::to_string(current_value)?;
-                            if config.verbose {
-                                println!("COMPARE \n{}\n{}\n={}", v, c, v!=c);
-                            }
-                            v != c
-                        }
-                        else {
-                            true
+                    if date >= *start && date < *next {
+                        // Only a record which is new or has changed is put, as a new version.
+                        let update = match data.get(&index) {
+                            Some((_attrs, current_value)) => serde_json::to_value(&value)? != serde_json::to_value(current_value)?,
+                            None => true,
                         };
-
                         if update {
+                            records.put(&super::time_key(&index), serde_json::to_value(&value)?)?;
                             data.insert(index, (DataSetAttributes { cached: false, }, value));
-                            rewrite = true;
                         }
                     }
                 }
 
                 if let Some(continuation_query) = cq {
                     let query = continuation_query?;
-
                     response = request_manager.call3(&query, None, progress).await?;
-
-                    
                 }
                 else {
                     break;
                 }
             }
-            
-
-            file.set_times(FileTimes::new().set_modified(SystemTime::now()))?;
+            for gone in previous.iter().filter(|index| !data.contains_key(*index)) {
+                records.delete(&super::time_key(gone))?;
+            }
+            records.put(&fetched_key, serde_json::json!({}))?;
         };
 
-        if rewrite {
-            if config.verbose 
-            {
-                println!("REWRITING FILE {}", month_bucket.path.display());
-            }
-            file.seek(SeekFrom::Start(0))?;
-            file.set_len(0)?;
-            for (_k, (_a, v)) in &data {
-                writeln!(file, "{}", serde_json::to_string(&v)?)?;
-            }
-        }
-
         Ok(Self {
-            start_date: month_bucket.start,
-            next_date: month_bucket.next,
+            start_date: start,
+            next_date: next,
             data
         })
         

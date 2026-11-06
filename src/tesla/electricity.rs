@@ -10,7 +10,6 @@ use dioxus::prelude::*;
 use sparko_graphql::types::DateTime;
 use time_tz::Tz;
 
-use crate::CacheConfig;
 use crate::data_set::CancelToken;
 use crate::period::Period;
 use crate::power::grid::GridReading;
@@ -21,21 +20,21 @@ use crate::power::{ElectricitySource, LoadResult, LoadedElectricity, SiteData, S
 const NAME: &str = "Tesla";
 
 /// The registers from start to end, read from the day files, which are large, off the page's thread.
-async fn load_registers(cache_config: Arc<CacheConfig>, start: i64, end: i64) -> Vec<SiteRegisters> {
-    tokio::task::spawn_blocking(move || super::snapshot::registers(&cache_config, start, end)).await.unwrap_or_default()
+async fn load_registers(store: Arc<bruce_db::Store>, start: i64, end: i64) -> Vec<SiteRegisters> {
+    tokio::task::spawn_blocking(move || super::snapshot::registers(&store, start, end)).await.unwrap_or_default()
 }
 
 /// The registers as measurements of the site's use.
 pub struct TeslaMeasurements {
-    pub cache_config: Arc<CacheConfig>,
+    pub store: Arc<bruce_db::Store>,
 }
 
 impl MeasurementSource for TeslaMeasurements {
     fn load(&self, start: i64, end: i64) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn Measurements>>>>> {
-        let cache_config = self.cache_config.clone();
+        let store = self.store.clone();
         Box::pin(async move {
             let measurements: Arc<dyn Measurements> =
-                Arc::new(RegisterMeasurements { name: String::from(NAME), registers: load_registers(cache_config, start, end).await });
+                Arc::new(RegisterMeasurements { name: String::from(NAME), registers: load_registers(store, start, end).await });
             anyhow::Ok(measurements)
         })
     }
@@ -43,7 +42,7 @@ impl MeasurementSource for TeslaMeasurements {
 
 /// The grid's import and export through the gateway's site meter.
 pub struct TeslaElectricity {
-    pub cache_config: Arc<CacheConfig>,
+    pub store: Arc<bruce_db::Store>,
 }
 
 /// The periods which can be chosen: none shorter than a minute, as the registers are read about every 10 seconds.
@@ -70,9 +69,9 @@ impl ElectricitySource for TeslaElectricity {
     fn load(&self, start: DateTime, end: DateTime, _reload: Option<(DateTime, DateTime)>, _progress: Signal<String>,
         _cancel: CancelToken) -> Pin<Box<dyn Future<Output = LoadResult>>>
     {
-        let cache_config = self.cache_config.clone();
+        let store = self.store.clone();
         Box::pin(async move {
-            let registers = load_registers(cache_config, start.unix_timestamp() - 60, end.unix_timestamp() + 60).await;
+            let registers = load_registers(store, start.unix_timestamp() - 60, end.unix_timestamp() + 60).await;
             let loaded: Arc<dyn LoadedElectricity> =
                 Arc::new(TeslaReadings { data: SiteData { grid: grid(&registers), grid_name: String::from(NAME), ..SiteData::default() } });
             anyhow::Ok(loaded)

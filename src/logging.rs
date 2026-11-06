@@ -178,7 +178,7 @@ static UNWRITTEN: Mutex<Vec<LogEntry>> = Mutex::new(Vec::new());
 
 /// The log file of a profile, in the cache directory.
 pub fn log_path(profile_name: &str) -> anyhow::Result<PathBuf> {
-    Ok(crate::MarcoSparkoContext::get_cache_dir_path()?.join(format!("{profile_name}.log")))
+    Ok(crate::data_home::logs_dir()?.join(format!("{profile_name}.log")))
 }
 
 /// The files of a profile's log, the log, the previous log it was rolled to and the lock file, which may not exist.

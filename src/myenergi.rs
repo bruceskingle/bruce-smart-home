@@ -76,6 +76,8 @@ fn redacted(secret: &Option<String>) -> Option<&'static str> {
 pub struct MyenergiContext {
     client: MyenergiClient,
     cache_config: Arc<CacheConfig>,
+    /// The profile's store, which the statuses and records are kept in, see fetch.rs.
+    store: Arc<bruce_db::Store>,
 }
 
 pub struct MyenergiModule {
@@ -95,6 +97,7 @@ impl MyenergiModule {
         ModuleRegistration {
             module_id: MODULE_ID.to_string(),
             constructor: Arc::new(MyenergiModule::constructor),
+            convert: Some(fetch::convert_legacy),
         }
     }
 
@@ -116,7 +119,7 @@ impl MyenergiModule {
             println!("myenergi Module Args: {:?}", args);
             println!("myenergi Module Profile: {:?}", profile);
         }
-        let cache_config = context.create_cache_config(MODULE_ID, verbose)?;
+        let cache_config = context.create_cache_config(MODULE_ID)?;
         Ok(Arc::new(MyenergiModuleFactory { context, profile, cache_config, verbose }))
     }
 }
@@ -124,7 +127,7 @@ impl MyenergiModule {
 #[async_trait(?Send)]
 impl Module for MyenergiModule {
     async fn fetch_latest_data(&self) -> anyhow::Result<()> {
-        fetch::fetch(&self.context.client, &self.context.cache_config, &mut |message| println!("{message}")).await
+        fetch::fetch(&self.context.client, &self.context.store, self.context.cache_config.offline, &mut |message| println!("{message}")).await
     }
 
     fn poll_interval(&self) -> Option<std::time::Duration> {
@@ -138,20 +141,20 @@ impl Module for MyenergiModule {
     /// If any of the profile's capture devices polls the status, reads the statuses they took instead, so that the app
     /// does not poll it too, but still fetches the minute records, which myenergi keeps.
     async fn poll(&self, slot: Option<time::OffsetDateTime>) -> anyhow::Result<String> {
-        let cache_config = &self.context.cache_config;
+        let (store, offline) = (&self.context.store, self.context.cache_config.offline);
         let devices = crate::capture_device::adopted_devices(&self.profile_name);
-        let captured = !cache_config.offline && self.capture.read(&devices, fetch::latest_status_time(cache_config),
-            &mut |_, record| fetch::save_status_if_new(cache_config, record), &mut |_| {}).await?;
-        fetch::poll(&self.context.client, cache_config, slot, &self.whole_days_fetched, captured).await
+        let captured = !offline && self.capture.read(&devices, fetch::latest_status_time(store),
+            &mut |device, record| fetch::save_status(store, record, Some(&device.id)), &mut |_| {}).await?;
+        fetch::poll(&self.context.client, store, offline, slot, &self.whole_days_fetched, captured).await
     }
 
     /// What the zappis charged the car with, and their grid clamps, see electricity.rs.
     fn measurement_source(&self) -> Option<Arc<dyn crate::power::measured::MeasurementSource>> {
-        Some(Arc::new(electricity::ZappiMeasurementSource { cache_config: self.context.cache_config.clone() }))
+        Some(Arc::new(electricity::ZappiMeasurementSource { store: self.context.store.clone() }))
     }
 
     fn channels(&self) -> Vec<crate::power::topology::Channel> {
-        electricity::channels(&self.context.cache_config)
+        electricity::channels(&self.context.store)
     }
 
     fn cli_debug(&self) -> anyhow::Result<()> {
@@ -197,8 +200,8 @@ fn DaysPage(context: SharedProp<MyenergiContext>) -> Element {
     let mut busy = use_signal(|| false);
     // Read so that a fetch, which changes it, shows the new days.
     generation();
-    let summaries = fetch::summaries(&context.0.cache_config);
-    let ct_names = fetch::ct_names(&context.0.cache_config);
+    let summaries = fetch::summaries(&context.0.store);
+    let ct_names = fetch::ct_names(&context.0.store);
     let mut date = use_signal(String::new);
     let today = crate::clock::now_utc().date().to_string();
     let fetch_date = {
@@ -213,7 +216,7 @@ fn DaysPage(context: SharedProp<MyenergiContext>) -> Element {
                     return;
                 };
                 busy.set(true);
-                if let Err(error) = fetch::fetch_date(&context.0.client, &context.0.cache_config, day, &mut |message| messages.write().push(message)).await {
+                if let Err(error) = fetch::fetch_date(&context.0.client, &context.0.store, context.0.cache_config.offline, day, &mut |message| messages.write().push(message)).await {
                     messages.write().push(format!("Failed: {error:#}"));
                 }
                 busy.set(false);
@@ -226,7 +229,7 @@ fn DaysPage(context: SharedProp<MyenergiContext>) -> Element {
         spawn(async move {
             busy.set(true);
             messages.set(Vec::new());
-            if let Err(error) = fetch::fetch(&context.0.client, &context.0.cache_config, &mut |message| messages.write().push(message)).await {
+            if let Err(error) = fetch::fetch(&context.0.client, &context.0.store, context.0.cache_config.offline, &mut |message| messages.write().push(message)).await {
                 messages.write().push(format!("Failed: {error:#}"));
             }
             busy.set(false);
@@ -283,8 +286,8 @@ const SAMPLES_SHOWN: usize = 200;
 /// The zappi's latest statuses, one a row, newest first.
 #[component]
 fn SamplesPage(context: SharedProp<MyenergiContext>) -> Element {
-    let samples = fetch::status_samples(&context.0.cache_config, SAMPLES_SHOWN);
-    let ct_names = fetch::ct_names(&context.0.cache_config);
+    let samples = fetch::status_samples(&context.0.store, SAMPLES_SHOWN);
+    let ct_names = fetch::ct_names(&context.0.store);
     rsx! {
         h1 { "Samples" }
         p {
@@ -509,7 +512,7 @@ impl ModuleFactory for MyenergiModuleFactory {
             self.verbose,
         )?;
         Ok(Box::new(MyenergiModule {
-            context: Arc::new(MyenergiContext { client, cache_config: self.cache_config.clone() }),
+            context: Arc::new(MyenergiContext { client, cache_config: self.cache_config.clone(), store: self.context.store()? }),
             whole_days_fetched: std::sync::Mutex::new(None),
             capture: crate::capture_device::CaptureReader::new("capture/myenergi/records"),
             profile_name: self.context.profile.active_profile.name.clone(),

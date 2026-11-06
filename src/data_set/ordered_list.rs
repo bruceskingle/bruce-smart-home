@@ -1,10 +1,4 @@
-use std::{
-    collections::HashSet,
-    fs::{FileTimes, OpenOptions},
-    io::{BufRead, BufReader, Seek, SeekFrom, Write},
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use serde::{Serialize, de::DeserializeOwned};
 use sparko_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse};
@@ -26,8 +20,8 @@ pub struct OrderedListDataSet<K, O, V>
 
 impl<K, O, V> OrderedListDataSet<K, O, V>
 where
-    K: Eq + std::hash::Hash + Ord + Clone + Send + Sync,
-    O: Ord + Clone,
+    K: Eq + std::hash::Hash + Ord + Clone + Send + Sync + Serialize,
+    O: Ord + Clone + Serialize,
     V: DeserializeOwned + Serialize
 {
     pub async fn new<R, Q, IQP, CQP, RI, IN, I>(
@@ -50,78 +44,24 @@ where
             IN: Fn(&V) -> (K, O, bool),
             I: IntoIterator<Item = V>,
     {
-        let path = config.path_for_hash_key(hash_key);
-    //     Self::init(
-    //         config.path_for_hash_key(hash_key),
-    //         refresh_after,
-    //         initial_query_provider,
-    //         continuation_query_provider,
-    //         response_iterator,
-    //         indexer,
-    //         config,
-    //         request_manager
-    //     ).await
-    // }
-
-    // async fn init<R, Q, IQP, CQP, RI, IN, I>(
-    //         path: PathBuf,
-    //         refresh_after: Duration,
-    //         initial_query_provider: IQP,
-    //         continuation_query_provider: CQP,
-    //         response_iterator: RI,
-    //         indexer: IN,
-    //         config: &Arc<CacheManager>,
-    //         request_manager: &impl GraphQLCaller
-    //     ) -> anyhow::Result<Self>
-    //     where
-    //         R: GraphQLResponse,
-    //         Q: GraphQLQuery<R>,
-    //         IQP: FnOnce(Option<&V>) -> Result<Q, sparko_graphql::Error>,
-    //         CQP: Fn(&R) -> Option<Result<Q, sparko_graphql::Error>>,
-    //         RI: Fn(R) -> I,
-    //         IN: Fn(&V) -> (K, O, bool),
-    //         I: IntoIterator<Item = V>,
-    // {
         let mut data: OrderedMap<K, O, (DataSetAttributes, V)> = OrderedMap::new();
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&path)?;
-        let _guard = file.lock()?;
-        let modified = file.metadata()?.modified()?;
-        let mut refresh =  SystemTime::now()
-            .duration_since(modified)
-            .map(|age| age > refresh_after)
-            .unwrap_or(false); // If the file is modified in the future, do not refresh it.
-        let mut rewrite = false;
+        let records = super::records::Records::open(config, hash_key)?;
+        records.import_legacy(config, hash_key, &mut |records, json| {
+            let value: V = serde_json::from_value(json.clone())?;
+            let (index, order, _) = indexer(&value);
+            records.put(&sort_key(&order, &index)?, json)
+        })?;
+        let mut refresh = records.fetched_age()?.is_none_or(|age| age > refresh_after);
 
-        let lines = BufReader::new(&file).lines();
-        for line in lines.map_while(Result::ok) {
-            if config.verbose 
-            {
-                println!("READ {}", line);
-            }
-
-            match serde_json::from_str(&line) {
+        for (sk, value) in records.all()? {
+            match serde_json::from_value(value) {
                 Ok(value) => {
-                    
                     let (index, order, _is_final) = indexer(&value);
                     data.insert(index, order, (DataSetAttributes { cached: true, }, value));
-
-                    // if is_final {
-                    //     // last_record = Some(&value); //Some(&data.last().unwrap().1 .1);
-                    //     if let Some((_k, (_a,r))) = data.last() {
-                    //             last_record = Some(r)
-                    //         }
-                    // }
                 },
-                Err(e) => {
-                    println!("ERROR: failed to read record {:?}", e);
+                Err(error) => {
+                    crate::log_warning!("Failed to read record {sk} of the cached {hash_key}, fetching it again: {error}");
                     refresh = true;
-
-                    file.seek(SeekFrom::Start(0))?;
-                    file.set_len(0)?;
                     data.clear();
                     break;
                 },
@@ -131,7 +71,7 @@ where
         if data.len() == 0 {
             refresh = true;
         }
-        
+
         // An offline profile only has what is cached.
         if refresh && !config.offline {
 
@@ -142,43 +82,22 @@ where
             // The records returned, for drop_missing_provisional.
             let mut returned: HashSet<K> = HashSet::new();
 
-            // Self::handle_records(response, response_iterator, indexer, &mut data, &mut file)?;
-
-            // for value in response_iterator(response) {
-            //         let (index, order) = indexer(&value);
-            //     if ! data.contains_key(&index) {
-            //         writeln!(file, "{}", serde_json::to_string(&value)?)?;
-            //         data.insert(index, order, (DataSetAttributes { cached: false, }, value));
-            //     }
-            // }
-
             loop {
                 let cq = continuation_query_provider(&response);
-
-                // Self::handle_records(response, &response_iterator, &indexer, &mut data, &mut file)?;
 
                 for value in response_iterator(response) {
                     let (index, order, _is_final) = indexer(&value);
                     returned.insert(index.clone());
 
-                    // if let Some((a,x)) = data.get(&index);
-                    
-                    let update = if let Some((_attrs, current_value)) = data.get(&index) {
-                        let v = serde_json::to_string(&value)?;
-                        let c = serde_json::to_string(current_value)?;
-                        if config.verbose {
-                            println!("COMPARE \n{}\n{}\n={}", v, c, v!=c);
-                        }
-                        v != c
-                    }
-                    else {
-                        true
+                    // Only a record which is new or has changed is put, as a new version.
+                    let update = match data.get(&index) {
+                        Some((_attrs, current_value)) => serde_json::to_value(&value)? != serde_json::to_value(current_value)?,
+                        None => true,
                     };
 
                     if update {
-                        // writeln!(file, "{}", serde_json::to_string(&value)?)?;
+                        records.put(&sort_key(&order, &index)?, serde_json::to_value(&value)?)?;
                         data.insert(index, order, (DataSetAttributes { cached: false, }, value));
-                        rewrite = true;
                     }
                 }
 
@@ -186,47 +105,44 @@ where
                     let query = continuation_query?;
 
                     response = request_manager.call(&query).await?;
-
-                    
                 }
                 else {
                     break;
                 }
             }
-            
 
             if drop_missing_provisional {
                 let from_order = from.as_ref().map(|(_, order)| order);
                 let missing = missing_provisional(data.iter().map(|(_, (_, value))| indexer(value)), from_order, &returned);
                 if !missing.is_empty() {
-                    crate::log_info!("Removed {} records which are no longer returned from {}", missing.len(), path.display());
+                    crate::log_info!("Removed {} records which are no longer returned from {hash_key}", missing.len());
                     for index in &missing {
+                        if let Some((_, value)) = data.get(index) {
+                            let (_, order, _) = indexer(value);
+                            records.delete(&sort_key(&order, index)?)?;
+                        }
                         data.remove(index);
                     }
-                    rewrite = true;
                 }
             }
 
-            file.set_times(FileTimes::new().set_modified(SystemTime::now()))?;
+            records.mark_fetched()?;
         };
-
-        if rewrite {
-            if config.verbose 
-            {
-                println!("REWRITING FILE {}", path.display());
-            }
-            file.seek(SeekFrom::Start(0))?;
-            file.set_len(0)?;
-            for (_k, (_a, v)) in &data {
-                writeln!(file, "{}", serde_json::to_string(&v)?)?;
-            }
-        }
 
         Ok(Self {
             data
         })
         
     }
+}
+
+/// The sort key of a record, its order then its key, e.g. 2026-10-01#474269026, each as text, or JSON if it is not.
+fn sort_key<K: Serialize, O: Serialize>(order: &O, key: &K) -> anyhow::Result<String> {
+    let text = |value: serde_json::Value| match value {
+        serde_json::Value::String(text) => text,
+        other => other.to_string(),
+    };
+    Ok(format!("{}#{}", text(serde_json::to_value(order)?), text(serde_json::to_value(key)?)))
 }
 
 /// The record to fetch from, as its key and order, from each record's key, order and whether it is final: the earliest

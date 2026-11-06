@@ -25,6 +25,7 @@ pub fn DeleteProfileDialog(name: String, on_close: EventHandler<()>) -> Element 
                     context_signal.set(Some(Arc::new(MarcoSparkoContext {
                         args: crate::Args::ms_parse(),
                         profile,
+                        store: Default::default(),
                     })));
                     on_close.call(());
                     navigator.replace(Route::Home {});

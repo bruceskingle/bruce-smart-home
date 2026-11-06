@@ -1,8 +1,7 @@
-use std::{
-    fs::OpenOptions,
-    io::{BufRead, BufReader, Seek, SeekFrom, Write},
-    time::{Duration, SystemTime},
-};
+//! A DataSet of the responses of several queries, as the API gave them, kept in the store, see records.rs, each by its
+//! place.
+
+use std::time::Duration;
 
 use anyhow::anyhow;
 use sparko_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse};
@@ -34,38 +33,22 @@ where
     {
 
         let mut data: Vec<R> = Vec::new();
-        let path = config.path_for_hash_key(hash_key);
-
+        let records = super::records::Records::open(config, hash_key)?;
+        let mut place = 0;
+        records.import_legacy(config, hash_key, &mut |records, value| {
+            place += 1;
+            records.put(&format!("{:08}", place - 1), value)
+        })?;
         let mut _attributes = DataSetAttributes { cached: true, };
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&path)?;
-        let _guard = file.lock()?;
-        let modified = file.metadata()?.modified()?;
         // An offline profile cannot refresh, so it always reads what is cached, however old.
-        let mut refresh = !config.offline && SystemTime::now()
-            .duration_since(modified)
-            .map(|age| age > refresh_after)
-            .unwrap_or(false); // If the file is modified in the future, do not refresh it.
+        let mut refresh = !config.offline && records.fetched_age()?.is_none_or(|age| age > refresh_after);
 
-        // Need to test refresh twice because a read error sets it to true.
         if !refresh {
-            
-            let lines = BufReader::new(&file).lines();
-            for line in lines.map_while(Result::ok) {
-                if config.verbose 
-                {
-                    println!("READ {}", line);
-                }
-
-                match serde_json::from_str(&line) {
-                    Ok(value) => {
-                        data.push(value);
-                    },
-                    Err(e) => {
-                        println!("ERROR: failed to read record {:?}", e);
+            for (sk, value) in records.all()? {
+                match serde_json::from_value(value) {
+                    Ok(value) => data.push(value),
+                    Err(error) => {
+                        crate::log_warning!("Failed to read record {sk} of the cached {hash_key}, fetching it again: {error}");
                         refresh = true;
                         break;
                     },
@@ -73,24 +56,22 @@ where
             }
         }
 
-
-
         if data.len() == 0 {
             refresh = true;
         }
-        
+
         // An offline profile only has what is cached.
         if refresh && !config.offline {
-            file.seek(SeekFrom::Start(0))?;
-            file.set_len(0)?;
+            let previous = records.all()?.len();
             data.clear();
             _attributes.cached = false;
 
+            // Each response by its place, those of a longer set fetched before deleted.
             for query_result in query_iterator {
                 match query_result {
                     Ok(query) => {
                         let response = request_manager.call(&query).await?;
-                        writeln!(file, "{}", serde_json::to_string(&response)?)?;
+                        records.put(&format!("{:08}", data.len()), serde_json::to_value(&response)?)?;
                         data.push(response);
                     },
                     Err(err) => {
@@ -98,6 +79,10 @@ where
                     },
                 }
             }
+            for gone in data.len()..previous {
+                records.delete(&format!("{gone:08}"))?;
+            }
+            records.mark_fetched()?;
         }
 
         Ok(Self {
