@@ -18,7 +18,7 @@ use crate::octopus::meter_point::MeterPointDataSet;
 use crate::octopus::smart_device::SmartDeviceDataSet;
 use crate::octopus::property::{PropertyDataSet, smart_device_network_table};
 use super::telemetry::Telemetry;
-use crate::components::stacked_bar_graph::{BarClick, BarMenuItem, MAX_BARS, StackedBarMode, StackedBarPeriod};
+use crate::components::stacked_bar_graph::{BarClick, BarMenuItem, GraphMode, MAX_BARS, StackedBarPeriod};
 
 /// Each GraphQL error from the server in error, as its message, its description, which is often advice about the
 /// message, and its code, e.g. "Unable to find matching device for this request. Ensure the device id is correct.
@@ -354,7 +354,7 @@ fn MeasurementsConsumption(props: MeasurementsConsumptionProps) -> Element {
 
     // Whether consumption is shown as a table or a graph, kept here so it survives range changes.
     let mut view = use_signal(|| ConsumptionView::Graph);
-    let mut graph_mode = use_signal(|| StackedBarMode::Cost);
+    let mut graph_mode = use_signal(|| GraphMode::Cost);
     let mut graph_period = use_signal(|| StackedBarPeriod::Raw);
     let mut smoothing = use_signal(|| TrendSmoothing::None);
 
@@ -366,6 +366,9 @@ fn MeasurementsConsumption(props: MeasurementsConsumptionProps) -> Element {
 
     // The range and period before each drill down or zoom in the graph, the latest last, for Zoom Out.
     let mut history = use_signal(Vec::<(RangeSelection, StackedBarPeriod)>::new);
+
+    // Power is not offered for the trend, see display_trend, which shows the energy instead.
+    let shown_mode = if view() == ConsumptionView::Trend && graph_mode() == GraphMode::Power { GraphMode::Energy } else { graph_mode() };
 
     let selection = *applied_range.read();
     let (start, end) = selection.to_date_times(tz).map_err(|error| anyhow!(error))?;
@@ -459,7 +462,7 @@ fn MeasurementsConsumption(props: MeasurementsConsumptionProps) -> Element {
 
     // The categories in the loaded data, for the category menu.
     let categories = exportable.read().as_ref()
-        .map(|data| data.categories(&start, &end, graph_mode()))
+        .map(|data| data.categories(&start, &end, shown_mode))
         .unwrap_or_default();
     let export_name = export_file_name("measurements", &props.mpan, &start, &end, &view().export_description(shown_period));
 
@@ -482,7 +485,7 @@ fn MeasurementsConsumption(props: MeasurementsConsumptionProps) -> Element {
             start,
             end,
             view: view(),
-            graph_mode: graph_mode(),
+            graph_mode: shown_mode,
             graph_period: shown_period,
             smoothing: smoothing(),
             category_filter: category_filter(),
@@ -508,10 +511,10 @@ fn MeasurementsConsumption(props: MeasurementsConsumptionProps) -> Element {
             }
             if view() != ConsumptionView::Table {
                 span { class: "view-toggle",
-                    for option in [StackedBarMode::Cost, StackedBarMode::Units] {
+                    for option in GraphMode::ALL.into_iter().filter(|option| *option != GraphMode::Power || view() != ConsumptionView::Trend) {
                         button {
                             r#type: "button",
-                            class: if graph_mode() == option { "active" },
+                            class: if shown_mode == option { "active" },
                             onclick: move |_| graph_mode.set(option),
                             "{option}"
                         }
@@ -580,7 +583,7 @@ struct MeasurementsDetailProps {
     /// Exclusive end of the range
     end: DateTime,
     view: ConsumptionView,
-    graph_mode: StackedBarMode,
+    graph_mode: GraphMode,
     graph_period: StackedBarPeriod,
     smoothing: TrendSmoothing,
     category_filter: CategoryFilter,

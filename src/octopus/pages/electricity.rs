@@ -14,7 +14,8 @@ use time_tz::Tz;
 
 use crate::data_set::CancelToken;
 use crate::octopus::context::OctopusContext;
-use crate::power::combine::{CheapTimes, Estimate};
+use crate::power::combine::Estimate;
+use crate::octopus::tariff::{CheapTimes, OctopusTariff};
 use crate::power::grid::GridReading;
 use crate::octopus::graphql::ElectricityDirection;
 use crate::octopus::graphql::meter::active_meter_points_with_agreements::ElectricityTariffType;
@@ -203,7 +204,13 @@ impl Account {
             import_mpan: import_point.mpan.clone(),
             export_mpan: meter_point_for_direction(&meter_points, ElectricityDirection::Export).map(|point| point.mpan.clone()),
             esme_id,
-            estimate: Estimate { cheap: import_point.cheap_times.clone(), cheap_charging: import_point.intelligent, charger_watts },
+            estimate: Estimate {
+                tariff: import_point.cheap_times.clone().map(|cheap| {
+                    let tariff: Arc<dyn crate::power::combine::Tariff> = Arc::new(OctopusTariff { cheap, intelligent: import_point.intelligent, tz: context.billing_timezone });
+                    tariff
+                }),
+                charger_watts,
+            },
             rates: import_point.rates,
         })
     }
@@ -229,7 +236,7 @@ impl LoadedElectricity for Readings {
     }
 
     fn notes(&self, electricity: &Electricity) -> Element {
-        let cheap_known = self.data.estimate.cheap.is_some();
+        let cheap_known = self.data.estimate.tariff.is_some();
         let rates = self.rates;
         rsx! {
             if let Some(comparison) = ev_comparison(&electricity.points) {
@@ -306,13 +313,21 @@ impl ElectricitySource for OctopusElectricity {
                 .fold(0.0, f64::max) * 2000.0;
             // The charging power measured from the meter's readings, rather than the charger's rating, if it can be.
             let charging_watts = (charging_watts >= 1000.0).then_some(charging_watts);
+            // The export's costs are what it was paid, a credit.
+            let export_readings = export.as_ref().map(|export| export.half_hours(&start, &end)).unwrap_or_default().into_iter()
+                .map(|mut reading| {
+                    reading.costs.values_mut().for_each(|cost| *cost = -*cost);
+                    reading
+                })
+                .collect();
             let readings: Arc<dyn LoadedElectricity> = Arc::new(Readings {
                 data: SiteData {
                     import: import.half_hours(&before, &after),
-                    export: export.map(|export| export.half_hours(&start, &end)).unwrap_or_default(),
+                    export: export_readings,
                     grid: home_mini.iter().map(GridReading::from_sample).collect(),
                     grid_name: String::from("Home Mini"),
                     estimate: Estimate { charger_watts: charging_watts.or(estimate.charger_watts), ..estimate },
+                    currency: import.currency(&start, &end),
                 },
                 home_mini_error,
                 rates,

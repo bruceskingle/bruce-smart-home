@@ -12,15 +12,15 @@ use dioxus_free_icons::{Icon, icons::ld_icons::LdRefreshCw};
 use sparko_graphql::types::{Currency, DateTime};
 use time_tz::{OffsetDateTimeExt, Tz};
 
-use crate::components::category_filter::{CategoryFilter, CategoryFilterMenu, CategoryValues};
+use crate::components::category_filter::{CategoryFilter, CategoryFilterMenu, CategoryValues, STANDING_CHARGE_LABEL};
 use crate::components::date_range_picker::{DateRangePicker, LocalSlot, RangeSelection};
 use crate::components::export::{ExportButton, ExportTable, ExportValue, export_file_name};
-use crate::components::stacked_bar_graph::{BarClick, BarMenuItem, MAX_BARS, StackedBarGraph, StackedBarLine, StackedBarMode, StackedBarPoint, StackedBarSeries, day_bands, time_tick_label};
+use crate::components::stacked_bar_graph::{BarClick, BarMenuItem, GraphMode, MAX_BARS, StackedBarGraph, StackedBarLine, StackedBarMode, StackedBarPoint, StackedBarSeries, day_bands, time_tick_label};
 use crate::components::toggle_button::ToggleButton;
 use crate::data_set::CancelToken;
 use crate::period::Period;
 use crate::power::measured::{MeasurementSource, Measurements};
-use crate::power::topology::TopologySplit;
+use crate::power::topology::{CAR, TopologySplit};
 use crate::profile::Settings as ProfileSettings;
 use crate::power::{self, EXPORT_LABEL, Electricity, ElectricityPoint, ElectricitySource, EvComparison, LoadedElectricity, MEASURED_EV_LABEL, OCTOPUS_EV_LABEL};
 use crate::components::app::Route;
@@ -50,59 +50,53 @@ impl std::fmt::Display for ElectricityView {
     }
 }
 
-/// What the graph shows.
-#[derive(Clone, Copy, PartialEq)]
-enum ElectricityMode {
-    /// In kWh.
-    Energy,
-    /// The average in kW.
-    Power,
-}
-
-impl ElectricityMode {
-    const ALL: [ElectricityMode; 2] = [ElectricityMode::Energy, ElectricityMode::Power];
-
-    /// The import of each of labels and the export of a point as shown, the energy itself in kWh, or the average power
-    /// in kW. For power, a point with the Home Mini's average power, which is steadier than its energy, see
-    /// ElectricityPoint::demand, uses it for the house's labels: the car charges at a constant power, so its labels are
-    /// from their energy, and the house's share the rest of the Home Mini's power in proportion to their energy.
-    fn values(&self, point: &ElectricityPoint, labels: &[String]) -> (Vec<f64>, f64) {
-        let hours = (point.end - point.start).max(1) as f64 / 3600.0;
-        match (self, point.demand) {
-            (ElectricityMode::Energy, _) => (point.import.clone(), point.export),
-            (ElectricityMode::Power, None) => (point.import.iter().map(|kwh| kwh / hours).collect(), point.export / hours),
-            (ElectricityMode::Power, Some(demand)) => {
-                let is_ev = |index: usize| labels[index].starts_with("EV");
-                let ev_kw: f64 = (0..labels.len()).filter(|index| is_ev(*index)).map(|index| point.import[index] / hours).sum();
-                let home_kwh: f64 = (0..labels.len()).filter(|index| !is_ev(*index)).map(|index| point.import[index]).sum();
-                let home_kw = (demand.max(0.0) / 1000.0 - ev_kw).max(0.0);
-                let import = (0..labels.len())
-                    .map(|index| match (is_ev(index), home_kwh > 0.0) {
-                        (true, _) => point.import[index] / hours,
-                        (false, true) => home_kw * point.import[index] / home_kwh,
-                        (false, false) => 0.0,
-                    })
-                    .collect();
-                (import, (-demand).max(0.0) / 1000.0)
-            },
-        }
-    }
-
-    fn unit(&self) -> &'static str {
-        match self {
-            ElectricityMode::Energy => "kWh",
-            ElectricityMode::Power => "kW",
-        }
+/// The import of each label, whose uses are uses, see Electricity::uses, and the export of a point as shown, the energy itself in kWh, or the average power
+/// in kW, the energy for Cost, whose values are the costs, see cost_categories. For power, a point with the Home Mini's
+/// average power, which is steadier than its energy, see ElectricityPoint::demand, uses it for the house's labels: the
+/// car charges at a constant power, so its labels are from their energy, and the house's share the rest of the Home
+/// Mini's power in proportion to their energy.
+fn mode_values(mode: GraphMode, point: &ElectricityPoint, uses: &[String]) -> (Vec<f64>, f64) {
+    let hours = (point.end - point.start).max(1) as f64 / 3600.0;
+    match (mode, point.demand) {
+        (GraphMode::Energy | GraphMode::Cost, _) => (point.import.clone(), point.export),
+        (GraphMode::Power, None) => (point.import.iter().map(|kwh| kwh / hours).collect(), point.export / hours),
+        (GraphMode::Power, Some(demand)) => {
+            let is_ev = |index: usize| uses[index] == CAR;
+            let ev_kw: f64 = (0..uses.len()).filter(|index| is_ev(*index)).map(|index| point.import[index] / hours).sum();
+            let home_kwh: f64 = (0..uses.len()).filter(|index| !is_ev(*index)).map(|index| point.import[index]).sum();
+            let home_kw = (demand.max(0.0) / 1000.0 - ev_kw).max(0.0);
+            let import = (0..uses.len())
+                .map(|index| match (is_ev(index), home_kwh > 0.0) {
+                    (true, _) => point.import[index] / hours,
+                    (false, true) => home_kw * point.import[index] / home_kwh,
+                    (false, false) => 0.0,
+                })
+                .collect();
+            (import, (-demand).max(0.0) / 1000.0)
+        },
     }
 }
 
-impl std::fmt::Display for ElectricityMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ElectricityMode::Energy => write!(f, "Energy"),
-            ElectricityMode::Power => write!(f, "Power"),
-        }
+/// The unit of the values of a mode, the currency's symbol for Cost.
+fn mode_unit(mode: GraphMode) -> &'static str {
+    match mode {
+        GraphMode::Energy => "kWh",
+        GraphMode::Power => "kW",
+        GraphMode::Cost => "",
     }
+}
+
+/// The cost of each point by category, in the minor units of Electricity::currency, see ElectricityPoint::costs: the
+/// standing charge first, as on Octopus's page of a meter's readings, then the import's labels and the export's credit,
+/// negative, leaving out those which cost nothing, e.g. import the meter has no reading for yet.
+fn cost_categories(electricity: &Electricity) -> Vec<(String, Vec<f64>)> {
+    let points = &electricity.points;
+    std::iter::once((String::from(STANDING_CHARGE_LABEL), points.iter().map(|point| point.standing_charge).collect::<Vec<f64>>()))
+        .chain(electricity.labels.iter().enumerate()
+            .map(|(index, label)| (label.clone(), points.iter().map(|point| point.costs[index]).collect())))
+        .chain(std::iter::once((String::from(EXPORT_LABEL), points.iter().map(|point| point.export_cost).collect())))
+        .filter(|(_, values)| values.iter().any(|value| *value != 0.0))
+        .collect()
 }
 
 /// Where a point's energy is from, for its tooltip and the table, e.g. Home Mini and Tesla.
@@ -162,7 +156,7 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
         None if periods.contains(&Period::HalfHour) => Period::HalfHour,
         None => periods[0],
     });
-    let mut mode = use_signal(|| ElectricityMode::Energy);
+    let mut mode = use_signal(|| GraphMode::Energy);
     let filter = crate::components::category_filter::use_category_filter();
     // The range and period before each drill down or zoom in the graph, the latest last, for Zoom Out.
     let mut history = use_signal(Vec::<(RangeSelection, Period)>::new);
@@ -226,6 +220,12 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
         power::electricity(&loaded, split.as_ref().map(|split| split as &dyn power::measured::Split), start.unix_timestamp(),
             end.unix_timestamp(), shown_period, tz)
     });
+    // Cost can be chosen if the meters' readings have costs, see ElectricityPoint::costs.
+    let costed = electricity.as_ref().is_some_and(|electricity| electricity.currency.is_some());
+    let shown_mode = if mode() == GraphMode::Cost && !costed { GraphMode::Energy } else { mode() };
+    let cost_values = electricity.as_ref()
+        .filter(|_| shown_mode == GraphMode::Cost)
+        .and_then(|electricity| Some((cost_categories(electricity), electricity.currency?)));
     // Where it came from and went, with the topology, of half hours at the shortest, see power::flows.
     let can_flow = topology.is_some() && readings.as_ref().is_some_and(|readings| !readings.measurements.is_empty());
     // Of minutes at the shortest, as the zappi's records are.
@@ -253,6 +253,7 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
             all.extend(uses.into_iter().filter(|label| label != power::flows::BATTERY));
             all
         },
+        None if cost_values.is_some() => cost_values.iter().flat_map(|(categories, _)| categories.iter().map(|(label, _)| label.clone())).collect(),
         None => electricity.as_ref()
             .map(|electricity| electricity.labels.iter().cloned()
                 .chain(has_export(electricity).then(|| String::from(EXPORT_LABEL)))
@@ -335,7 +336,7 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
         (Some(Ok(_)), Some(electricity)) => rsx! {
             match view() {
                 ElectricityView::Table => electricity_table(electricity, compares_ev, derived, tz),
-                ElectricityView::Graph => electricity_graph(electricity, &start, &end, shown_period, shorter.is_some(), mode(), &filter.read(), tz, on_drill, on_zoom, menu),
+                ElectricityView::Graph => electricity_graph(electricity, cost_values.clone(), &start, &end, shown_period, shorter.is_some(), shown_mode, &filter.read(), tz, on_drill, on_zoom, menu),
                 ElectricityView::Flows => flows_graphs(flows.as_deref().unwrap_or_default(), &start, &end, flow_period, &filter.read(), tz,
                     shorter.is_some().then(|| EventHandler::new(on_drill)),
                     (end.unix_timestamp() - start.unix_timestamp() > HALF_HOUR).then(|| EventHandler::new(on_zoom))),
@@ -381,10 +382,10 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
             }
             if view() == ElectricityView::Graph {
                 span { class: "view-toggle",
-                    for option in ElectricityMode::ALL {
+                    for option in GraphMode::ALL.into_iter().filter(|option| *option != GraphMode::Cost || costed) {
                         button {
                             r#type: "button",
-                            class: if mode() == option { "active" },
+                            class: if shown_mode == option { "active" },
                             onclick: move |_| mode.set(option),
                             "{option}"
                         }
@@ -626,7 +627,9 @@ fn bar_labels(start: i64, end: i64, period: Period, tz: &'static Tz) -> Option<(
     })
 }
 
-fn electricity_graph(electricity: &Electricity, start: &DateTime, end: &DateTime, period: Period, drill: bool, mode: ElectricityMode,
+/// The graph of electricity, or of its costs, by category, and their currency, if cost_values, see cost_categories.
+fn electricity_graph(electricity: &Electricity, cost_values: Option<(Vec<(String, Vec<f64>)>, Currency)>, start: &DateTime, end: &DateTime,
+    period: Period, drill: bool, mode: GraphMode,
     filter: &CategoryFilter, tz: &'static Tz, on_drill: impl FnMut((i64, i64)) + 'static, on_zoom: impl FnMut((i64, i64)) + 'static,
     menu: Vec<BarMenuItem>) -> Element
 {
@@ -642,20 +645,25 @@ fn electricity_graph(electricity: &Electricity, start: &DateTime, end: &DateTime
 
     // The value of each import label and of the export, as a negative, for each point, as the filter shows them.
     let points = &electricity.points;
-    let values: Vec<(Vec<f64>, f64)> = points.iter().map(|point| mode.values(point, &electricity.labels)).collect();
+    let values: Vec<(Vec<f64>, f64)> = points.iter().map(|point| mode_values(mode, point, &electricity.uses)).collect();
     // Octopus's split of the car's import, dashed, and the measured one, solid, each half hourly, if they are shown, see
     // CategoryFilterMenu, which shows or hides both as Octopus's EV split.
     let line_style = filter.styles(&[String::from(OCTOPUS_EV_LABEL)]).remove(0);
-    let compared = line_style.visible && points.iter().any(|point| point.ev_comparison.is_some());
-    let mut categories: Vec<(String, Vec<f64>)> = electricity.labels.iter()
-        .enumerate()
-        .map(|(index, label)| (label.clone(), values.iter().map(|(import, _)| import[index]).collect()))
-        .chain(has_export(electricity).then(|| (String::from(EXPORT_LABEL), values.iter().map(|(_, export)| -export).collect())))
-        .collect();
+    let compared = line_style.visible && cost_values.is_none() && points.iter().any(|point| point.ev_comparison.is_some());
+    let currency = cost_values.as_ref().map_or(Currency::NONE, |(_, currency)| *currency);
+    let mut categories: Vec<(String, Vec<f64>)> = match cost_values {
+        Some((categories, _)) => categories,
+        None => electricity.labels.iter()
+            .enumerate()
+            .map(|(index, label)| (label.clone(), values.iter().map(|(import, _)| import[index]).collect()))
+            .chain(has_export(electricity).then(|| (String::from(EXPORT_LABEL), values.iter().map(|(_, export)| -export).collect())))
+            .collect(),
+    };
     // With the lines, the car's import is at the bottom of the bars, so that the lines, which are drawn up from zero, are
     // level with its top.
     if compared {
-        categories.sort_by_key(|(label, _)| !power::is_ev(label));
+        let car: Vec<&String> = electricity.labels.iter().zip(&electricity.uses).filter(|(_, category)| *category == CAR).map(|(label, _)| label).collect();
+        categories.sort_by_key(|(label, _)| !car.contains(&label));
     }
     let shown: Vec<CategoryValues> = filter.apply(categories, points.len(), false);
     let line = |label: &str, value: fn(&EvComparison) -> f64, dashed: bool| StackedBarLine {
@@ -663,8 +671,8 @@ fn electricity_graph(electricity: &Electricity, start: &DateTime, end: &DateTime
         color: line_style.color.clone(),
         values: points.iter()
             .map(|point| point.ev_comparison.as_ref().map(value).map(|kwh| match mode {
-                ElectricityMode::Energy => kwh,
-                ElectricityMode::Power => kwh / ((point.end - point.start).max(1) as f64 / 3600.0),
+                GraphMode::Energy | GraphMode::Cost => kwh,
+                GraphMode::Power => kwh / ((point.end - point.start).max(1) as f64 / 3600.0),
             }))
             .collect(),
         dashed,
@@ -698,12 +706,12 @@ fn electricity_graph(electricity: &Electricity, start: &DateTime, end: &DateTime
             series: shown.iter()
                 .map(|category| StackedBarSeries { label: category.label.clone(), color: category.color.clone() })
                 .collect::<Vec<_>>(),
-            mode: StackedBarMode::Units,
-            currency: Currency::NONE,
-            unit: String::from(mode.unit()),
-            // Energy is drawn as a histogram, as bars can have different lengths, e.g. a reading after a missing one,
-            // half hours with only the meters' readings, or months, so that each bar's area is its energy.
-            per_seconds: (mode == ElectricityMode::Energy).then(|| period.seconds().unwrap_or(86400)),
+            mode: mode.bar_mode(),
+            currency,
+            unit: String::from(mode_unit(mode)),
+            // Energy and cost are drawn as a histogram, as bars can have different lengths, e.g. a reading after a
+            // missing one, half hours with only the meters' readings, or months, so that each bar's area is its total.
+            per_seconds: (mode != GraphMode::Power).then(|| period.seconds().unwrap_or(86400)),
             on_drill: drill.then(|| EventHandler::new(on_drill)),
             on_zoom: (end.unix_timestamp() - start.unix_timestamp() > HALF_HOUR).then(|| EventHandler::new(on_zoom)),
             menu,
@@ -797,7 +805,8 @@ fn flow_labels(flows: &[power::flows::FlowPoint]) -> (Vec<String>, Vec<String>) 
     let last = [BATTERY, EXPORT_LABEL, NOT_MEASURED];
     let mut uses: Vec<String> = flows.iter().flat_map(|point| point.uses.keys().cloned()).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
     // The car and the house first, as on the Graph, then the others by name, then the batteries, export and the rest.
-    uses.sort_by_key(|label| (label != "EV", label != "Home", last.iter().position(|last| last == label), label.clone()));
+    let (car, house) = (power::topology::label_prefix(CAR), power::topology::label_prefix(power::topology::HOUSE));
+    uses.sort_by_key(|label| (label != car, label != house, last.iter().position(|last| last == label), label.clone()));
     (sources, uses)
 }
 
@@ -869,5 +878,22 @@ mod tests {
         assert_eq!(super::zone_name(november, time_tz::timezones::db::australia::SYDNEY), "AEDT");
         assert_eq!(super::zone_name(november, time_tz::timezones::db::europe::LONDON), "GMT");
         assert_eq!(super::zone_name(november - 123 * 86400, time_tz::timezones::db::europe::LONDON), "BST");
+    }
+
+    #[test]
+    fn costs_are_the_standing_charge_first_then_the_labels_and_the_export_leaving_out_none() {
+        use super::*;
+        let point = |costs: Vec<f64>, export_cost: f64, standing_charge: f64| ElectricityPoint {
+            start: 0, end: 1800, import: vec![1.0, 1.0, 1.0], export: 0.0, costs, export_cost, standing_charge, demand: None,
+            sources: Vec::new(), ev_comparison: None,
+        };
+        let labels = ["Home Low Rate", "Home Standard Rate", "Home Low Rate (estimated)"].map(String::from).to_vec();
+        let electricity = Electricity { labels, uses: vec![String::new(); 3], points: vec![point(vec![1.0, 0.0, 0.0], -0.5, 0.25), point(vec![0.0, 10.0, 0.0], 0.0, 0.25)], currency: None };
+        assert_eq!(cost_categories(&electricity), vec![
+            (String::from(STANDING_CHARGE_LABEL), vec![0.25, 0.25]),
+            (String::from("Home Low Rate"), vec![1.0, 0.0]),
+            (String::from("Home Standard Rate"), vec![0.0, 10.0]),
+            (String::from(EXPORT_LABEL), vec![-0.5, 0.0]),
+        ]);
     }
 }

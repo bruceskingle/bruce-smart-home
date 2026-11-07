@@ -14,7 +14,7 @@ On an Intelligent Octopus tariff, charging the car outside the cheap times is at
 
 The times are the site's, as the line under the heading says, e.g. "Times in Australia/Sydney (AEDT)" for GloBird, as the tariff's times are, and each tooltip says the zone, as it changes when the clocks do.
 
-Show it as a **Table** or **Graph**, see [using the graphs](graphs.md). In the graph, **Energy** shows kWh and **Power** the average kW. Short periods, down to 10 seconds, use the Home Mini's readings where there are all of a half hour's.
+Show it as a **Table** or **Graph**, see [using the graphs](graphs.md). In the graph, **Energy** shows kWh, **Power** the average kW over each bar, which reads the same at any period and compares with what things draw, e.g. a 7 kW charger, and **Cost** what it cost, with the standing charge, if the supplier's readings have costs. The cost at each rate, e.g. Low Rate, is always what the supplier charged; where the import is split by what measured its use, each rate's cost is shared among the uses at that rate by their kWh, so e.g. the car's cost is its measured share, not the supplier's own split. Import the meter has not read yet, e.g. today's, has no cost yet. Short periods, down to 10 seconds, use the Home Mini's readings where there are all of a half hour's.
 
 ## Flows
 

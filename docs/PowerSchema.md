@@ -113,9 +113,22 @@ whatever the profile's modules give, none of which knows of the others:
   the first which has any, suppliers first, and the measurements, and `power/combine.rs`, which was Octopus's,
   combines them, as it did, into periods with the import by label and the export.
 
+- Each meter reading says the rate each of its labels is billed at, where that is not the label itself, e.g. Low Rate
+  for Octopus's EV Low Rate and Home Low Rate, which are Octopus's split of that rate by use, and what each label
+  cost, with the reading's share of the standing charge, in the minor units of `SiteData::currency`, negative for a
+  credit. GloBird gives no rates, so its module works them out from the days' costs, see `globird/rates.rs`.
+- The supplier's bill is a fact and the app says who used it: where measurements split a half hour by use, each rate's
+  kWh and cost are the meter's. A reading may say which use it billed a label as, `MeterReading::uses`, e.g. Car for
+  Octopus's EV labels, as Octopus bills the car's charging at peak past a limit while the house's is cheap. Those kWh
+  go to the measured use first, as far as it used them, and the rest to the other uses, `billed_uses` in
+  `power/combine.rs`. Import the meter has no reading for yet has no cost.
+- A supplier's module gives its tariff's rules as a `Tariff`, `power/combine.rs`: the rate import the meter has not
+  read yet is estimated to be at, given whether the car was charging, and its cheap times. Octopus's, with Intelligent
+  Octopus's rule for charging, is `octopus/tariff.rs`; the shared code knows no tariff. The combined `Electricity`
+  says which use each label is of, `Electricity::uses`, so that the pages need not read it from the label.
+
 Next: the zappi's grid CT and charging, from myenergi, as grid readings and measurements of the car, which would give
-a GloBird site, e.g., a real Electricity page without a capture device; then the use and band split of the labels, and
-the costs.
+a GloBird site, e.g., a real Electricity page without a capture device.
 
 GloBird's page shows Sydney's time for now, so in summer its days start an hour before GloBird's AEST days, and a
 day's totals differ from the Days page's. A site's timezone, and whether its days are the supplier's or the clock's,

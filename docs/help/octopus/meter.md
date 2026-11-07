@@ -6,7 +6,7 @@ At **Raw**, the table shows each reading as Octopus gave it; **Rate**, **Day**, 
 
 Show them as a **Table**, **Graph** or **Trend**, see [using the graphs](../graphs.md). In the graph:
 
-- **Cost** or **Units** chooses whether the bars show money or kWh.
+- **Energy**, **Power** or **Cost** chooses whether the bars show kWh, the average kW over each bar, or money, as on Home's [Electricity](../electricity.md) page. The trend has Energy and Cost only.
 - **Raw** is a bar for each reading, **Rate** a bar for each stretch at the same unit rate, and **Day**, **Week** and **Month** add them up.
 - Each bar is split by rate, e.g. the cheap night rate and the day rate, which ![Categories](../icons/categories.svg) **Categories** can hide or recolour.
 

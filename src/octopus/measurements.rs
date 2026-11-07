@@ -20,7 +20,7 @@ use crate::octopus::graphql::{ElectricityFiltersInput, ReadingFrequencyType, Uti
 use crate::power::combine::MeterReading;
 use super::graphql::meter;
 use crate::components::category_filter::{CategoryFilter, CategoryValues, STANDING_CHARGE_LABEL, order_labels};
-use crate::components::stacked_bar_graph::{BarMenuItem, day_bands, StackedBarGraph, StackedBarMode, StackedBarPeriod, StackedBarPoint, StackedBarSeries, time_tick_label};
+use crate::components::stacked_bar_graph::{BarMenuItem, GraphMode, day_bands, StackedBarGraph, StackedBarPeriod, StackedBarPoint, StackedBarSeries, time_tick_label};
 use crate::components::category_filter::SOLID;
 use super::trend_graph::{CATEGORY_LEGEND_COLOR, TrendGraph, TrendLegendItem, TrendLine, TrendSmoothing, cumulative_by_year, moving_average, range_years, year_positions};
 
@@ -198,29 +198,49 @@ impl MeasurementsDataSet {
         }
     }
 
-    /// The units of each label of each reading from start to end, leaving out readings with none, see is_partial.
+    /// The units and cost of each label of each reading from start to end, leaving out readings with none, see
+    /// is_partial, with the rate each is billed at, e.g. Low Rate for EV Low Rate and Home Low Rate, which are Octopus's
+    /// split of that rate's units by use, the EV ones billed as the car's, as Octopus bills the car's charging apart, e.g.
+    /// at the peak rate past a limit, and the standing charge. Costs are as Octopus gives them, so an export meter's
+    /// are what it was paid.
     pub fn half_hours(&self, start: &DateTime, end: &DateTime) -> Vec<MeterReading> {
+        let to_f64 = |value: &Decimal| value.to_f64().unwrap_or_default();
         self.readings(start, end)
             .filter(|reading| !reading.is_partial())
             .map(|reading| MeterReading {
                 start: reading.start.unix_timestamp(),
                 end: reading.end.unix_timestamp(),
-                units: reading.consumption.iter()
-                    .map(|(label, consumption)| (label.clone(), consumption.units.to_f64().unwrap_or_default()))
+                units: reading.consumption.iter().map(|(label, consumption)| (label.clone(), to_f64(&consumption.units))).collect(),
+                rates: reading.consumption.keys()
+                    .filter_map(|label| {
+                        let rate = label.strip_prefix("Home ").or_else(|| label.strip_prefix("EV "))?;
+                        Some((label.clone(), rate.to_string()))
+                    })
                     .collect(),
+                uses: reading.consumption.keys()
+                    .filter(|label| label.starts_with("EV "))
+                    .map(|label| (label.clone(), String::from(crate::power::topology::CAR)))
+                    .collect(),
+                costs: reading.consumption.iter().map(|(label, consumption)| (label.clone(), to_f64(&consumption.cost))).collect(),
+                standing_charge: to_f64(&reading.standing_charge),
             })
             .collect()
     }
 
+    /// The currency of the costs of the readings from start to end, None if none has one.
+    pub fn currency(&self, start: &DateTime, end: &DateTime) -> Option<Currency> {
+        self.readings(start, end).map(MeasurementsReading::currency).find(|currency| *currency != Currency::NONE)
+    }
+
     /// The categories which can be shown in the graphs for the readings from start to end, the standing charge (for
     /// costs only) and then each label.
-    pub fn categories(&self, start: &DateTime, end: &DateTime, mode: StackedBarMode) -> Vec<String> {
+    pub fn categories(&self, start: &DateTime, end: &DateTime, mode: GraphMode) -> Vec<String> {
         let labels = ordered_labels(self.readings(start, end));
         Self::categories_for(&labels, mode)
     }
 
-    fn categories_for(labels: &[String], mode: StackedBarMode) -> Vec<String> {
-        let standing_charge = (mode == StackedBarMode::Cost).then(|| String::from(STANDING_CHARGE_LABEL));
+    fn categories_for(labels: &[String], mode: GraphMode) -> Vec<String> {
+        let standing_charge = (mode == GraphMode::Cost).then(|| String::from(STANDING_CHARGE_LABEL));
         standing_charge.into_iter().chain(labels.iter().cloned()).collect()
     }
 
@@ -233,18 +253,20 @@ impl MeasurementsDataSet {
     }
 
     /// The value of each category for each point, filtered by the filter for the trend graph if trend.
-    fn filtered_categories(labels: &[String], points: &[AggregatedPoint], mode: StackedBarMode, filter: &CategoryFilter, trend: bool) -> Vec<CategoryValues> {
+    /// Power is each point's average, its units over its hours.
+    fn filtered_categories(labels: &[String], points: &[AggregatedPoint], mode: GraphMode, filter: &CategoryFilter, trend: bool) -> Vec<CategoryValues> {
         let categories = Self::categories_for(labels, mode).into_iter()
             .enumerate()
             .map(|(index, label)| {
                 // In Cost mode the standing charge comes first, before the labels.
-                let label_index = if mode == StackedBarMode::Cost { index.checked_sub(1) } else { Some(index) };
+                let label_index = if mode == GraphMode::Cost { index.checked_sub(1) } else { Some(index) };
                 let values = points.iter()
                     .map(|point| match (mode, label_index) {
-                        (StackedBarMode::Cost, None) => point.standing_charge,
-                        (StackedBarMode::Cost, Some(index)) => point.costs[index],
-                        (StackedBarMode::Units, Some(index)) => point.units[index],
-                        (StackedBarMode::Units, None) => 0.0,
+                        (GraphMode::Cost, None) => point.standing_charge,
+                        (GraphMode::Cost, Some(index)) => point.costs[index],
+                        (GraphMode::Energy, Some(index)) => point.units[index],
+                        (GraphMode::Power, Some(index)) => point.units[index] * 3600.0 / (point.end - point.start).max(1) as f64,
+                        (GraphMode::Energy | GraphMode::Power, None) => 0.0,
                     })
                     .collect();
                 (label, values)
@@ -270,7 +292,7 @@ impl MeasurementsDataSet {
 
     /// on_drill is called with the start and end of a bar when it is double clicked, and on_zoom with the start and end
     /// of the bars dragged across.
-    pub fn display_graph(&self, start: &DateTime, end: &DateTime, tz: &'static Tz, mode: StackedBarMode, period: StackedBarPeriod, filter: &CategoryFilter,
+    pub fn display_graph(&self, start: &DateTime, end: &DateTime, tz: &'static Tz, mode: GraphMode, period: StackedBarPeriod, filter: &CategoryFilter,
         on_drill: Option<EventHandler<(i64, i64)>>, on_zoom: Option<EventHandler<(i64, i64)>>, menu: Vec<BarMenuItem>) -> Element {
         let (labels, aggregated) = self.graph_points(start, end, tz, period);
         let categories = Self::filtered_categories(&labels, &aggregated, mode, filter, false);
@@ -305,10 +327,11 @@ impl MeasurementsDataSet {
             StackedBarGraph {
                 points,
                 series,
-                mode,
+                mode: mode.bar_mode(),
                 currency,
-                unit,
-                per_hour: period == StackedBarPeriod::Rate,
+                unit: if mode == GraphMode::Power { String::from("kW") } else { unit },
+                // Rate periods have different lengths, so their energy and cost are per hour, power is already.
+                per_hour: period == StackedBarPeriod::Rate && mode != GraphMode::Power,
                 x_bands,
                 on_drill,
                 on_zoom,
@@ -318,8 +341,9 @@ impl MeasurementsDataSet {
     }
 
     /// A line graph over one year, with a line for each category (or the total) in each year from start to end.
-    /// smoothing other than None is worked out from daily totals, so period is then not used.
-    pub fn display_trend(&self, start: &DateTime, end: &DateTime, tz: &'static Tz, mode: StackedBarMode, period: StackedBarPeriod,
+    /// smoothing other than None is worked out from daily totals, so period is then not used. The page does not offer
+    /// Power here, as a cumulative or average of averages would mean little.
+    pub fn display_trend(&self, start: &DateTime, end: &DateTime, tz: &'static Tz, mode: GraphMode, period: StackedBarPeriod,
         smoothing: TrendSmoothing, filter: &CategoryFilter) -> Element {
         let period = if smoothing == TrendSmoothing::None { period } else { StackedBarPeriod::Day };
         let (labels, aggregated) = self.graph_points(start, end, tz, period);
@@ -388,7 +412,7 @@ impl MeasurementsDataSet {
             TrendGraph {
                 lines,
                 legend,
-                mode,
+                mode: mode.bar_mode(),
                 currency,
                 unit,
                 suffix: String::from(suffix),

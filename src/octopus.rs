@@ -21,6 +21,9 @@ mod convert;
 mod context;
 mod pages;
 mod flex_poll;
+mod tariff;
+
+pub use tariff::LABELS;
 
 use std::sync::Arc;
 

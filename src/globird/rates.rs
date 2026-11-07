@@ -55,7 +55,7 @@ pub struct Tariff {
 
 impl Tariff {
     /// The rate of a charge type of the import, if it is USAGE, or of the export.
-    fn rate(&self, category: &str, charge_type: &str) -> Option<f64> {
+    pub fn rate(&self, category: &str, charge_type: &str) -> Option<f64> {
         let rates = if category == USAGE { &self.usage } else { &self.feed_in };
         rates.iter().find(|rate| rate.charge_type == charge_type)?.rate
     }

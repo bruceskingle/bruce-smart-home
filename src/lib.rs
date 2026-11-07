@@ -324,7 +324,7 @@ pub const FETCH_DAYS: i64 = 30;
 /// The labels the modules give energy, e.g. Home Low Rate, with their default colours, in the order they are shown,
 /// each module's own, then the app's, see components::category_filter.
 pub fn known_labels() -> impl Iterator<Item = &'static (&'static str, &'static str)> {
-    power::combine::LABELS.iter().chain(&globird::LABELS).chain(&power::LABELS).chain(&power::flows::LABELS)
+    octopus::LABELS.iter().chain(&power::combine::LABELS).chain(&globird::LABELS).chain(&power::LABELS).chain(&power::flows::LABELS)
 }
 
 // Not Send, as fetch_latest_data is run on one thread, see fetch_latest_data, and the data sets' futures are not Send.

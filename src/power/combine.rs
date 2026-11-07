@@ -7,15 +7,14 @@
 //! The energy of each half hour is from the Home Mini if it has all of the half hour's readings, as it has the detail
 //! within the half hour, otherwise from the meters. The two agree to within 0.1% over a half hour. The Home Mini's
 //! import is split into the labels of the import meter's reading for the half hour, in its proportions. That is exact
-//! for the rates, as each half hour is billed at one rate. Within the half hour the car's share is placed as a block at
-//! the charger's power, as the car charges at a constant power, and the rest is the house's, see split_half_hour. The
+//! for the rates. Within the half hour the share the supplier billed as the car's, see MeterReading::uses, is placed as
+//! a block at the charger's power, as the car charges at a constant power, and the rest is the house's, see
+//! split_half_hour. The
 //! car can not be told apart from the house's other loads by the power alone, e.g. a home battery charging at night.
 //!
-//! Import in a half hour which the meter has no reading for yet, e.g. today, is estimated to be at the low rate if it is
-//! in the tariff's cheap times, or on an Intelligent Octopus tariff, if the car was charging, as outside the cheap times
-//! it only charges the car during dispatches, which are at the low rate, otherwise at the standard rate, see Estimate.
-//! On other tariffs charging outside the cheap times is at the standard rate. The car's share is not estimated. If the
-//! tariff's cheap times are not known the import is UNMETERED_LABEL.
+//! Import in a half hour which the meter has no reading for yet, e.g. today, is estimated to be at the rate the supplier's
+//! module says, from its tariff's rules and whether the car was charging, see Tariff, which no other code knows. The
+//! car's share is not estimated. If the rate can not be estimated the import is UNMETERED_LABEL.
 //!
 //! Where the site's devices measured a half hour too, e.g. a capture device reading a Tesla gateway's registers every few
 //! seconds, the half hour's import is split by what it was used for instead, by the site's topology, see
@@ -26,6 +25,13 @@
 //! which is kept for each point to compare, see ElectricityPoint::ev_comparison. Over a night of charging the car's was
 //! within 0.2% of the zappi's own total.
 //!
+//! The supplier's bill is a fact, and the app only says who used what it billed: the import's kWh at each rate in a
+//! half hour, and their cost, are the meter's. A supplier's rate may depend on what it took the energy to be for, e.g.
+//! Octopus bills the car's charging at the peak rate past a limit, even in the cheap times, while the house's is cheap,
+//! so the kWh it billed as a use go to that use as far as it was measured to use them, and only the rest to the other
+//! uses, at the rates they were billed at, see billed_uses. The rate and use of each of the meter's labels are the
+//! module's to say, see MeterReading::rates and uses.
+//!
 //! The thresholds for seeing the car charging, CHARGING_POWER_SHARE and CHARGING_READINGS, were chosen from one
 //! household's readings, with a 7 kW charger, on Intelligent Octopus Go: over 855 half hours of October 2026 the
 //! estimate agreed with the meter for all but 9, each of which were either a little charging at a low power or a short
@@ -33,39 +39,23 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use time_tz::{OffsetDateTimeExt, Tz};
+use time_tz::Tz;
 
-use super::{Electricity, ElectricityPoint, EvComparison, is_ev};
+use super::{Electricity, ElectricityPoint, EvComparison};
+use super::topology::CAR;
 use super::measured::Split;
 
 use crate::components::category_filter::order_labels;
 use super::grid::{self, GridPoint, GridReading, READING_SECONDS};
 use crate::period::Period;
 
-/// The labels of import which the meter has no reading for yet, at the rate it is estimated to be billed at, or if that
-/// can not be estimated, at an unknown rate.
-pub const LOW_ESTIMATED_LABEL: &str = "Home Low Rate (estimated)";
-pub const STANDARD_ESTIMATED_LABEL: &str = "Home Standard Rate (estimated)";
+/// The label of import which the meter has no reading for yet, where its rate can not be estimated, see Tariff.
 pub const UNMETERED_LABEL: &str = "Not yet metered";
-/// The labels of the Electricity page, with their default colours, in the order they are
-/// shown, see crate::known_labels: the current home and EV rates, the Powerwalls charging from the grid, where it is
-/// measured, see power::measured, in purple as in the user's Home Assistant, and the estimates. Readings may have other
-/// labels, e.g. older readings have time of use buckets, which come after these.
-pub const LABELS: [(&str, &str); 16] = [
-    ("Home Low Rate", "#46ee43"),
-    ("Home Standard Rate", "#f6671f"),
-    ("EV Low Rate", "#271cff"),
-    ("EV Standard Rate", "#f72525"),
-    ("Battery Low Rate", "#9b51e0"),
-    ("Battery Standard Rate", "#d946ef"),
-    (LOW_ESTIMATED_LABEL, "#a6f5a4"),
-    (STANDARD_ESTIMATED_LABEL, "#fab48f"),
-    ("EV Low Rate (estimated)", "#8f8aff"),
-    ("EV Standard Rate (estimated)", "#fa8f8f"),
-    ("Battery Low Rate (estimated)", "#c9a7f2"),
-    ("Battery Standard Rate (estimated)", "#f0abfc"),
+/// The app's labels of the Electricity page, with their default colours, see crate::known_labels: import not yet
+/// metered, and import by use only, where there is no rate, e.g. from a Tesla gateway's readings alone. The rates'
+/// labels, e.g. EV Low Rate, are made from the supplier's rates, so their colours are its module's.
+pub const LABELS: [(&str, &str); 4] = [
     (UNMETERED_LABEL, "#8a8a99"),
-    // By use only, where there is no rate, e.g. from a Tesla gateway's readings alone.
     (HOUSE, "#46ee43"),
     (EV, "#271cff"),
     (BATTERY, "#9b51e0"),
@@ -91,53 +81,26 @@ const CHARGING_READINGS: usize = 3;
 /// The charging power is this much of the charger's power, so that the house's load on top is not needed.
 const CHARGING_POWER_SHARE: f64 = 0.85;
 
-/// The times of a tariff's cheapest rate, in minutes from midnight, each from up to to, which may be past midnight,
-/// e.g. 23:30 to 05:30 is (1410, 330).
-#[derive(Clone, Debug, PartialEq)]
-pub struct CheapTimes(Vec<(i64, i64)>);
+/// How a supplier bills import, for estimating the rate of import its meter has not read yet, which its module gives, so
+/// that a tariff's rules are known only to the module of the supplier whose tariff it is, see SiteData::estimate.
+pub trait Tariff: std::fmt::Debug + Send + Sync {
+    /// The rate the import of the half hour starting at half_hour, a unix timestamp, is estimated to be billed at, as the
+    /// meter's readings name rates, e.g. Low Rate, see MeterReading::rates, given whether the car was charging in it,
+    /// None if it can not be told.
+    fn estimated_rate(&self, half_hour: i64, car_charging: bool) -> Option<String>;
 
-impl CheapTimes {
-    /// The cheap times from the timeslots of a tariff's time of use scheme, as names and times, e.g. ECO7_NIGHT from
-    /// 23:30:00 to 05:30:00. The cheap ones are those named as night, off peak, low or cheap, or if none are, the
-    /// shortest. None if there is only one timeslot, so only one rate, or the times can not be read.
-    pub fn from_timeslots(timeslots: &[(String, String, String)]) -> Option<Self> {
-        let minutes = |time: &str| -> Option<i64> {
-            let mut parts = time.split(':');
-            Some(parts.next()?.parse::<i64>().ok()? * 60 + parts.next()?.parse::<i64>().ok()?)
-        };
-        let slots: Vec<(String, i64, i64)> = timeslots.iter()
-            .map(|(name, from, to)| Some((name.to_uppercase(), minutes(from)?, minutes(to)?)))
-            .collect::<Option<_>>()?;
-        if slots.len() < 2 {
-            return None;
-        }
-        let named: Vec<(i64, i64)> = slots.iter()
-            .filter(|(name, _, _)| ["NIGHT", "OFF_PEAK", "OFFPEAK", "LOW", "CHEAP"].iter().any(|word| name.contains(word)))
-            .map(|(_, from, to)| (*from, *to))
-            .collect();
-        let length = |(from, to): &(i64, i64)| (to - from).rem_euclid(24 * 60);
-        let cheap = if named.is_empty() {
-            slots.iter().map(|(_, from, to)| (*from, *to)).min_by_key(length).into_iter().collect()
-        }
-        else {
-            named
-        };
-        Some(Self(cheap))
-    }
-
-    /// Whether the minute from midnight is in the cheap times.
-    fn contains(&self, minute: i64) -> bool {
-        self.0.iter().any(|(from, to)| if from <= to { (*from..*to).contains(&minute) } else { minute >= *from || minute < *to })
-    }
+    /// Whether the half hour starting at half_hour is in the tariff's cheap times, whatever the energy is used for, None
+    /// if it has none or they are not known. Outside them the supplier's split of the car's import may decide its rate,
+    /// see EvComparison.
+    fn cheap_time(&self, half_hour: i64) -> Option<bool>;
 }
 
 /// What is known about the tariff and the car's charger, for estimating the rate of import which the meter has no
 /// reading for yet, and placing the car's share of the import, see the module comment.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct Estimate {
-    pub cheap: Option<CheapTimes>,
-    /// Whether charging the car outside the cheap times is at the low rate too, as on Intelligent Octopus tariffs.
-    pub cheap_charging: bool,
+    /// How the supplier bills, None if it is not known.
+    pub tariff: Option<std::sync::Arc<dyn Tariff>>,
     /// The charger's power, in W, None if there is no charger or it is not known.
     pub charger_watts: Option<f64>,
 }
@@ -156,20 +119,54 @@ enum Placement {
     Highest,
 }
 
-/// The units of each label of a meter's half hourly reading, in kWh, with its start and end as unix timestamps, see
-/// MeasurementsDataSet::half_hours.
-#[derive(Clone, Debug, PartialEq)]
+/// A meter's reading, e.g. an Octopus half hour or a GloBird 5 minutes, with its start and end as unix timestamps: the
+/// units of each label, in kWh, and what the supplier says they cost, in the minor units of SiteData::currency.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct MeterReading {
     pub start: i64,
     pub end: i64,
     pub units: BTreeMap<String, f64>,
+    /// The rate each label is billed at, where that is not the label itself, e.g. Low Rate for Octopus's EV Low Rate and
+    /// Home Low Rate, which are the supplier's split of that rate's kWh by use, which a measured split replaces.
+    pub rates: BTreeMap<String, String>,
+    /// The use the supplier billed a label as, where it says, a topology category, e.g. Car for Octopus's EV Low Rate.
+    /// Labels without one are billed as the rest of the import, e.g. the house's and the batteries'.
+    pub uses: BTreeMap<String, String>,
+    /// The cost of each label, negative for a credit, e.g. for export, empty if it is not known.
+    pub costs: BTreeMap<String, f64>,
+    /// The reading's share of the standing charge.
+    pub standing_charge: f64,
 }
 
 impl MeterReading {
     fn total(&self) -> f64 {
         self.units.values().sum()
     }
+
+    /// The rate a label is billed at, see rates.
+    fn rate<'a>(&'a self, label: &'a str) -> &'a str {
+        self.rates.get(label).map_or(label, String::as_str)
+    }
+
+    /// The cost of its labels, e.g. the credit for the export.
+    fn total_cost(&self) -> f64 {
+        self.costs.values().sum()
+    }
+
+    /// The units of the labels billed as a use, a topology category, e.g. Car, see uses.
+    fn units_of(&self, category: &str) -> f64 {
+        self.units.iter().filter(|(label, _)| self.uses.get(*label).is_some_and(|known| known == category)).map(|(_, units)| units).sum()
+    }
+
+    /// The use and rate a label is billed as, see Billed.
+    fn billed(&self, label: &str) -> Billed {
+        (self.uses.get(label).cloned().unwrap_or_default(), self.rate(label).to_string())
+    }
 }
+
+/// A group of a meter's kWh which are billed alike: the use the supplier billed them as, see MeterReading::uses, "" for
+/// the rest, and their rate.
+type Billed = (String, String);
 
 /// Where a period's electricity is from, as its tooltip and the table show it, in this order: the grid meter, by its
 /// name, e.g. Home Mini, what measured its use, e.g. Tesla, see Measurements::name, and the meters.
@@ -188,7 +185,13 @@ struct PeriodTotals {
     start: i64,
     end: i64,
     import: BTreeMap<String, f64>,
+    /// The use each label of the import is of, a topology category, e.g. Car, where it is known, see Electricity::uses.
+    uses: BTreeMap<String, String>,
     export: f64,
+    /// The cost of each label of the import, of the export and the standing charge, see MeterReading.
+    costs: BTreeMap<String, f64>,
+    export_cost: f64,
+    standing_charge: f64,
     /// The Home Mini's average power, in W, for periods shorter than a half hour.
     demand: Option<f64>,
     /// Where it is from, each with its place in the order they are shown in, see source.
@@ -202,7 +205,13 @@ impl PeriodTotals {
         for (label, units) in other.import {
             *self.import.entry(label).or_default() += units;
         }
+        self.uses.extend(other.uses);
         self.export += other.export;
+        for (label, cost) in other.costs {
+            *self.costs.entry(label).or_default() += cost;
+        }
+        self.export_cost += other.export_cost;
+        self.standing_charge += other.standing_charge;
         self.sources.extend(other.sources);
         self.ev_comparison = match (self.ev_comparison, other.ev_comparison) {
             (Some(one), Some(other)) => Some(one + other),
@@ -240,15 +249,17 @@ fn complete_half_hours(readings: &[GridReading], start: i64, end: i64) -> Vec<i6
 }
 
 /// The import of each of a half hour's points, kwh, which are seconds long, split into the labels of the import meter's
-/// reading for it, units. The import is the Home Mini's, which is very close to the meter's, so the meter's proportions
-/// are used rather than its units. The car's share (labels EV ...) is placed as a block at the charger's power, if it is
-/// known, at the placement, and is otherwise shared in proportion to the points' import. The rest of each point's import
-/// is the house's, in the proportions of the other labels.
-fn split_half_hour(kwh: &[f64], seconds: &[i64], units: &BTreeMap<String, f64>, charger_watts: Option<f64>, placement: Placement)
+/// reading for it. The import is the Home Mini's, which is very close to the meter's, so the meter's proportions are
+/// used rather than its units. The car's share, the labels billed as the car's, see MeterReading::uses, is placed as a
+/// block at the charger's power, if it is known, at the placement, and is otherwise shared in proportion to the points'
+/// import. The rest of each point's import is the house's, in the proportions of the other labels.
+fn split_half_hour(kwh: &[f64], seconds: &[i64], reading: &MeterReading, charger_watts: Option<f64>, placement: Placement)
     -> Vec<BTreeMap<String, f64>>
 {
+    let units = &reading.units;
+    let is_car = |label: &str| reading.uses.get(label).is_some_and(|category| category == CAR);
     let meter_total: f64 = units.values().sum();
-    let ev_units: f64 = units.iter().filter(|(label, _)| is_ev(label)).map(|(_, units)| units).sum();
+    let ev_units = reading.units_of(CAR);
     let home_units = meter_total - ev_units;
     let total: f64 = kwh.iter().sum();
     let ev_total = total * ev_units / meter_total;
@@ -300,7 +311,7 @@ fn split_half_hour(kwh: &[f64], seconds: &[i64], units: &BTreeMap<String, f64>, 
             let home = kwh - ev;
             units.iter()
                 .map(|(label, units)| {
-                    let share = match (is_ev(label), ev_units > 0.0, home_units > 0.0) {
+                    let share = match (is_car(label), ev_units > 0.0, home_units > 0.0) {
                         (true, true, _) => ev * units / ev_units,
                         (false, _, true) => home * units / home_units,
                         (true, false, _) | (false, _, false) => 0.0,
@@ -309,7 +320,7 @@ fn split_half_hour(kwh: &[f64], seconds: &[i64], units: &BTreeMap<String, f64>, 
                 })
                 // Import in a point which the meter gives none of to the house is given to the car.
                 .chain((home_units == 0.0 && home > 0.0).then(|| {
-                    let label = units.keys().find(|label| is_ev(label)).cloned().unwrap_or_default();
+                    let label = units.keys().find(|label| is_car(label)).cloned().unwrap_or_default();
                     (label, home)
                 }))
                 .fold(BTreeMap::new(), |mut labels, (label, kwh)| { *labels.entry(label).or_insert(0.0) += kwh; labels })
@@ -345,33 +356,141 @@ fn shaped_by_power(mut points: Vec<GridPoint>) -> Vec<GridPoint> {
     points
 }
 
-/// The rates of a meter's half hourly reading, e.g. Low Rate for Home Low Rate and EV Low Rate, with the share of its
-/// units at each, None if a label is not of the house or the car, e.g. a time of use bucket of an older reading.
-fn rates(units: &BTreeMap<String, f64>) -> Option<Vec<(String, f64)>> {
-    let total: f64 = units.values().sum();
-    let mut rates: BTreeMap<String, f64> = BTreeMap::new();
-    for (label, units) in units {
-        let rate = label.strip_prefix(&format!("{HOUSE} ")).or_else(|| label.strip_prefix(&format!("{EV} ")))?;
-        *rates.entry(rate.to_string()).or_default() += units / total;
-    }
-    Some(rates.into_iter().collect())
-}
-
 /// The labels of a point measured to have been used for each category, e.g. the car and the batteries, see
 /// power::topology, in the rates, with the share at each, and with suffix, e.g. (estimated), each as PREFIX RATE SUFFIX,
-/// e.g. EV Low Rate, see topology::label_prefix, or PREFIX SUFFIX for a rate which is not known, "".
-fn measured_labels(uses: &BTreeMap<String, f64>, rates: &[(String, f64)], suffix: &str) -> BTreeMap<String, f64> {
+/// e.g. EV Low Rate, see topology::label_prefix, or PREFIX SUFFIX for a rate which is not known, "". The use of each
+/// label is added to label_uses.
+fn measured_labels(uses: &BTreeMap<String, f64>, rates: &[(String, f64)], suffix: &str, label_uses: &mut BTreeMap<String, String>)
+    -> BTreeMap<String, f64>
+{
     let mut labels = BTreeMap::new();
     for (rate, share) in rates {
         for (category, kwh) in uses {
             if *kwh > 0.0 {
                 let kind = super::topology::label_prefix(category);
                 let label = if rate.is_empty() { format!("{kind}{suffix}") } else { format!("{kind} {rate}{suffix}") };
+                label_uses.insert(label.clone(), category.clone());
                 *labels.entry(label).or_default() += kwh * share;
             }
         }
     }
     labels
+}
+
+/// What each use measured in a half hour, measured, by point, was billed as: the share of its kWh in each of the
+/// meter's Billed groups. The kWh the supplier billed as a use go to that use, as far as it was measured to use them,
+/// and the rest of the meter's kWh to the uses still short, in proportion to what they are short, so that the kWh in
+/// each group over the half hour are the meter's, see the module comment.
+fn billed_uses(reading: &MeterReading, measured: &[BTreeMap<String, f64>]) -> BTreeMap<String, Vec<(Billed, f64)>> {
+    let mut wanted: BTreeMap<String, f64> = BTreeMap::new();
+    for uses in measured {
+        for (category, kwh) in uses.iter().filter(|(_, kwh)| **kwh > 0.0) {
+            *wanted.entry(category.clone()).or_default() += kwh;
+        }
+    }
+    let measured_total: f64 = wanted.values().sum();
+    if measured_total <= 0.0 {
+        return BTreeMap::new();
+    }
+    // In the meter's kWh, as the grid meter's differ a little.
+    let scale = reading.total() / measured_total;
+    wanted.values_mut().for_each(|kwh| *kwh *= scale);
+    let mut pool: BTreeMap<Billed, f64> = BTreeMap::new();
+    for (label, units) in reading.units.iter().filter(|(_, units)| **units > 0.0) {
+        *pool.entry(reading.billed(label)).or_default() += units;
+    }
+    let mut given: BTreeMap<String, BTreeMap<Billed, f64>> = BTreeMap::new();
+    for (category, want) in wanted.iter_mut() {
+        let own: f64 = pool.iter().filter(|((billed_use, _), _)| billed_use == category).map(|(_, kwh)| kwh).sum();
+        if own <= 0.0 {
+            continue;
+        }
+        let share = (*want / own).min(1.0);
+        for (billed, kwh) in pool.iter_mut().filter(|((billed_use, _), _)| billed_use == category) {
+            *given.entry(category.clone()).or_default().entry(billed.clone()).or_default() += *kwh * share;
+            *kwh *= 1.0 - share;
+        }
+        *want -= own * share;
+    }
+    let short: f64 = wanted.values().sum();
+    if short > 0.0 {
+        for (category, want) in &wanted {
+            for (billed, kwh) in &pool {
+                *given.entry(category.clone()).or_default().entry(billed.clone()).or_default() += kwh * want / short;
+            }
+        }
+    }
+    given.into_iter()
+        .map(|(category, billed)| {
+            let total: f64 = billed.values().sum();
+            let shares = billed.into_iter().filter(|(_, kwh)| *kwh > 0.0).map(|(billed, kwh)| (billed, kwh / total)).collect();
+            (category, shares)
+        })
+        .collect()
+}
+
+/// The labels of each of a half hour's points, by the use measured, measured, at the rates it was billed at, see
+/// billed_uses, e.g. EV Standard Rate, and the cost of each, at the meter's price of what it was billed as, made to add
+/// up to the meter's cost over the half hour. The use of each label is added to label_uses.
+fn billed_labels(reading: &MeterReading, measured: &[BTreeMap<String, f64>], label_uses: &mut BTreeMap<String, String>)
+    -> (Vec<BTreeMap<String, f64>>, Vec<BTreeMap<String, f64>>)
+{
+    let billed_uses = billed_uses(reading, measured);
+    let mut billed_costs: BTreeMap<Billed, (f64, f64)> = BTreeMap::new();
+    for (label, units) in &reading.units {
+        let entry = billed_costs.entry(reading.billed(label)).or_default();
+        entry.0 += units;
+        entry.1 += reading.costs.get(label).copied().unwrap_or_default();
+    }
+    let price = |billed: &Billed| billed_costs.get(billed).filter(|(units, _)| *units > 0.0).map_or(0.0, |(units, cost)| cost / units);
+    let mut labels = Vec::new();
+    let mut costs = Vec::new();
+    for uses in measured {
+        let mut point_labels: BTreeMap<String, f64> = BTreeMap::new();
+        let mut point_costs: BTreeMap<String, f64> = BTreeMap::new();
+        for (category, kwh) in uses.iter().filter(|(_, kwh)| **kwh > 0.0) {
+            for (billed, share) in billed_uses.get(category).into_iter().flatten() {
+                let label = format!("{} {}", super::topology::label_prefix(category), billed.1);
+                label_uses.insert(label.clone(), category.clone());
+                *point_labels.entry(label.clone()).or_default() += kwh * share;
+                *point_costs.entry(label).or_default() += kwh * share * price(billed);
+            }
+        }
+        labels.push(point_labels);
+        costs.push(point_costs);
+    }
+    let total: f64 = costs.iter().flat_map(|point| point.values()).sum();
+    if total != 0.0 {
+        let scale = reading.total_cost() / total;
+        costs.iter_mut().flat_map(|point| point.values_mut()).for_each(|cost| *cost *= scale);
+    }
+    (labels, costs)
+}
+
+/// The cost of each label of each of a half hour's points, labels, whose rates rate_of gives: the cost at each rate of
+/// the meter's reading shared out among the labels at that rate, in proportion to their kWh, so that the cost at each
+/// rate over the half hour is the supplier's, whoever is said to have used it.
+fn shared_costs(reading: &MeterReading, labels: &[BTreeMap<String, f64>], rate_of: impl Fn(&str) -> String) -> Vec<BTreeMap<String, f64>> {
+    let mut rate_costs: BTreeMap<&str, f64> = BTreeMap::new();
+    for (label, cost) in &reading.costs {
+        *rate_costs.entry(reading.rate(label)).or_default() += cost;
+    }
+    let mut rate_kwh: BTreeMap<String, f64> = BTreeMap::new();
+    for point in labels {
+        for (label, kwh) in point {
+            *rate_kwh.entry(rate_of(label)).or_default() += kwh;
+        }
+    }
+    labels.iter()
+        .map(|point| point.iter()
+            .filter_map(|(label, kwh)| {
+                let rate = rate_of(label);
+                let cost = rate_costs.get(rate.as_str())?;
+                let total = rate_kwh.get(&rate).copied().unwrap_or_default();
+                (total > 0.0).then(|| (label.clone(), cost * kwh / total))
+            })
+            .collect())
+        .collect()
 }
 
 /// The start of each half hour, as unix timestamps, in which at least CHARGING_READINGS readings are at or above the
@@ -391,26 +510,20 @@ pub fn combine(import: &[MeterReading], export: &[MeterReading], readings: &[Gri
     start: i64, end: i64, period: Period, estimate: &Estimate, tz: &'static Tz) -> Electricity
 {
     let import_meter: BTreeMap<i64, &MeterReading> = import.iter().map(|half_hour| (half_hour.start, half_hour)).collect();
+    let export_meter: BTreeMap<i64, &MeterReading> = export.iter().map(|half_hour| (half_hour.start, half_hour)).collect();
     let complete: std::collections::BTreeSet<i64> = complete_half_hours(readings, start, end).into_iter().collect();
     let charging = estimate.charger_watts
         .map(|watts| charging_half_hours(readings, watts * CHARGING_POWER_SHARE))
         .unwrap_or_default();
-    let charged = |half_hour: i64| import_meter.get(&half_hour)
-        .is_some_and(|reading| reading.units.iter().any(|(label, units)| is_ev(label) && *units > 0.0));
+    // Whether the supplier billed the car for any of the half hour starting at half_hour.
+    let charged = |half_hour: i64| import_meter.get(&half_hour).is_some_and(|reading| reading.units_of(CAR) > 0.0);
 
     // Whether the half hour starting at half_hour is in the tariff's cheap times, None if they are not known.
-    let in_cheap_times = |half_hour: i64| -> Option<bool> {
-        let cheap = estimate.cheap.as_ref()?;
-        let minute = time::OffsetDateTime::from_unix_timestamp(half_hour)
-            .map(|time| time.to_timezone(tz))
-            .map(|time| time.hour() as i64 * 60 + time.minute() as i64)
-            .unwrap_or_default();
-        Some(cheap.contains(minute))
-    };
-    // Whether the import in the half hour starting at half_hour, which the meter has no reading for, is estimated to be at
-    // the low rate, None if it can not be estimated. measured_charging is whether the car was measured charging in it.
-    let estimated_low = |half_hour: i64, measured_charging: bool| -> Option<bool> {
-        Some(in_cheap_times(half_hour)? || (estimate.cheap_charging && (measured_charging || charging.contains(&half_hour))))
+    let in_cheap_times = |half_hour: i64| estimate.tariff.as_ref()?.cheap_time(half_hour);
+    // The rate the import in the half hour starting at half_hour, which the meter has no reading for, is estimated to be
+    // billed at, None if it can not be estimated. measured_charging is whether the car was measured charging in it.
+    let estimated_rate = |half_hour: i64, measured_charging: bool| {
+        estimate.tariff.as_ref()?.estimated_rate(half_hour, measured_charging || charging.contains(&half_hour))
     };
 
     // The Home Mini's readings in the half hours it has them all for, in periods no longer than a half hour.
@@ -440,40 +553,57 @@ pub fn combine(import: &[MeterReading], export: &[MeterReading], readings: &[Gri
         let demand: Vec<Option<f64>> = half_hour_points.iter().map(|point| point.demand).collect();
         let measured = measurements.and_then(|measurements| measurements.split(&kwh, &demand, &bounds));
         let measured_ev: f64 = measured.iter().flatten().filter_map(|uses| uses.get(super::topology::CAR)).sum();
-        let reading_rates = reading.and_then(|reading| rates(&reading.units));
-        let (labels, octopus_ev): (Vec<BTreeMap<String, f64>>, Option<f64>) = match (reading, &measured, reading_rates) {
-            (Some(reading), Some(measured), Some(rates)) => (
-                measured.iter().map(|uses| measured_labels(uses, &rates, "")).collect(),
-                Some(reading.units.iter().filter(|(label, _)| is_ev(label)).map(|(_, units)| units).sum()),
-            ),
-            (Some(reading), _, _) => (split_half_hour(&kwh, &seconds, &reading.units, estimate.charger_watts, placement), None),
-            (None, measured, _) => {
-                let low = estimated_low(half_hour, measured_ev >= MEASURED_CHARGING);
-                let labels = match (low, measured) {
-                    (Some(low), Some(measured)) => {
-                        let rate = [(String::from(if low { "Low Rate" } else { "Standard Rate" }), 1.0)];
-                        measured.iter().map(|uses| measured_labels(uses, &rate, " (estimated)")).collect()
+        // The labels of each point, and their costs, which only the meter's reading has, not an estimate, and the use of
+        // each label, where it is known.
+        let mut label_uses: BTreeMap<String, String> = BTreeMap::new();
+        let (labels, costs, octopus_ev): (Vec<BTreeMap<String, f64>>, Vec<BTreeMap<String, f64>>, Option<f64>) = match (reading, &measured) {
+            (Some(reading), Some(measured)) => {
+                let (labels, costs) = billed_labels(reading, measured, &mut label_uses);
+                (labels, costs, Some(reading.units_of(CAR)))
+            },
+            (Some(reading), _) => {
+                label_uses = reading.uses.clone();
+                let labels = split_half_hour(&kwh, &seconds, reading, estimate.charger_watts, placement);
+                let costs = shared_costs(reading, &labels, |label| reading.rate(label).to_string());
+                (labels, costs, None)
+            },
+            (None, measured) => {
+                let rate = estimated_rate(half_hour, measured_ev >= MEASURED_CHARGING);
+                let labels: Vec<BTreeMap<String, f64>> = match (rate, measured) {
+                    (Some(rate), Some(measured)) => {
+                        measured.iter().map(|uses| measured_labels(uses, &[(rate.clone(), 1.0)], " (estimated)", &mut label_uses)).collect()
                     },
                     // Neither billed nor estimated, e.g. a site with no supplier's readings, so only by use.
-                    (None, Some(measured)) => measured.iter().map(|uses| measured_labels(uses, &[(String::new(), 1.0)], "")).collect(),
-                    _ => {
-                        let label = match low {
-                            Some(true) => LOW_ESTIMATED_LABEL,
-                            Some(false) => STANDARD_ESTIMATED_LABEL,
-                            None => UNMETERED_LABEL,
+                    (None, Some(measured)) => {
+                        measured.iter().map(|uses| measured_labels(uses, &[(String::new(), 1.0)], "", &mut label_uses)).collect()
+                    },
+                    // Not split by use, so the whole import's, labelled as the house's, as a supplier's would be.
+                    (rate, None) => {
+                        let label = match rate {
+                            Some(rate) => format!("{} {rate} (estimated)", super::topology::label_prefix(super::topology::HOUSE)),
+                            None => String::from(UNMETERED_LABEL),
                         };
-                        kwh.iter().map(|kwh| BTreeMap::from([(String::from(label), *kwh)])).collect()
+                        kwh.iter().map(|kwh| BTreeMap::from([(label.clone(), *kwh)])).collect()
                     },
                 };
-                (labels, None)
+                let costs = vec![BTreeMap::new(); labels.len()];
+                (labels, costs, None)
             },
         };
         let mut sources = BTreeSet::from([source(GRID_SOURCE, grid_name)]);
         if let (Some(measurements), Some(_)) = (measurements, &measured) {
             sources.insert((MEASURED_SOURCE, measurements.name()));
         }
+        // The standing charge shared out by time and the export's credit by the export.
+        let standing_charge = import_meter.get(&half_hour)
+            .map_or(0.0, |reading| reading.standing_charge / (reading.end - reading.start).max(1) as f64);
+        let exported: f64 = half_hour_points.iter().map(|point| point.export).sum();
+        let export_cost = |point: &GridPoint| export_meter.get(&half_hour).map_or(0.0, |reading| match exported > 0.0 {
+            true => reading.total_cost() * point.export / exported,
+            false => reading.total_cost() * (point.end - point.start) as f64 / (reading.end - reading.start).max(1) as f64,
+        });
         let outside = in_cheap_times(half_hour) == Some(false);
-        parts.extend(half_hour_points.iter().zip(labels).map(|(point, import)| {
+        parts.extend(half_hour_points.iter().zip(labels).zip(costs).map(|((point, import), costs)| {
             let ev_comparison = octopus_ev.map(|octopus| {
                 let share = (point.end - point.start) as f64 / HALF_HOUR as f64;
                 let (measured, octopus) = (measured_ev * share, octopus * share);
@@ -488,7 +618,11 @@ pub fn combine(import: &[MeterReading], export: &[MeterReading], readings: &[Gri
                 start: point.start,
                 end: point.end,
                 import,
+                uses: label_uses.clone(),
                 export: point.export / 1000.0,
+                costs,
+                export_cost: export_cost(point),
+                standing_charge: standing_charge * (point.end - point.start) as f64,
                 demand: point.demand,
                 sources: sources.clone(),
                 ev_comparison,
@@ -512,9 +646,13 @@ pub fn combine(import: &[MeterReading], export: &[MeterReading], readings: &[Gri
         });
         if exported {
             part.export += reading.total();
+            part.export_cost += reading.total_cost();
         }
         else {
             part.import = reading.units.clone();
+            part.uses = reading.uses.clone();
+            part.costs = reading.costs.clone();
+            part.standing_charge = reading.standing_charge;
         }
     }
     parts.extend(meter_parts.into_values());
@@ -554,12 +692,17 @@ pub fn combine(import: &[MeterReading], export: &[MeterReading], readings: &[Gri
     };
 
     let labels = order_labels(periods.iter().flat_map(|period| period.import.keys().map(String::as_str)));
+    let label_uses: BTreeMap<&String, &String> = periods.iter().flat_map(|period| &period.uses).collect();
+    let uses = labels.iter().map(|label| label_uses.get(label).map(|category| category.to_string()).unwrap_or_default()).collect();
     let points = periods.into_iter()
         .map(|period| ElectricityPoint {
             start: period.start,
             end: period.end,
             import: labels.iter().map(|label| period.import.get(label).copied().unwrap_or_default()).collect(),
             export: period.export,
+            costs: labels.iter().map(|label| period.costs.get(label).copied().unwrap_or_default()).collect(),
+            export_cost: period.export_cost,
+            standing_charge: period.standing_charge,
             demand: period.demand,
             // Once each, as the grid meter and what measured the use may be the same, e.g. Tesla.
             sources: period.sources.into_iter().fold(Vec::new(), |mut names, (_, name)| {
@@ -571,7 +714,7 @@ pub fn combine(import: &[MeterReading], export: &[MeterReading], readings: &[Gri
             ev_comparison: period.ev_comparison,
         })
         .collect();
-    Electricity { labels, points }
+    Electricity { labels, uses, points, currency: None }
 }
 
 #[cfg(test)]
@@ -583,8 +726,8 @@ mod tests {
 
     use crate::power::measured::RegisterMeasurements;
     use crate::power::topology::TopologySplit;
-    use super::{CheapTimes, Estimate, LOW_ESTIMATED_LABEL, MeterReading, Placement, STANDARD_ESTIMATED_LABEL,
-        UNMETERED_LABEL, combine, complete_half_hours, shaped_by_power, split_half_hour};
+    use super::{Estimate, MeterReading, Placement, Tariff, UNMETERED_LABEL, combine, complete_half_hours, shaped_by_power,
+        split_half_hour};
     use crate::power::grid::GridPoint;
     use crate::power::grid::GridReading;
     use crate::period::Period;
@@ -618,11 +761,21 @@ mod tests {
             .collect()
     }
 
+    /// A meter's half hour with labels as Octopus's are, each billed at its rate, e.g. Low Rate for EV Low Rate, and the
+    /// EV ones as the car's.
     fn half_hour(start: i64, units: &[(&str, f64)]) -> MeterReading {
         MeterReading {
             start,
             end: start + 1800,
             units: units.iter().map(|(label, units)| (label.to_string(), *units)).collect(),
+            rates: units.iter()
+                .filter_map(|(label, _)| Some((label.to_string(), label.strip_prefix("Home ").or_else(|| label.strip_prefix("EV "))?.to_string())))
+                .collect(),
+            uses: units.iter()
+                .filter(|(label, _)| label.starts_with("EV "))
+                .map(|(label, _)| (label.to_string(), String::from(crate::power::topology::CAR)))
+                .collect(),
+            ..MeterReading::default()
         }
     }
 
@@ -682,36 +835,43 @@ mod tests {
         assert_eq!(day.sources, ["Home Mini", "meter"]);
     }
 
-    fn slots(slots: &[(&str, &str, &str)]) -> Vec<(String, String, String)> {
-        slots.iter().map(|(name, from, to)| (name.to_string(), from.to_string(), to.to_string())).collect()
+    /// A tariff whose cheap times are 23:30 to 05:30 UTC, on which charging the car is at the low rate if
+    /// cheap_charging, as on Intelligent Octopus.
+    #[derive(Debug)]
+    struct NightTariff {
+        cheap_charging: bool,
     }
 
-    #[test]
-    fn the_cheap_times_are_the_night_timeslot_or_else_the_shortest() {
-        let go = CheapTimes::from_timeslots(&slots(&[("ECO7_DAY", "05:30:00", "23:30:00"), ("ECO7_NIGHT", "23:30:00", "05:30:00")]));
-        assert_eq!(go, Some(CheapTimes(vec![(1410, 330)])));
-        let go = go.unwrap();
-        assert!(go.contains(23 * 60 + 30) && go.contains(0) && go.contains(5 * 60) && !go.contains(5 * 60 + 30) && !go.contains(12 * 60));
-        let unnamed = CheapTimes::from_timeslots(&slots(&[("A", "07:00", "02:00"), ("B", "02:00", "07:00")]));
-        assert_eq!(unnamed, Some(CheapTimes(vec![(120, 420)])));
-        assert_eq!(CheapTimes::from_timeslots(&slots(&[("ALL", "00:00", "00:00")])), None);
+    impl Tariff for NightTariff {
+        fn estimated_rate(&self, half_hour: i64, car_charging: bool) -> Option<String> {
+            let low = self.cheap_time(half_hour)? || (self.cheap_charging && car_charging);
+            Some(String::from(if low { "Low Rate" } else { "Standard Rate" }))
+        }
+
+        fn cheap_time(&self, half_hour: i64) -> Option<bool> {
+            let minute = half_hour.rem_euclid(86400) / 60;
+            Some(minute >= 23 * 60 + 30 || minute < 5 * 60 + 30)
+        }
+    }
+
+    fn night(cheap_charging: bool) -> Estimate {
+        Estimate { tariff: Some(Arc::new(NightTariff { cheap_charging })), charger_watts: Some(7000.0) }
     }
 
     #[test]
     fn unmetered_import_is_low_rate_in_the_cheap_times_or_while_charging_and_otherwise_standard() {
-        let cheap = CheapTimes::from_timeslots(&slots(&[("ECO7_DAY", "05:30", "23:30"), ("ECO7_NIGHT", "23:30", "05:30")])).unwrap();
-        let estimate = Estimate { cheap: Some(cheap), cheap_charging: true, charger_watts: Some(7000.0) };
+        let estimate = night(true);
         // From 05:00 to 06:30, with the car charging at 7 kW from 06:00.
         let mut all = readings(DAY + 5 * 3600 - 10, DAY + 6 * 3600 + 1800);
         for reading in all.iter_mut().filter(|reading| reading.read_at >= DAY + 6 * 3600) {
             reading.demand = Some(7000.0);
         }
         let electricity = combine(&[], &[], &all, "Home Mini", None, DAY + 5 * 3600, DAY + 6 * 3600 + 1800, Period::HalfHour, &estimate, LONDON);
-        assert_eq!(electricity.labels, [LOW_ESTIMATED_LABEL, STANDARD_ESTIMATED_LABEL]);
+        assert_eq!(electricity.labels, ["Home Low Rate (estimated)", "Home Standard Rate (estimated)"]);
         let rates: Vec<Vec<bool>> = electricity.points.iter().map(|point| point.import.iter().map(|kwh| *kwh > 0.0).collect()).collect();
         assert_eq!(rates, [vec![true, false], vec![false, true], vec![true, false]]);
         // On a tariff which is not an Intelligent Octopus one, charging outside the cheap times is at the standard rate.
-        let other = Estimate { cheap_charging: false, ..estimate };
+        let other = night(false);
         let electricity = combine(&[], &[], &all, "Home Mini", None, DAY + 5 * 3600, DAY + 6 * 3600 + 1800, Period::HalfHour, &other, LONDON);
         let rates: Vec<Vec<bool>> = electricity.points.iter().map(|point| point.import.iter().map(|kwh| *kwh > 0.0).collect()).collect();
         assert_eq!(rates, [vec![true, false], vec![false, true], vec![false, true]]);
@@ -720,7 +880,7 @@ mod tests {
     #[test]
     fn the_cars_share_of_a_metered_half_hour_is_a_block_at_the_chargers_power_where_it_was_charging() {
         // Six 10 second points, the car's share 0.06 kWh, which is three points at 7.2 kW (0.02 kWh each).
-        let units = BTreeMap::from([(String::from("EV Low Rate"), 1.0), (String::from("Home Low Rate"), 4.0)]);
+        let units = half_hour(DAY, &[("EV Low Rate", 1.0), ("Home Low Rate", 4.0)]);
         let seconds = [10; 6];
         let ev = |kwh: &[f64], placement: Placement| -> Vec<f64> {
             split_half_hour(kwh, &seconds, &units, Some(7200.0), placement).iter().map(|labels| labels["EV Low Rate"]).collect()
@@ -769,9 +929,58 @@ mod tests {
     }
 
     #[test]
+    fn the_cost_at_each_rate_is_the_meters_shared_out_by_the_measured_use() {
+        // As above, the car measured at 0.9 kWh of the 1.8, which Octopus put at 1.5, all at the low rate, 13.5p, and a
+        // standing charge of 2p.
+        let all = readings(DAY - 10, DAY + 1810);
+        let mut reading = half_hour(DAY, &[("Home Low Rate", 0.3), ("EV Low Rate", 1.5)]);
+        reading.costs = BTreeMap::from([(String::from("Home Low Rate"), 2.25), (String::from("EV Low Rate"), 11.25)]);
+        reading.standing_charge = 2.0;
+        let mut export = half_hour(DAY, &[(EXPORT_LABEL, 0.5)]);
+        export.costs = BTreeMap::from([(String::from(EXPORT_LABEL), -7.5)]);
+        let electricity = combine(&[reading.clone()], &[export], &all, "Home Mini", Some(&tesla(DAY - 20, DAY + 1820, 1800.0, 0.0)), DAY,
+            DAY + 1800, Period::HalfHour, &Estimate::default(), LONDON);
+        let point = &electricity.points[0];
+        assert!((point.costs[0] - 6.75).abs() < 1e-6 && (point.costs[1] - 6.75).abs() < 1e-6, "{:?}", point.costs);
+        assert!((point.standing_charge - 2.0).abs() < 1e-9 && (point.export_cost + 7.5).abs() < 1e-9, "{point:?}");
+        // In 10 minutes, the same over the half hour.
+        let electricity = combine(&[reading], &[], &all, "Home Mini", Some(&tesla(DAY - 20, DAY + 1820, 1800.0, 0.0)), DAY, DAY + 1800,
+            Period::TenMinutes, &Estimate::default(), LONDON);
+        let total: f64 = electricity.points.iter().flat_map(|point| point.costs.iter()).sum();
+        let standing: f64 = electricity.points.iter().map(|point| point.standing_charge).sum();
+        assert!((total - 13.5).abs() < 1e-6 && (standing - 2.0).abs() < 1e-6, "{:?}", electricity.points);
+    }
+
+    #[test]
+    fn what_the_supplier_billed_as_the_cars_goes_to_the_measured_car_first_and_the_rest_at_its_own_rate() {
+        // As on 3 Nov 2026 04:30, Octopus billed what it took for the car at the peak rate, past its limit, and the house
+        // at the low rate. Measured, the car took 0.9 kWh, the house 0.9 kWh.
+        let all = readings(DAY - 10, DAY + 1810);
+        let tesla = tesla(DAY - 20, DAY + 1820, 1800.0, 0.0);
+        let combined = |reading: MeterReading| {
+            let electricity = combine(&[reading], &[], &all, "Home Mini", Some(&tesla), DAY, DAY + 1800, Period::HalfHour,
+                &Estimate::default(), LONDON);
+            let point = &electricity.points[0];
+            let value = |values: &[f64], label: &str| electricity.labels.iter().position(|known| known == label).map_or(0.0, |index| values[index]);
+            ["EV Standard Rate", "EV Low Rate", "Home Standard Rate", "Home Low Rate"]
+                .map(|label| ((value(&point.import, label) * 1000.0).round() / 1000.0, (value(&point.costs, label) * 100.0).round() / 100.0))
+        };
+        let costed = |units: &[(&str, f64)], prices: &[f64]| {
+            let mut reading = half_hour(DAY, units);
+            reading.costs = units.iter().zip(prices).map(|((label, units), price)| (label.to_string(), units * price)).collect();
+            reading
+        };
+        // Octopus took 1.5 kWh for the car, so the 0.6 the car did not take is the house's, at the peak rate it was billed.
+        assert_eq!(combined(costed(&[("EV Standard Rate", 1.5), ("Home Low Rate", 0.3)], &[36.294, 6.6])),
+            [(0.9, 32.66), (0.0, 0.0), (0.6, 21.78), (0.3, 1.98)]);
+        // Octopus took 0.5 kWh for the car, so the car's other 0.4 is from what it billed as the house's, at the low rate.
+        assert_eq!(combined(costed(&[("EV Standard Rate", 0.5), ("Home Low Rate", 1.3)], &[36.294, 6.6])),
+            [(0.5, 18.15), (0.4, 2.64), (0.0, 0.0), (0.9, 5.94)]);
+    }
+
+    #[test]
     fn the_comparison_is_as_much_each_minute_of_the_half_hour_and_counted_apart_outside_the_cheap_times() {
-        let go = CheapTimes::from_timeslots(&slots(&[("ECO7_DAY", "05:30:00", "23:30:00"), ("ECO7_NIGHT", "23:30:00", "05:30:00")]));
-        let estimate = Estimate { cheap: go, ..Estimate::default() };
+        let estimate = Estimate { charger_watts: None, ..night(false) };
         // As a_measured_half_hour_is_labelled_by_use_at_the_meters_rate_with_octopuss_split_to_compare, at midnight,
         // in the cheap times, and at noon, outside them.
         for (start, outside) in [(DAY, false), (DAY + 12 * 3600, true)] {

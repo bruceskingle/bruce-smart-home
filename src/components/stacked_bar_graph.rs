@@ -26,6 +26,34 @@ pub enum StackedBarMode {
     Cost,
 }
 
+/// What a graph of electricity shows, the same choice on every page which has one: the energy in kWh, the average
+/// power over each bar in kW, or the cost.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum GraphMode {
+    Energy,
+    Power,
+    Cost,
+}
+
+impl GraphMode {
+    pub const ALL: [GraphMode; 3] = [GraphMode::Energy, GraphMode::Power, GraphMode::Cost];
+
+    /// How the graph formats its values.
+    pub fn bar_mode(self) -> StackedBarMode {
+        if self == GraphMode::Cost { StackedBarMode::Cost } else { StackedBarMode::Units }
+    }
+}
+
+impl std::fmt::Display for GraphMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GraphMode::Energy => write!(f, "Energy"),
+            GraphMode::Power => write!(f, "Power"),
+            GraphMode::Cost => write!(f, "Cost"),
+        }
+    }
+}
+
 /// The most bars a graph should have, more make dragging across them to zoom too slow to follow. Pages disable the
 /// periods that would have more.
 pub const MAX_BARS: usize = 2200;

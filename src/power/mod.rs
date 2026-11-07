@@ -19,7 +19,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use sparko_graphql::types::DateTime;
+use sparko_graphql::types::{Currency, DateTime};
 use time_tz::Tz;
 
 use crate::components::error_text::ErrorText;
@@ -42,17 +42,13 @@ pub fn electricity(loaded: &[&dyn LoadedElectricity], measurements: Option<&dyn 
     let empty = SiteData::default();
     let meters = loaded.iter().map(|loaded| loaded.data()).find(|data| !data.import.is_empty() || !data.export.is_empty()).unwrap_or(&empty);
     let grid = loaded.iter().map(|loaded| loaded.data()).find(|data| !data.grid.is_empty()).unwrap_or(&empty);
-    combine::combine(&meters.import, &meters.export, &grid.grid, &grid.grid_name, measurements, start, end, period,
-        &meters.estimate, tz)
+    let electricity = combine::combine(&meters.import, &meters.export, &grid.grid, &grid.grid_name, measurements, start, end,
+        period, &meters.estimate, tz);
+    Electricity { currency: meters.currency, ..electricity }
 }
 
 /// The app's own labels, with their default colours, see crate::known_labels.
 pub const LABELS: [(&str, &str); 2] = [(EXPORT_LABEL, "#f59e0b"), (OCTOPUS_EV_LABEL, "#ffffff")];
-
-/// Whether a label is of the car's import, e.g. EV Low Rate.
-pub fn is_ev(label: &str) -> bool {
-    label.starts_with("EV")
-}
 
 /// The electricity in a period, in kWh, with its start and end as unix timestamps.
 #[derive(Clone, Debug, PartialEq)]
@@ -62,6 +58,12 @@ pub struct ElectricityPoint {
     /// The energy imported, for each of Electricity::labels.
     pub import: Vec<f64>,
     pub export: f64,
+    /// The cost of the import of each of Electricity::labels, of the export, negative for a credit, and the standing
+    /// charge, in the minor units of Electricity::currency, see combine::MeterReading, zero where it is not known, e.g.
+    /// for import the meter has no reading for yet.
+    pub costs: Vec<f64>,
+    pub export_cost: f64,
+    pub standing_charge: f64,
     /// The Home Mini's average power, in W, net of export, for periods shorter than a half hour from its readings,
     /// which is steadier than their energy, as the readings are not exactly 10 seconds apart.
     pub demand: Option<f64>,
@@ -100,7 +102,12 @@ impl std::ops::Add for EvComparison {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Electricity {
     pub labels: Vec<String>,
+    /// The use each of labels is of, a topology category, e.g. Car for EV Low Rate, "" where it is not known, e.g. a
+    /// supplier's rate not split by use.
+    pub uses: Vec<String>,
     pub points: Vec<ElectricityPoint>,
+    /// The currency of the points' costs, None if the meters' readings have none.
+    pub currency: Option<Currency>,
 }
 
 /// What a load of an ElectricitySource gives.
@@ -169,6 +176,8 @@ pub struct SiteData {
     pub grid_name: String,
     /// What is known for estimating the rate of import the meters have no reading for yet.
     pub estimate: combine::Estimate,
+    /// The currency of the meters' readings' costs, see combine::MeterReading, None if they have none.
+    pub currency: Option<Currency>,
 }
 
 /// What an ElectricitySource loaded.
