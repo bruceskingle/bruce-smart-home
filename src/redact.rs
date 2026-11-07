@@ -519,7 +519,7 @@ pub fn redact_profile(from: &str, to: &str) -> anyhow::Result<()> {
     if profile_names_equal(from, to) {
         bail!("The new profile must have a different name to the one it is redacted from");
     }
-    let profiles: ProfileFile = serde_json::from_reader(fs::File::open(MarcoSparkoContext::get_file_path()?)?)?;
+    let profiles: ProfileFile = crate::profile::read_profile_file_at(&MarcoSparkoContext::get_file_path()?)?;
     let source = profiles.iter().find(|profile| profile_names_equal(&profile.name, from))
         .ok_or_else(|| anyhow!("There is no profile {from}"))?;
     if let Some(existing) = profiles.iter().find(|profile| profile_names_equal(&profile.name, to))

@@ -157,7 +157,7 @@ fn load_profile_data(from: &str) -> anyhow::Result<()> {
     use crate::profile::{Profile, ProfileFile, profile_names_equal};
 
     let usual = crate::data_home::usual_data_home()?;
-    let usual_profiles: ProfileFile = serde_json::from_reader(std::fs::File::open(crate::data_home::profiles_path_in(&usual))?)?;
+    let usual_profiles: ProfileFile = crate::profile::read_profile_file_at(&crate::data_home::profiles_path_in(&usual))?;
     let source = usual_profiles.iter().find(|profile| profile_names_equal(&profile.name, from))
         .ok_or_else(|| anyhow!("there is no profile {from} in {}", usual.display()))?;
     let active = crate::profile::fetch_active_profile(&None)?.active_profile.name;
@@ -175,9 +175,7 @@ fn load_profile_data(from: &str) -> anyhow::Result<()> {
     }
 
     let path = crate::MarcoSparkoContext::get_file_path()?;
-    let mut profiles: ProfileFile = std::fs::File::open(&path).ok()
-        .and_then(|file| serde_json::from_reader(file).ok())
-        .unwrap_or_default();
+    let mut profiles: ProfileFile = if path.exists() { crate::profile::read_profile_file_at(&path)? } else { Vec::new() };
     profiles.retain(|profile| !profile_names_equal(&profile.name, &active));
     let modules = source.modules.iter()
         .filter(|(module_id, _)| crate::redact::is_redactable(module_id))
@@ -199,7 +197,7 @@ fn load_profile_data(from: &str) -> anyhow::Result<()> {
         // A site of its own, in this data home, into which its data is converted, as it is in the old layout.
         site: None,
     });
-    serde_json::to_writer_pretty(crate::private_file::create_private_file(&path)?, &profiles)?;
+    crate::profile::write_profile_file_at(&path, &profiles)?;
     let active = profiles[0].name.clone();
     if crate::profile::ProfileVersionState::from(&profiles[0].version)? == crate::profile::ProfileVersionState::OlderThanCurrent {
         crate::profile::upgrade_profile(&active, &mut bruce_db::progress::Silent)?;

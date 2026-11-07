@@ -200,7 +200,8 @@ pub fn old_cache_dir() -> anyhow::Result<PathBuf> {
 /// Copies what Marco Sparko kept in home, the data home, into the new layout, see the module documentation, if it has
 /// not been, i.e. there is no profiles.json yet, and there is a .marco-sparko: the profiles, the modules' tokens, the
 /// window's state and the logs. They are copied, not moved, and left as they were, so that a build from before 0.5.0
-/// still runs from them; the profiles' data is converted when each profile is upgraded.
+/// still runs from them; the profiles' data is converted when each profile is upgraded. The profiles' secrets and the
+/// tokens are encrypted as they are copied, see secrets.rs, so that they are never in the settings directory in plain.
 fn migrate(home: &Path) -> anyhow::Result<()> {
     let settings = home.join(SETTINGS_DIR);
     let old_profiles = home.join(OLD_PROFILES);
@@ -219,6 +220,13 @@ fn migrate(home: &Path) -> anyhow::Result<()> {
         crate::private_file::create_private_file(to)?.write_all(&fs::read(from)?)?;
         Ok(())
     };
+    // A file of JSON, as encrypt changes it.
+    let copy_encrypted = |from: &Path, to: &Path, encrypt: &dyn Fn(serde_json::Value) -> anyhow::Result<serde_json::Value>| -> anyhow::Result<()> {
+        let value: serde_json::Value = serde_json::from_slice(&fs::read(from)?)
+            .map_err(|error| anyhow!("{} is not JSON: {error}", from.display()))?;
+        serde_json::to_writer_pretty(crate::private_file::create_private_file(to)?, &encrypt(value)?)?;
+        Ok(())
+    };
     let mut copied = 0;
     for entry in fs::read_dir(home.join(OLD_CACHE_DIR)).into_iter().flatten().flatten() {
         let path = entry.path();
@@ -229,9 +237,12 @@ fn migrate(home: &Path) -> anyhow::Result<()> {
         let target = if name == WINDOW_STATE {
             settings.join(WINDOW_STATE)
         }
-        // A module's tokens, <profile>-<module>.json, profile names being letters, digits and underscores.
+        // A module's tokens, <profile>-<module>.json, profile names being letters, digits and underscores, encrypted
+        // whole.
         else if name.ends_with(".json") && name.contains('-') {
-            tokens.join(&name)
+            copy_encrypted(&path, &tokens.join(&name), &|value| crate::secrets::seal(&value))?;
+            copied += 1;
+            continue;
         }
         else if name.ends_with(".log") || name.ends_with(".log.old") {
             logs.join(&name)
@@ -243,7 +254,10 @@ fn migrate(home: &Path) -> anyhow::Result<()> {
         copied += 1;
     }
     // The profiles last, as their being there says the copy is done.
-    copy(&old_profiles, &settings.join("profiles.json"))?;
+    copy_encrypted(&old_profiles, &settings.join("profiles.json"), &|mut value| {
+        crate::secrets::encrypt_secrets(&mut value)?;
+        Ok(value)
+    })?;
     crate::log_info!("Copied Marco Sparko's profiles and {copied} other files into {} and {}", settings.display(), data.display());
     Ok(())
 }
@@ -306,18 +320,30 @@ mod tests {
 
     #[test]
     fn marco_sparkos_profiles_tokens_window_and_logs_are_copied_once_and_left_as_they_were() {
+        crate::secrets::use_key_for_tests([7; 32]);
         let home = std::env::temp_dir().join(format!("marco-sparko-migrate-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(home.join(".marco-sparko-cache/n2-octopus")).unwrap();
-        fs::write(home.join(".marco-sparko"), "[profiles]").unwrap();
-        for name in ["n2-octopus.json", "window-state.json", "n2.log", "n2.log.old", "n2.log.lock", "n2-octopus/data"] {
+        let profiles = r#"[{"name":"n2","modules":{"octopus":{"apiKey":"sk_live_x","billingTimezone":"Europe/London"}}}]"#;
+        fs::write(home.join(".marco-sparko"), profiles).unwrap();
+        for name in ["window-state.json", "n2.log", "n2.log.old", "n2.log.lock", "n2-octopus/data"] {
             fs::write(home.join(".marco-sparko-cache").join(name), name).unwrap();
         }
+        fs::write(home.join(".marco-sparko-cache/n2-octopus.json"), r#"{"token":"abc"}"#).unwrap();
         super::migrate(&home).unwrap();
         let settings = home.join(".bruce-smart-home");
         let data = home.join(".bruce-smart-home-data");
-        assert_eq!(fs::read_to_string(settings.join("profiles.json")).unwrap(), "[profiles]");
-        assert_eq!(fs::read_to_string(settings.join("tokens/n2-octopus.json")).unwrap(), "n2-octopus.json");
+        // The secrets are encrypted as they are copied, and decrypt to what they were.
+        let read_json = |path: PathBuf| -> serde_json::Value { serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap() };
+        let mut copied = read_json(settings.join("profiles.json"));
+        let api_key = copied[0]["modules"]["octopus"]["apiKey"].as_str().unwrap().to_string();
+        assert!(crate::secrets::is_encrypted(&api_key) && !api_key.contains("sk_live_x"));
+        assert_eq!(copied[0]["modules"]["octopus"]["billingTimezone"], "Europe/London");
+        crate::secrets::decrypt_secrets(&mut copied).unwrap();
+        assert_eq!(copied, serde_json::from_str::<serde_json::Value>(profiles).unwrap());
+        let tokens = read_json(settings.join("tokens/n2-octopus.json"));
+        assert!(crate::secrets::is_encrypted(tokens.as_str().unwrap()));
+        assert_eq!(crate::secrets::unseal(tokens).unwrap(), serde_json::json!({ "token": "abc" }));
         assert_eq!(fs::read_to_string(settings.join("window-state.json")).unwrap(), "window-state.json");
         assert!(data.join("logs/n2.log").exists() && data.join("logs/n2.log.old").exists());
         assert!(!data.join("logs/n2.log.lock").exists());

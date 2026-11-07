@@ -18,6 +18,13 @@ fn main() {
         }
         std::process::exit(0);
     }
+    if let Some(profile) = args.encrypt_secrets() {
+        if let Err(error) = marco_sparko::convert::encrypt_secrets(profile) {
+            eprintln!("{error:#}");
+            std::process::exit(1);
+        }
+        std::process::exit(0);
+    }
     if args.redact_docs() {
         if let Err(error) = marco_sparko::redact::redact_docs() {
             eprintln!("{error:#}");

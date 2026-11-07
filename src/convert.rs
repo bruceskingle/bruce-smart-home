@@ -193,6 +193,14 @@ pub fn upgrade(profile_name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Encrypts the secrets of a profile, for --encryptsecrets, temporary until 0.5.0 is released, see
+/// profile::encrypt_secrets.
+pub fn encrypt_secrets(profile_name: &str) -> anyhow::Result<()> {
+    crate::profile::encrypt_secrets(profile_name)?;
+    println!("{profile_name}'s secrets are encrypted");
+    Ok(())
+}
+
 /// The kind of the record which says a profile's data has been converted, so that it is converted once.
 const CONVERTED: &str = "app.converted";
 

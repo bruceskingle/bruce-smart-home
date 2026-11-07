@@ -19,6 +19,7 @@ pub mod components;
 mod profile;
 
 mod private_file;
+mod secrets;
 pub mod data_home;
 pub mod logging;
 pub mod help;
@@ -102,6 +103,10 @@ pub struct MarcoSparkoArgs {
     /// then exit. No hyphen, see redact.
     #[arg(long, value_name = "PROFILE")]
     upgrade: Option<String>,
+    /// Temporary, until 0.5.0 is released: encrypt the secrets of a profile already upgraded to 0.5.0 before they were
+    /// encrypted, as the upgrade to 0.5.0 now does, see profile::encrypt_secrets, then exit. No hyphen, see redact.
+    #[arg(long, value_name = "PROFILE")]
+    encryptsecrets: Option<String>,
 }
 
 pub struct Args {
@@ -205,6 +210,11 @@ impl Args {
     /// The profile to upgrade, if --upgrade was given, see profile::upgrade_profile.
     pub fn upgrade(&self) -> Option<&str> {
         self.marco_sparko_args.upgrade.as_deref()
+    }
+
+    /// The profile whose secrets to encrypt, if --encryptsecrets was given, see profile::encrypt_secrets.
+    pub fn encrypt_secrets(&self) -> Option<&str> {
+        self.marco_sparko_args.encryptsecrets.as_deref()
     }
 
     /// Whether --redact docs was given, see redact::redact_docs.
@@ -571,28 +581,34 @@ impl MarcoSparkoContext {
         Ok(Arc::new(CacheConfig::new(dir_path, self.profile.active_profile.offline).with_store(self.store()?)))
     }
 
+    /// The module's tokens, decrypted, see secrets::unseal, or None if it has none, or they cannot be read, when it logs
+    /// in again.
     pub fn read_cache<T>(&self, module_id: &str) -> Option<T>
     where
         T: DeserializeOwned
      {
         if let Ok(path) = self.get_cache_file_path(module_id) {
             if let Ok(reader) = fs::File::open(path) {
-                match serde_json::from_reader(reader) {
+                let result = serde_json::from_reader(reader).map_err(anyhow::Error::from)
+                    .and_then(secrets::unseal)
+                    .and_then(|value| Ok(serde_json::from_value(value)?));
+                match result {
                     Ok(result) => return Some(result),
-                    Err(error) => println!("ERROR reading cached token: {:?}", error),
+                    Err(error) => println!("ERROR reading cached token: {error:#}"),
                 }
             }
         }
         return None
     }
 
+    /// Saves the module's tokens, encrypted whole, see secrets::seal, as they are all secret.
     pub fn update_cache<T>(&self, module_id: &str, profile: &T) -> anyhow::Result<()>
     where
         T: Serialize
     {
         let path = self.get_cache_file_path(module_id)?;
 
-        serde_json::to_writer_pretty(private_file::create_private_file(path)?, &profile)?;
+        serde_json::to_writer_pretty(private_file::create_private_file(path)?, &secrets::seal(&serde_json::to_value(profile)?)?)?;
 
         Ok(())
     }

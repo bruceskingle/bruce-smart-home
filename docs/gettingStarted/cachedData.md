@@ -9,6 +9,12 @@ data, which may be large, copied or deleted:
   - ```tokens```, each profile's modules' sessions and refresh tokens, a file ```profile-module.json``` each. Reusing
     them avoids logging in each time, which data sources limit, so that you do not see "Too Many Requests" errors.
     They are sensitive: do not share them with anyone.
+
+  The secrets in these, the API keys, passwords, login emails, capture devices' keys and tokens, are encrypted, with a
+  key kept in your computer's own store of secrets: the Keychain on macOS, the Credential Manager on Windows, and the
+  Secret Service (GNOME Keyring or KWallet) on Linux, under "Bruce's Smart Home". So a copy of the files, for example
+  in a backup, does not give them away, and they can only be read on the computer which has the key. On macOS the
+  Keychain may ask whether Marco Sparko may use the key, the first time, and after it is updated.
   - ```node```, this installation's identity in the store, and ```window-state.json```, where the window was.
 - ```.bruce-smart-home-data```, the data, which holds no secrets:
   - ```store```, each profile's data, a directory for each, named by its site's ID: everything fetched from the data

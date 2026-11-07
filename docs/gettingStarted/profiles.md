@@ -35,7 +35,7 @@ To move existing data, quit Marco Sparko, move ```.bruce-smart-home``` and ```.b
 
 The data directory is created if the directory containing it exists. If it does not, for example because it is on a drive which is not connected, Marco Sparko shows an error rather than using your home directory, so that credentials are never stored somewhere you did not choose. The data directory should only be accessible by you, on macOS and Linux a warning is printed if it is not (```chmod 700``` fixes this).
 
-When any module is initialised, if there is a current profile then the configuration will be added to that profile, otherwise a new profile called ```default``` will be created. The ```profiles.json``` file is a JSON document containing an array of profiles similar to this:
+When any module is initialised, if there is a current profile then the configuration will be added to that profile, otherwise a new profile called ```default``` will be created. The ```profiles.json``` file is a JSON document containing an array of profiles similar to this, in which the secrets, such as the API key, are encrypted, see [Your Data](cachedData.md):
 
 ```
 [
@@ -43,7 +43,7 @@ When any module is initialised, if there is a current profile then the configura
     "name": "default",
     "modules": {
       "octopus": {
-        "apiKey": "sk_live_XXXXXXXXXXXXXXXXXXXXXX",
+        "apiKey": "enc:v1:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
         "billingTimezone": "Europe/London"
       }
     }
@@ -52,7 +52,7 @@ When any module is initialised, if there is a current profile then the configura
     "name": "test_profile",
     "modules": {
       "octopus": {
-        "apiKey": "sk_live_XXXXXXXXXXXXXXXXXXXXXX",
+        "apiKey": "enc:v1:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
         "billingTimezone": "Europe/London"
       }
     }
