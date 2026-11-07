@@ -192,7 +192,7 @@ fn main() -> anyhow::Result<()> {
         .with_feature(Box::new(tesla::TeslaCapture::new(panel.clone(), db.clone(), gateway.clone())))?
         .with_feature(Box::new(myenergi::MyenergiCapture::new(panel.clone(), db.clone(), gateway.clone())))?
         .with_feature(Box::new(octopus::OctopusCapture::new(panel.clone(), db, gateway)))?
-        .with_firmware(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
+        .with_firmware(sparko_esp_idf::firmware!())
         .build()?;
     board::started(&sparko_esp32)?;
 

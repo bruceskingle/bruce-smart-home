@@ -17,21 +17,34 @@ gateway, myenergi's zappi and Octopus's smart charging, and keeps what it gets o
 
 ## Building and flashing
 
-From this directory, with the ESP Rust toolchain installed (see sparko-embedded-std):
+From this directory, with the ESP Rust toolchain installed (see sparko-embedded-std), and sparko-embedded-std's
+`bruce-embedded-flash`, which flashes only firmware built for the board on the port, refusing firmware built for
+another, and asking which board it is if the firmware on it does not say (see its README; install it with
+`cargo install --path ../../sparko-embedded-std/tools/bruce-embedded-flash`). Flash with it, never with espflash
+directly:
 
 - `cargo build --release` for a CYD, and `cargo run --release` flashes the CYD plugged in by USB, and shows its log.
 - For the Waveshare, which is RISC-V: `MCU=esp32c6 cargo build --release --target riscv32imac-esp-espidf
-  --no-default-features --features wave-esp32c6-touch-147`, then `espflash flash --port /dev/cu.usbmodem...
-  target/riscv32imac-esp-espidf/release/marco-sparko-capture`.
+  --no-default-features --features wave-esp32c6-touch-147`, then `bruce-embedded-flash flash --port
+  /dev/cu.usbmodem... target/riscv32imac-esp-espidf/release/marco-sparko-capture`.
 - For the RLCD: `MCU=esp32s3 cargo build --release --target xtensa-esp32s3-espidf --no-default-features --features
-  wave-esp32s3-rlcd-42`, then `espflash flash --port /dev/cu.usbmodem... target/xtensa-esp32s3-espidf/release/marco-sparko-capture`.
+  wave-esp32s3-rlcd-42`, then `bruce-embedded-flash flash --port /dev/cu.usbmodem...
+  target/xtensa-esp32s3-espidf/release/marco-sparko-capture`.
 - For the Guition JC3248W535C, the same with `--features guition-jc3248w535c`.
 - `python3 log.py [port]` shows a device's log without restarting it (needs pyserial). Not `espflash monitor`, which
   restarts it, or with `--no-reset` leaves it stopped in its bootloader. The CYD's port is `/dev/cu.usbserial-*`, its
   USB chip's, the Waveshare's `/dev/cu.usbmodem*`, the chip's own USB.
 
-In VS Code, Terminal > Run Task has **Device: Flash CYD**, **Device: Flash Waveshare**, **Device: Log CYD** and
-**Device: Log Waveshare**, which find the port.
+`./build-firmware.sh` builds every board's firmware, or `./build-firmware.sh <board>...` those named, and copies each,
+as soon as it is built, as boards with the same chip build to the same path in `target/`, to the shared firmware
+folder, as `bruce-smart-home/dev/marco-sparko-capture-<board>.elf`, see sparko-embedded-std's
+`tools/bruce-embedded-firmware`, e.g. `~/Library/Application Support/bruce-embedded-std/firmware/` on macOS, where
+the app's Devices page and bruce-embedded-flash's window find it. `./build-firmware.sh --path <board>` prints where a
+board's goes.
+
+In VS Code, Terminal > Run Task has **Device: Flash CYD**, **Device: Flash Waveshare**, **Device: Flash RLCD**,
+**Device: Flash Guitron**, **Device: Log CYD** and **Device: Log Waveshare**, which find the port. Each flash task
+builds its board's firmware with `build-firmware.sh`, then flashes its own file.
 
 ## Setting it up
 

@@ -146,6 +146,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "bruce-embedded-firmware-record"
+version = "0.1.0"
+
+[[package]]
 name = "bruce-util-progress"
 version = "0.1.0"
 
@@ -2140,6 +2144,7 @@ version = "0.1.0"
 dependencies = [
  "ahrs",
  "anyhow",
+ "bruce-embedded-firmware-record",
  "chrono",
  "croner",
  "embedded-graphics",

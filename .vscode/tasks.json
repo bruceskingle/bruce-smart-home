@@ -5,13 +5,15 @@
 	"tasks": [
 		{
 			// Builds the capture device's firmware for a CYD, see capture/README.md, flashes it to the CYD plugged in by USB,
-			// whose port is /dev/cu.usbserial-*, its USB chip's, showing its progress, then shows the device's log. Ctrl+R
+			// whose port is /dev/cu.usbserial-*, its USB chip's, showing its progress, then shows the device's log. It flashes
+			// with bruce-embedded-flash, from sparko-embedded-std's tools, which refuses firmware built for another board than
+			// the one on the port, and asks which board it is if its firmware does not say. Ctrl+R
 			// restarts the device, Ctrl+C stops showing the log, the device runs on. 460800 baud is 4 times faster than
 			// espflash's default (921600 fails on the CYD), take --baud out if flashing fails. Stop Device: Log CYD first, as
 			// it holds the port.
 			"label": "Device: Flash CYD",
 			"type": "shell",
-			"command": "cargo build --release && espflash flash --port \"$(ls /dev/cu.usbserial-* | head -1)\" --baud 460800 --monitor target/xtensa-esp32-espidf/release/marco-sparko-capture",
+			"command": "./build-firmware.sh cyd-esp32-28 && bruce-embedded-flash flash --port \"$(ls /dev/cu.usbserial-* | head -1)\" --baud 460800 --monitor \"$(./build-firmware.sh --path cyd-esp32-28)\"",
 			"options": { "cwd": "${workspaceFolder}/capture" },
 			"problemMatcher": [],
 			"presentation": { "reveal": "always", "focus": true, "panel": "dedicated" }
@@ -21,7 +23,25 @@
 			// the chip's own USB.
 			"label": "Device: Flash Waveshare",
 			"type": "shell",
-			"command": "MCU=esp32c6 cargo build --release --target riscv32imac-esp-espidf --no-default-features --features wave-esp32c6-touch-147 && espflash flash --port \"$(ls /dev/cu.usbmodem* | head -1)\" --monitor target/riscv32imac-esp-espidf/release/marco-sparko-capture",
+			"command": "./build-firmware.sh wave-esp32c6-touch-147 && bruce-embedded-flash flash --port \"$(ls /dev/cu.usbmodem* | head -1)\" --monitor \"$(./build-firmware.sh --path wave-esp32c6-touch-147)\"",
+			"options": { "cwd": "${workspaceFolder}/capture" },
+			"problemMatcher": [],
+			"presentation": { "reveal": "always", "focus": true, "panel": "dedicated" }
+		},
+		{
+			// As Device: Flash Waveshare, for a Waveshare ESP32-S3-RLCD-4.2.
+			"label": "Device: Flash RLCD",
+			"type": "shell",
+			"command": "./build-firmware.sh wave-esp32s3-rlcd-42 && bruce-embedded-flash flash --port \"$(ls /dev/cu.usbmodem* | head -1)\" --monitor \"$(./build-firmware.sh --path wave-esp32s3-rlcd-42)\"",
+			"options": { "cwd": "${workspaceFolder}/capture" },
+			"problemMatcher": [],
+			"presentation": { "reveal": "always", "focus": true, "panel": "dedicated" }
+		},
+		{
+			// As Device: Flash Waveshare, for a Guition JC3248W535C, the Guitron.
+			"label": "Device: Flash Guitron",
+			"type": "shell",
+			"command": "./build-firmware.sh guition-jc3248w535c && bruce-embedded-flash flash --port \"$(ls /dev/cu.usbmodem* | head -1)\" --monitor \"$(./build-firmware.sh --path guition-jc3248w535c)\"",
 			"options": { "cwd": "${workspaceFolder}/capture" },
 			"problemMatcher": [],
 			"presentation": { "reveal": "always", "focus": true, "panel": "dedicated" }

@@ -48,6 +48,10 @@ use, costs and bills from Octopus Energy, and what its Tesla Powerwalls and myen
 - Before a request which changes a device, e.g. its settings, a restart, a release or a factory reset, check its state
   in the same command, e.g. `GET /api/info` says it is adopted, and stop if it is not as assumed: a "negative test" of a
   released device once wiped its Wi-Fi settings.
+- Flash only with sparko-embedded-std's `bruce-embedded-flash` (the cargo runner and the "Device: Flash" tasks use it),
+  never espflash directly: it refuses firmware built for another board than the one on the port, from the record each
+  image carries, and asks the owner which board it is if the firmware on it has no record. Never pass `--confirm-board`
+  on the owner's behalf.
 - Before flashing, check the board on the port is the one meant, by its MAC address, which is the device's ID in the
   app, e.g. `espflash board-info --port <port>`, which writes nothing but restarts it: the port names say only where a
   board is plugged in, and several boards may be.

@@ -205,6 +205,81 @@ pub fn Devices() -> Element {
                 }
             }
             AddDevice { profile_name: profile_name.clone() }
+            FlashBoard {}
+        }
+    }
+}
+
+/// The capture firmware's name, as its firmware record says, which an adopted device must run, so that flashing other
+/// firmware to one, e.g. a board's demo, is agreed to first.
+const CAPTURE_FIRMWARE_NAME: &str = "marco-sparko-capture";
+
+/// Flashing firmware from the shared firmware folder, see bruce-embedded-firmware, to a board plugged in by USB, e.g.
+/// a new one, with sparko-embedded-std's Flasher, the capture firmware first, shown when asked, as it lists the USB ports every few seconds. Boards the profile has adopted are named as such,
+/// and flashing other firmware to one is agreed to first.
+#[component]
+fn FlashBoard() -> Element {
+    let settings = use_context::<Signal<ProfileSettings>>();
+    let mut shown = use_signal(|| false);
+    let mut getting = use_signal(|| false);
+    let mut firmware = use_resource(move || async move {
+        if !shown() {
+            return Vec::new();
+        }
+        tokio::task::spawn_blocking(bruce_embedded_flash_ui::Firmware::load_local).await.unwrap_or_default()
+    });
+    let known: Vec<bruce_embedded_flash_ui::KnownDevice> = settings
+        .read()
+        .capture_devices
+        .iter()
+        .map(|device| bruce_embedded_flash_ui::KnownDevice {
+            id: device.id.clone(),
+            name: format!("adopted, at {}", device.address),
+            firmware: Some(CAPTURE_FIRMWARE_NAME.to_string()),
+        })
+        .collect();
+
+    rsx! {
+        h2 { "Flash a Board" }
+        if !shown() {
+            p {
+                "Puts the capture firmware on a board plugged in by USB, e.g. a new one. "
+                button { onclick: move |_| shown.set(true), "Show the Boards on USB" }
+            }
+        } else {
+            match firmware() {
+                None => rsx! { p { "Reading the firmware…" } },
+                Some(loaded) => {
+                    let images: Vec<_> = loaded.iter().filter_map(|image| image.clone().ok()).collect();
+                    rsx! {
+                        if images.is_empty() {
+                            p { "There is no firmware on this computer to flash." }
+                        }
+                        for error in loaded.iter().filter_map(|image| image.clone().err()) {
+                            p { ErrorText { error, message: Some("Unusable firmware".to_string()) } }
+                        }
+                        bruce_embedded_flash_ui::Flasher {
+                            firmware: images,
+                            known: known.clone(),
+                            preferred: Some(CAPTURE_FIRMWARE_NAME.to_string()),
+                            baud: None,
+                        }
+                        p {
+                            if getting() {
+                                button { onclick: move |_| getting.set(false), "Hide Get Firmware" }
+                            } else {
+                                button { onclick: move |_| getting.set(true), "Get Firmware" }
+                            }
+                            " "
+                            button { onclick: move |_| shown.set(false), "Hide" }
+                        }
+                        if getting() {
+                            h3 { "Get Firmware" }
+                            bruce_embedded_flash_ui::GetFirmware { on_downloaded: move |_| firmware.restart() }
+                        }
+                    }
+                }
+            }
         }
     }
 }

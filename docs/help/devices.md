@@ -60,3 +60,49 @@ and buttons; clicking another's shows its card instead.
 
 The app keeps a key for each device it adopts in the profile, which lets it change the device's settings, so keep the
 profile's files private. A redacted copy of a profile does not include its devices.
+
+## Flashing a board
+
+**Flash a Board**, at the bottom of the page, puts the capture firmware on a board plugged into this computer by USB,
+e.g. a new one, or updates an adopted one's. Click **Show the Boards on USB** for the list of USB serial ports, with
+what the computer says of each. A board on its chip's own USB, e.g. an ESP32-S3 or -C6, shows its ID, its Wi-Fi MAC
+address, and is named as adopted if it is one of this profile's devices, without touching it; a board with a USB
+serial chip, e.g. a CYD, does not say. Each board identified on this computer is remembered, so the list says what it
+was when last identified, for sure for a board which shows its ID, and only as **Maybe** for one on a USB serial chip,
+as the computer names its port after the USB socket it is plugged into, and another board may be in it now.
+
+A board plugged in while the list is shown is identified at once: the app reads which chip it is and which board its
+firmware was built for. **Identify** does the same for any other, and **Restart** restarts it, e.g. to see which board
+it is by its lights or screen. Both restart the board, so a device that is capturing loses a few seconds.
+
+Click a board's row for what it is. If its firmware says which board it is, the app says so, and offers **Flash**,
+with the newest of the firmware it runs, or for a device this profile has adopted, or a new board, the capture
+firmware, and **Other Firmware**, for the other firmware for its chip, e.g. an older version. If its firmware does not
+say, e.g. as it is new, or was last flashed before firmware said, pick which board it is from those with its chip,
+each with what it looks like and its maker's page.
+
+Flash asks for one more click, **Yes, Flash It**, if the firmware is for another board than its firmware says, as
+firmware for the wrong board can damage it, or its firmware does not say which board it is, when **Restart It** lets
+you see which board it is by its lights or screen, or the firmware would replace other firmware, e.g. a board's demo
+over the capture firmware, or anything but the capture firmware on a device this profile has adopted. The app checks
+again, just before flashing, that it is the same board and the right chip, shows how far it has got in a box over
+the page, and restarts the board when it is done; the box then says how it ended until you **Close** it. A part of the firmware already on the board is not written again, so flashing the same
+firmware again takes only a few seconds.
+
+If the app cannot reach a board's bootloader over USB, start it by hand, as the page says for each board, e.g. hold
+BOOT, press and release RESET, then release BOOT, and click **Identify** again.
+
+The app offers the firmware on this computer, in a folder shared with the other apps which flash these boards, e.g.
+`~/Library/Application Support/bruce-embedded-std/firmware/` on macOS, by where it came from and its version, e.g.
+`bruce-smart-home/0.5.0`, the capture firmware, or `bruce-embedded-std`, the boards' demos. Every version is kept, so
+**Other Firmware** can put an older one back.
+
+## Getting firmware
+
+**Get Firmware**, under the list of boards, finds the firmware on GitHub: the repositories with the topic
+`bruce-embedded-firmware`, e.g. the capture firmware's, `bruce-smart-home`, and the boards' demos, `bruce-embedded-std`,
+each with what its firmware is. **Releases** lists a repository's releases, and **Download** puts a release's firmware
+on this computer, in the folder the list of boards flashes from. Tick **Keep up to date** to download a repository's
+newest release each time Get Firmware is shown. **Add a repository** adds one without the topic, by its owner and name,
+e.g. `someone/their-firmware`, if it has a `bruce-embedded-std.md` saying what its firmware is.
+
