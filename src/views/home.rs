@@ -166,7 +166,7 @@ pub fn Home(
                 div {
                     // h1 { "This is Home #{xid}!" }
                     // Sized here too, so that it is not shown at the image's full size until the stylesheet has loaded.
-                    img { class: "home-icon", src: APP_ICON, alt: "Marco Sparko", width: "128", height: "128" }
+                    img { class: "home-icon", src: APP_ICON, alt: "Bruce's Smart Home", width: "128", height: "128" }
                     h1 { "Modules" }
                     for (module_id , active) in modules {
                         div {

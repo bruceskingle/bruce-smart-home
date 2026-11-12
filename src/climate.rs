@@ -265,7 +265,7 @@ mod tests {
 
     #[test]
     fn an_open_period_read_again_replaces_what_was_saved() {
-        let dir = std::env::temp_dir().join(format!("marco-sparko-climate-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("bruce-smart-home-climate-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let site = bruce_db::Id::of(&serde_json::json!({"site": "climate test"})).unwrap();
         let store = Store::open(&format!("file://{}", dir.display()), &site).unwrap();

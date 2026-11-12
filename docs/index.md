@@ -1,8 +1,8 @@
-# Marco Sparko
+# Bruce's Smart Home
 
-<img src="images/MarcoSparko.png" alt="Marco Sparko" width="128" align="right">
+<img src="images/MarcoSparko.png" alt="Bruce's Smart Home" width="128" align="right">
 
-**Marco Sparko, the Energy Explorer**, is a desktop app for macOS and Windows which shows you the data your energy supplier holds about you: your bills and what each part of them cost, your meters' half hourly readings, the Home Mini's readings every 10 seconds, and your car's charging sessions. It keeps a copy of everything it downloads, so it is quick to look at again, and still there after the supplier stops providing it.
+**Bruce's Smart Home, the Energy Explorer**, is a desktop app for macOS and Windows which shows you the data your energy supplier holds about you: your bills and what each part of them cost, your meters' half hourly readings, the Home Mini's readings every 10 seconds, and your car's charging sessions. It keeps a copy of everything it downloads, so it is quick to look at again, and still there after the supplier stops providing it.
 
 It is built to support more than one supplier, through modules, but at the moment the only one is Octopus Energy.
 

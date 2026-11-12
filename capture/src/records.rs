@@ -1,4 +1,4 @@
-//! The samples captured, put in the store in the same form as marco-sparko's own Tesla snapshots
+//! The samples captured, put in the store in the same form as bruce-smart-home's own Tesla snapshots
 //! (src/tesla/snapshot.rs), as the app would put them, see db.rs.
 //!
 //! Only the fields the app uses are kept, as a whole snapshot is about 6 KB of JSON: in the store as JSON, see
@@ -12,7 +12,7 @@ use serde_json::json;
 
 use crate::db::Db;
 
-/// The gateway's endpoints which are polled, after /api/, see marco-sparko's src/tesla/snapshot.rs LIVE. status and
+/// The gateway's endpoints which are polled, after /api/, see bruce-smart-home's src/tesla/snapshot.rs LIVE. status and
 /// system_status are left out, as the app does not use them in samples and system_status is the largest response.
 pub const ENDPOINTS: &[&str] = &[
     "meters/aggregates",
@@ -156,7 +156,7 @@ pub struct Record {
 }
 
 impl Record {
-    /// When the record is of, as marco-sparko's snapshot::time_of.
+    /// When the record is of, as bruce-smart-home's snapshot::time_of.
     pub fn time(&self) -> DateTime<Utc> {
         self.slot.unwrap_or(self.requested)
     }
@@ -231,7 +231,7 @@ impl LastPoll {
 }
 
 /// The latest record, for the screen, with how the latest poll went, the records themselves being put in the store, see
-/// db.rs, as the app would put them, see marco-sparko's src/device_kinds.rs.
+/// db.rs, as the app would put them, see bruce-smart-home's src/device_kinds.rs.
 pub struct Snapshots {
     latest: Option<Record>,
     last_poll: Option<LastPoll>,

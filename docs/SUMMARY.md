@@ -7,7 +7,7 @@
 - [Installation](gettingStarted/index.md)
     - [macOS](gettingStarted/osx/index.md)
     - [Windows](gettingStarted/windows/index.md)
-- [Running Marco Sparko](gettingStarted/firstRun.md)
+- [Running Bruce's Smart Home](gettingStarted/firstRun.md)
 - [Logging in to Octopus](octopus/initOctopus.md)
 - [Viewing Bills](octopus/bills.md)
 - [Viewing Meter Readings](octopus/meters/index.md)

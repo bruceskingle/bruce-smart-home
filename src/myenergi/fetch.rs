@@ -697,7 +697,7 @@ mod tests {
 
     #[test]
     fn records_are_kept_by_minute_and_a_day_is_summed_from_them() {
-        let dir = std::env::temp_dir().join(format!("marco-sparko-merge-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("bruce-smart-home-merge-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let site = Id::of(&serde_json::json!({"site": "myenergi test"})).unwrap();
         let store = Store::open(&format!("file://{}", dir.display()), &site).unwrap();

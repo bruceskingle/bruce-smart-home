@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn snapshots_are_saved_once_each_and_read_newest_first_the_apps_own_winning() {
-        let dir = std::env::temp_dir().join(format!("marco-sparko-snapshots-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("bruce-smart-home-snapshots-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let site = bruce_db::Id::of(&serde_json::json!({"site": "snapshot test"})).unwrap();
         let store = Store::open(&format!("file://{}", dir.display()), &site).unwrap();

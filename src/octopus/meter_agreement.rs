@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn a_tariff_is_recorded_again_only_when_it_changes() {
-        let dir = std::env::temp_dir().join(format!("marco-sparko-tariff-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("bruce-smart-home-tariff-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let site = bruce_db::Id::of(&serde_json::json!({"site": "tariff test"})).unwrap();
         let store = bruce_db::Store::open(&format!("file://{}", dir.display()), &site).unwrap();

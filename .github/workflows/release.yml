@@ -1,5 +1,5 @@
 # Builds the macOS and Windows installers for a tag, tests them, and keeps them on the run's page under Artifacts.
-# The tag (e.g. release0.4.4) must exist in both marco-sparko and bruce-graphql.
+# The tag (e.g. release0.4.4) must exist in both bruce-smart-home and bruce-graphql.
 #
 # With attach, the installers are also attached to the draft GitHub release for the tag, ready to be tried before the
 # release is published. A published release is never changed.
@@ -52,15 +52,15 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: marco-sparko
+        working-directory: bruce-smart-home
 
     steps:
       # The two repos are checked out side by side, as in ~/git, because Cargo.toml refers to ../bruce-graphql
-      - name: Check out marco-sparko
+      - name: Check out bruce-smart-home
         uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
-          path: marco-sparko
+          path: bruce-smart-home
           # The build records the tag and branch, so it needs the history.
           fetch-depth: 0
 
@@ -238,7 +238,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: marco-sparko/dist/*
+          path: bruce-smart-home/dist/*
           if-no-files-found: error
 
   # Only runs if every build succeeded, so a release never gets some of the installers but not others.
@@ -250,7 +250,7 @@ jobs:
     permissions:
       # To attach the files to the release.
       contents: write
-      # To record where the files were built, see https://github.com/bruceskingle/marco-sparko/attestations
+      # To record where the files were built, see https://github.com/bruceskingle/bruce-smart-home/attestations
       id-token: write
       attestations: write
 

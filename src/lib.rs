@@ -72,7 +72,7 @@ pub struct MarcoSparkoArgs {
     debug: bool,
     #[arg(short, long)]
     verbose: bool,
-    /// The directory holding .marco-sparko and .marco-sparko-cache, instead of the home directory
+    /// The directory holding .bruce-smart-home and .bruce-smart-home-data, instead of the home directory
     #[arg(long)]
     home: Option<PathBuf>,
     /// Fetch the latest data of every module for the last 30 days, without opening a window, then exit, e.g. from a
@@ -137,7 +137,7 @@ impl Args {
         let mut module_id: Option<String> = None;
 
         let mut it = std::env::args();
-        let arg0 = it.next().unwrap_or_else(|| "marco-sparko".to_string());
+        let arg0 = it.next().unwrap_or_else(|| "bruce-smart-home".to_string());
         main_only_args.push(arg0.clone());
         for arg in it {
             if arg.starts_with("-") {
@@ -242,7 +242,7 @@ pub fn fetch_latest_data(args: Args) -> bool {
             return false;
         },
     };
-    println!("Marco Sparko {} fetching the latest data at {} UTC", env!("CARGO_PKG_VERSION"), time::OffsetDateTime::now_utc());
+    println!("Bruce's Smart Home {} fetching the latest data at {} UTC", env!("CARGO_PKG_VERSION"), time::OffsetDateTime::now_utc());
     let verbose = args.marco_sparko_args.verbose;
     let result = runtime.block_on(async move {
         let context = MarcoSparkoContext::new(args)?;

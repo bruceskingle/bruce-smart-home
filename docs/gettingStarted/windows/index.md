@@ -1,17 +1,17 @@
 # Installing on Windows
 
-How to download Marco Sparko for your PC and install it. The app is not signed, so Windows warns about the download
+How to download Bruce's Smart Home for your PC and install it. The app is not signed, so Windows warns about the download
 and the installer, and this shows how to keep and run them.
 
 ## Download the Release Binary
 
-Navigate to [https://github.com/bruceskingle/marco-sparko/releases/](https://github.com/bruceskingle/marco-sparko/releases/) to find the
+Navigate to [https://github.com/bruceskingle/bruce-smart-home/releases/](https://github.com/bruceskingle/bruce-smart-home/releases/) to find the
 latest release: 
 
 ![Download Page](../download.png)
 
 Look for the one with the <img src="../latest.png" width="60"> label, and then select the correct version for your computer, either
-```MarcoSparko_0.4.2_x64-setup.exe``` for Intel based computers or ```MarcoSparko_0.4.2_arm64-setup.exe``` for ARM64 based computers (the version number ```0.4.2``` may be different of course).
+```BrucesSmartHome_0.4.2_x64-setup.exe``` for Intel based computers or ```BrucesSmartHome_0.4.2_arm64-setup.exe``` for ARM64 based computers (the version number ```0.4.2``` may be different of course).
 
 Releases up to 0.4.3 also had ```.msi``` files, which were just a different way of installing. From 0.4.4 there is only the ```setup.exe```.
 

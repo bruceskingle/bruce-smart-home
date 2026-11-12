@@ -768,7 +768,7 @@ mod tests {
 
     #[test]
     fn cache_usage_is_split_by_plugin_and_leaves_out_other_profiles() {
-        let dir = std::env::temp_dir().join(format!("marco-sparko-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("bruce-smart-home-test-{}", std::process::id()));
         fs::create_dir_all(dir.join("p-octopus/sub")).unwrap();
         fs::create_dir_all(dir.join("p2-octopus")).unwrap();
         fs::write(dir.join("p-octopus/sub/data"), [0u8; 100]).unwrap();
@@ -797,7 +797,7 @@ mod tests {
 
     #[test]
     fn a_directory_is_copied_with_everything_in_it() {
-        let dir = std::env::temp_dir().join(format!("marco-sparko-copy-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("bruce-smart-home-copy-{}", std::process::id()));
         fs::create_dir_all(dir.join("from/2026/November")).unwrap();
         fs::write(dir.join("from/2026/November/3#snapshots"), "data").unwrap();
         fs::write(dir.join("from/top"), "top").unwrap();

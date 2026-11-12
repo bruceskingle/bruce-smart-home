@@ -1,5 +1,5 @@
 //! Redaction of a profile's data, so that it can be shown, e.g. in screenshots for the documentation, without
-//! revealing who it belongs to: marco-sparko --redact <profile> <new profile>
+//! revealing who it belongs to: bruce-smart-home --redact <profile> <new profile>
 //!
 //! The profile's cached data is copied to a new profile with every identifying value replaced, in the files and in
 //! their names, and without its logins. The new profile is offline, see Profile::offline, so it only shows the copy.
@@ -13,7 +13,7 @@
 //! made up one. If not, the copy is deleted, and the files are reported without the values. See docs/Redaction.md.
 //!
 //! The documents in unredacted_docs, which is not in the repository, are redacted into docs the same way, with
-//! marco-sparko --redact docs, see redact_docs.
+//! bruce-smart-home --redact docs, see redact_docs.
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs;

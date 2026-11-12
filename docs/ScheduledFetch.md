@@ -1,6 +1,6 @@
 # Fetching Data on a Schedule
 
-Marco Sparko can fetch the latest data without opening its window, and then exit. Run it like this on a schedule, e.g.
+Bruce's Smart Home can fetch the latest data without opening its window, and then exit. Run it like this on a schedule, e.g.
 once a week, and the app is always up to date when you open it.
 
 It matters most for data which Octopus only keeps for a short time. The Home Mini's readings every 10 seconds are only
@@ -10,7 +10,7 @@ scheduled fetch saves them as it goes.
 ## What it Does
 
 ```
-marco-sparko --fetch
+bruce-smart-home --fetch
 ```
 
 fetches what every page would fetch if you opened it with the date range set to the last 30 days: bills (and the
@@ -40,7 +40,7 @@ not lost.
 On macOS, use launchd rather than cron: it runs a fetch which was missed while the Mac was asleep as soon as it wakes,
 and needs no extra permissions.
 
-1. Create the file `~/Library/LaunchAgents/org.skingle.marco-sparko.fetch.plist` with this, which fetches every Sunday
+1. Create the file `~/Library/LaunchAgents/org.skingle.bruce-smart-home.fetch.plist` with this, which fetches every Sunday
    at 03:00 (`Weekday` 0 is Sunday, 1 is Monday, and so on), replacing `YOU` with your user name:
 
     ```xml
@@ -49,10 +49,10 @@ and needs no extra permissions.
     <plist version="1.0">
     <dict>
         <key>Label</key>
-        <string>org.skingle.marco-sparko.fetch</string>
+        <string>org.skingle.bruce-smart-home.fetch</string>
         <key>ProgramArguments</key>
         <array>
-            <string>/Applications/MarcoSparko.app/Contents/MacOS/marco-sparko</string>
+            <string>/Applications/BrucesSmartHome.app/Contents/MacOS/bruce-smart-home</string>
             <string>--fetch</string>
         </array>
         <key>StartCalendarInterval</key>
@@ -65,9 +65,9 @@ and needs no extra permissions.
             <integer>0</integer>
         </dict>
         <key>StandardOutPath</key>
-        <string>/Users/YOU/Library/Logs/MarcoSparko/fetch.log</string>
+        <string>/Users/YOU/Library/Logs/BrucesSmartHome/fetch.log</string>
         <key>StandardErrorPath</key>
-        <string>/Users/YOU/Library/Logs/MarcoSparko/fetch.log</string>
+        <string>/Users/YOU/Library/Logs/BrucesSmartHome/fetch.log</string>
     </dict>
     </plist>
     ```
@@ -75,15 +75,15 @@ and needs no extra permissions.
 2. In Terminal, create the log directory and load the schedule:
 
     ```
-    mkdir -p ~/Library/Logs/MarcoSparko
-    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/org.skingle.marco-sparko.fetch.plist
+    mkdir -p ~/Library/Logs/BrucesSmartHome
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/org.skingle.bruce-smart-home.fetch.plist
     ```
 
 3. Try it now rather than waiting until Sunday, and look at the log, which can also be seen in the Console app:
 
     ```
-    launchctl kickstart gui/$(id -u)/org.skingle.marco-sparko.fetch
-    cat ~/Library/Logs/MarcoSparko/fetch.log
+    launchctl kickstart gui/$(id -u)/org.skingle.bruce-smart-home.fetch
+    cat ~/Library/Logs/BrucesSmartHome/fetch.log
     ```
 
 To fetch every day instead, at 03:00, leave out the `Weekday` key and its value, so that `StartCalendarInterval` is:
@@ -102,8 +102,8 @@ To change the schedule, edit the file, then unload it and load it again. To stop
 it and delete the file:
 
 ```
-launchctl bootout gui/$(id -u)/org.skingle.marco-sparko.fetch
-rm ~/Library/LaunchAgents/org.skingle.marco-sparko.fetch.plist
+launchctl bootout gui/$(id -u)/org.skingle.bruce-smart-home.fetch
+rm ~/Library/LaunchAgents/org.skingle.bruce-smart-home.fetch.plist
 ```
 
 It runs while you are logged in, which includes a Mac which is asleep or has its screen locked.
@@ -111,16 +111,16 @@ It runs while you are logged in, which includes a Mac which is asleep or has its
 ## Windows
 
 On Windows, use Task Scheduler. In PowerShell (not as administrator), this creates a task which fetches every Sunday at
-03:00, or as soon as possible after that if the computer was off, and writes what it did to `MarcoSparko-fetch.log` in
+03:00, or as soon as possible after that if the computer was off, and writes what it did to `BrucesSmartHome-fetch.log` in
 your local app data folder:
 
 ```powershell
-$exe = "$env:LOCALAPPDATA\Programs\MarcoSparko\marco-sparko.exe"
-$log = "$env:LOCALAPPDATA\MarcoSparko-fetch.log"
+$exe = "$env:LOCALAPPDATA\Programs\BrucesSmartHome\bruce-smart-home.exe"
+$log = "$env:LOCALAPPDATA\BrucesSmartHome-fetch.log"
 $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"`"$exe`" --fetch > `"$log`" 2>&1`""
 $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At 3am
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-Register-ScheduledTask -TaskName "Marco Sparko fetch" -Action $action -Trigger $trigger -Settings $settings
+Register-ScheduledTask -TaskName "Bruce's Smart Home fetch" -Action $action -Trigger $trigger -Settings $settings
 ```
 
 To fetch every day instead, at 03:00, use this trigger in place of the weekly one when creating the task:
@@ -132,37 +132,37 @@ $trigger = New-ScheduledTaskTrigger -Daily -At 3am
 or change the trigger of a task which already exists:
 
 ```powershell
-Set-ScheduledTask -TaskName "Marco Sparko fetch" -Trigger (New-ScheduledTaskTrigger -Daily -At 3am)
+Set-ScheduledTask -TaskName "Bruce's Smart Home fetch" -Trigger (New-ScheduledTaskTrigger -Daily -At 3am)
 ```
 
 Try it now, then look at the log:
 
 ```powershell
-Start-ScheduledTask -TaskName "Marco Sparko fetch"
-Get-Content "$env:LOCALAPPDATA\MarcoSparko-fetch.log"
+Start-ScheduledTask -TaskName "Bruce's Smart Home fetch"
+Get-Content "$env:LOCALAPPDATA\BrucesSmartHome-fetch.log"
 ```
 
 The task can also be seen, changed and run from the Task Scheduler app, under Task Scheduler Library. It runs while you
 are logged in, and a command window may appear briefly while it does. To remove it:
 
 ```powershell
-Unregister-ScheduledTask -TaskName "Marco Sparko fetch"
+Unregister-ScheduledTask -TaskName "Bruce's Smart Home fetch"
 ```
 
-If Marco Sparko was installed somewhere else, change `$exe` to where `marco-sparko.exe` is.
+If Bruce's Smart Home was installed somewhere else, change `$exe` to where `bruce-smart-home.exe` is.
 
 ## Linux
 
 A crontab entry works, e.g. with `crontab -e`, every Sunday at 03:00:
 
 ```
-0 3 * * 0 /path/to/marco-sparko --fetch >> ~/.marco-sparko-fetch.log 2>&1
+0 3 * * 0 /path/to/bruce-smart-home --fetch >> ~/.bruce-smart-home-fetch.log 2>&1
 ```
 
 or every day at 03:00:
 
 ```
-0 3 * * * /path/to/marco-sparko --fetch >> ~/.marco-sparko-fetch.log 2>&1
+0 3 * * * /path/to/bruce-smart-home --fetch >> ~/.bruce-smart-home-fetch.log 2>&1
 ```
 
 cron does not run a fetch which was missed while the computer was off. A systemd user timer with `Persistent=true`

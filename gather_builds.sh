@@ -1,7 +1,7 @@
 #!/bin/zsh
 RELEASE_ROOT=build
-APP_NAME="Marco Sparko"
-EXE_NAME="marco-sparko"
+APP_NAME="Bruces Smart Home"
+EXE_NAME="bruce-smart-home"
 
 function create_dmg {
     readonly arch=${1:?"The arch triplet must be specified."}
@@ -13,7 +13,7 @@ function create_dmg {
         echo Source folder $source does not exist.
         exit 1
     fi
-    bytes=`du -k  target/release/marco-sparko | sed -e 's/[ \t].*//'`
+    bytes=`du -k  target/release/bruce-smart-home | sed -e 's/[ \t].*//'`
     disk_size=$(($bytes * 2))
 
     # disk_size=1024
@@ -88,7 +88,7 @@ EOF
     cat > "$RELEASE_ROOT/$arch/$APP_NAME.app/Contents/MacOS/$APP_NAME" <<EOF
 #!/usr/bin/osascript
 set AppleScript's text item delimiters to "/"
-set myPath to {"clear && exec "} as text & (quoted form of ((text items 1 through -2 of (POSIX path of (path to me as text))) & {"Marco Sparko"} as text))
+set myPath to {"clear && exec "} as text & (quoted form of ((text items 1 through -2 of (POSIX path of (path to me as text))) & {"Bruces Smart Home"} as text))
 
 tell application "Terminal"
 	activate
@@ -106,20 +106,20 @@ echo Gathering build artefacts for version $VERSION...
 rm -rf build
 mkdir -p build
 
-# tempfile=`mktemp /tmp/marco-sparko-XXXXXXXX`
-# scp $BUILDER_X86_64_APPLE_DARWIN:git/marco-sparko/target/release/marco-sparko $tempfile
+# tempfile=`mktemp /tmp/bruce-smart-home-XXXXXXXX`
+# scp $BUILDER_X86_64_APPLE_DARWIN:git/bruce-smart-home/target/release/bruce-smart-home $tempfile
 
 arch=aarch64-apple-darwin
 create_app $arch
-cp target/dx/marco-sparko "$RELEASE_ROOT/$arch/$APP_NAME.app/Contents/MacOS"
+cp target/dx/bruce-smart-home "$RELEASE_ROOT/$arch/$APP_NAME.app/Contents/MacOS"
 cp -r assets "$RELEASE_ROOT/$arch/$APP_NAME.app/Contents/Resources/assets"
-create_dmg $arch "$RELEASE_ROOT/$arch" "marco-sparko-$VERSION-$arch"
+create_dmg $arch "$RELEASE_ROOT/$arch" "bruce-smart-home-$VERSION-$arch"
 
 
 arch=x86_64-apple-darwin
 create_app $arch
-scp $BUILDER_X86_64_APPLE_DARWIN:git/marco-sparko/target/release/marco-sparko "$RELEASE_ROOT/$arch/$APP_NAME.app/Contents/MacOS"
-create_dmg $arch "$RELEASE_ROOT/$arch" "marco-sparko-$VERSION-$arch"
+scp $BUILDER_X86_64_APPLE_DARWIN:git/bruce-smart-home/target/release/bruce-smart-home "$RELEASE_ROOT/$arch/$APP_NAME.app/Contents/MacOS"
+create_dmg $arch "$RELEASE_ROOT/$arch" "bruce-smart-home-$VERSION-$arch"
 
-cp target/x86_64-pc-windows-msvc/release/marco-sparko.exe build/marco-sparko-$VERSION-x86_64-pc-windows-msvc.exe
-cp target/aarch64-pc-windows-msvc/release/marco-sparko.exe build/marco-sparko-$VERSION-aarch64-pc-windows-msvc.exe
+cp target/x86_64-pc-windows-msvc/release/bruce-smart-home.exe build/bruce-smart-home-$VERSION-x86_64-pc-windows-msvc.exe
+cp target/aarch64-pc-windows-msvc/release/bruce-smart-home.exe build/bruce-smart-home-$VERSION-aarch64-pc-windows-msvc.exe

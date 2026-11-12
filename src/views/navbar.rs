@@ -93,7 +93,7 @@ pub fn Navbar() -> Element {
             Link {
                 class: "nav-logo",
                 to: Route::Home {},
-                title: "Marco Sparko",
+                title: "Bruce's Smart Home",
                 style: "background-image: url({APP_ICON});",
             }
             div { class: "nav-left",

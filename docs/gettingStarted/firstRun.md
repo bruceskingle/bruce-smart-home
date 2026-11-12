@@ -1,6 +1,6 @@
-# Running Marco Sparko
+# Running Bruce's Smart Home
 
-The first time you run Marco Sparko you will see a window like this:
+The first time you run Bruce's Smart Home you will see a window like this:
 
 
 <img src="Screenshot1.png" width="1024">

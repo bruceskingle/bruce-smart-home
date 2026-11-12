@@ -21,7 +21,7 @@ const SHOW_MAIN_ID: &str = "show-window-main";
 const SHOW_CHILD_PREFIX: &str = "show-window-";
 const CLOSE_CHILD_PREFIX: &str = "close-window-";
 const CLOSE_ALL_ID: &str = "close-all-windows";
-const MAIN_TITLE: &str = "Marco Sparko";
+const MAIN_TITLE: &str = "Bruce's Smart Home";
 
 struct Child {
     /// Identifies the window in its menu item's id.

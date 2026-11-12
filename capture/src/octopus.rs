@@ -1,5 +1,5 @@
 //! Polls what Octopus's smart charging (Intelligent Octopus) does, which Octopus only keeps for a few days, as
-//! marco-sparko's src/octopus/flex_poll.rs does: the devices' preferences, including whether charging is capped to the
+//! bruce-smart-home's src/octopus/flex_poll.rs does: the devices' preferences, including whether charging is capped to the
 //! hours Octopus guarantees are cheap, the charging it has planned, and the charging it has carried out.
 //!
 //! As each half hour is either cheap or not, it polls just before and just after each one ends, see DEFAULT_SCHEDULE,
@@ -58,7 +58,7 @@ const URL: &str = "https://api.octopus.energy/v1/graphql/";
 /// How long a token is used for, a little less than the hour Octopus gives it.
 const TOKEN_LIFE: Duration = Duration::from_secs(55 * 60);
 
-/// The most requests it makes in an hour, as marco-sparko's flex_poll.rs, so that the Octopus app and others using the
+/// The most requests it makes in an hour, as bruce-smart-home's flex_poll.rs, so that the Octopus app and others using the
 /// account are not affected.
 const CALLS_PER_HOUR: usize = 20;
 
@@ -73,11 +73,11 @@ const ACCOUNTS: &str = "query accounts { viewer { accounts { number } } }";
 
 const LOGIN: &str = "mutation obtainKrakenToken($input: ObtainJSONWebTokenInput!) { obtainKrakenToken(input: $input) { token } }";
 
-/// The devices, to find the charging device the first time, as in marco-sparko's graphql/octopus/flex.graphql.
+/// The devices, to find the charging device the first time, as in bruce-smart-home's graphql/octopus/flex.graphql.
 const DEVICES: &str = "query devicePreferences($accountNumber: String!) { devices(accountNumber: $accountNumber) { id __typename \
     preferences { __typename mode targetType isChargingDurationCapped } } }";
 
-/// Everything polled, in one request, the same as flexPoll in marco-sparko's graphql/octopus/flex.graphql.
+/// Everything polled, in one request, the same as flexPoll in bruce-smart-home's graphql/octopus/flex.graphql.
 const FLEX_POLL: &str = "query flexPoll($accountNumber: String!, $deviceId: String!) { \
     devices(accountNumber: $accountNumber) { id __typename preferences { __typename mode targetType isChargingDurationCapped } } \
     flexPlannedDispatches(deviceId: $deviceId) { start end type energyAddedKwh } \
@@ -248,7 +248,7 @@ impl Octopus {
         Ok(token)
     }
 
-    /// The responses, as marco-sparko's flex_poll::poll saves them, as their JSON, and what the screen shows of them:
+    /// The responses, as bruce-smart-home's flex_poll::poll saves them, as their JSON, and what the screen shows of them:
     /// one flexPoll request once the charging device is known, otherwise the devices first, to find it.
     fn poll(&mut self) -> anyhow::Result<(String, Line)> {
         crate::device::log_memory("Before Octopus");

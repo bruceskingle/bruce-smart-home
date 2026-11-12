@@ -1,9 +1,9 @@
-# marco-sparko
+# bruce-smart-home
 ### The Energy Explorer
 
-Marco Sparko is a desktop application for MacOS and Windows which provides a view of your Octopus Energy account.
+Bruce's Smart Home is a desktop application for MacOS and Windows which provides a view of your Octopus Energy account.
 
-**[Read the documentation](https://bruceskingle.github.io/marco-sparko/)** for how to install and use it.
+**[Read the documentation](https://bruceskingle.github.io/bruce-smart-home/)** for how to install and use it.
 
 The application is a platform with a module framework which is intended to support other services as well, but at the moment Octopus Energy is the only module.
 
@@ -58,7 +58,7 @@ calls I needed to make and which may be useful to anyone who is attempting to ca
 I will endeavor to respond to any comments or questions (email: github at skingle.org), but please bear in mind that this is a hobby project.
 
 # Installation
-Navigate to [https://github.com/bruceskingle/marco-sparko/releases/](https://github.com/bruceskingle/marco-sparko/releases/) to find the
+Navigate to [https://github.com/bruceskingle/bruce-smart-home/releases/](https://github.com/bruceskingle/bruce-smart-home/releases/) to find the
 latest release: 
 
 ![Download Page](docs/gettingStarted/download.png)
@@ -77,7 +77,7 @@ The [Documentation Home](docs/index.md) is the starting point for access to all 
 
 Plugins provide access to various utilities and services, the following sections provide more detailed information about them:
 
-[Octopus Energy](https://github.com/bruceskingle/marco-sparko/blob/main/docs/octopus/index.md)
+[Octopus Energy](https://github.com/bruceskingle/bruce-smart-home/blob/main/docs/octopus/index.md)
 
 License
 =======

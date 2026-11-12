@@ -1,5 +1,5 @@
 //! The slots of a poll's schedule, so that each record says which it is for, as the app's polling does, see
-//! marco-sparko's src/polling.rs.
+//! bruce-smart-home's src/polling.rs.
 
 use std::str::FromStr;
 

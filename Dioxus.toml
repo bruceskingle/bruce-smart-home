@@ -1,11 +1,11 @@
 [application]
-name = "Marco Sparko"
+name = "Bruces Smart Home"
 
 [bundle]
 # The .ico for Windows. The .png for macOS, where dx (since 0.7.10) makes the app's .icns only from .png or .icns files,
 # and leaves the app without an icon if there are none.
 icon = ["icons/icon.ico", "assets/MarcoSparko.png"]
-identifier = "org.skingle.marco-sparko"
+identifier = "org.skingle.bruce-smart-home"
 publisher = "BruceSkingle"
 
 [bundle.windows]
@@ -22,7 +22,7 @@ installer_icon = "icons/icon.ico"
 [web.app]
 
 # HTML title tag content
-title = "Marco Sparko"
+title = "Bruce's Smart Home"
 
 # include `assets` in web platform
 [web.resource]

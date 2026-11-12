@@ -162,7 +162,7 @@ mod tests {
         assert_eq!(kind_of("A-1#Bills").unwrap(), "octopus.bills");
         assert!(kind_of("A-1#").is_err());
 
-        let dir = std::env::temp_dir().join(format!("marco-sparko-records-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("bruce-smart-home-records-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let site = Id::of(&serde_json::json!({"site": "records test"})).unwrap();
         let store = Arc::new(Store::open(&format!("file://{}", dir.display()), &site).unwrap());
@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn an_old_file_is_imported_once_and_left_as_it_was() {
-        let dir = std::env::temp_dir().join(format!("marco-sparko-legacy-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("bruce-smart-home-legacy-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("cache/2026")).unwrap();
         std::fs::write(dir.join("cache/2026/October#A-1#Bills"), "{\"n\": 1}\n\n{\"n\": 2}\nnot json\n").unwrap();

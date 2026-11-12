@@ -1,4 +1,4 @@
-//! Polls myenergi's status of the hub's devices, cgi-jstatus-*, as marco-sparko's src/myenergi does, for what myenergi
+//! Polls myenergi's status of the hub's devices, cgi-jstatus-*, as bruce-smart-home's src/myenergi does, for what myenergi
 //! does not keep: what each zappi is doing now, e.g. the charge added since the car was plugged in, which is only kept
 //! until it is next plugged in, so polling often enough catches every charging session's total. The app fetches each
 //! device's minute records itself, as myenergi keeps those.
@@ -37,7 +37,7 @@ use crate::slots::Slots;
 /// The feature's name, which is also its NVS namespace, so at most 15 characters.
 const FEATURE_NAME: &str = "MyenergiCapture";
 
-/// Every 5 minutes, on the minute, as the app polls, see marco-sparko's src/polling.rs.
+/// Every 5 minutes, on the minute, as the app polls, see bruce-smart-home's src/polling.rs.
 const DEFAULT_SCHEDULE: &str = "0 */5 * * * *";
 
 /// The server which says which server has the hub's data, see Myenergi::host.
@@ -50,7 +50,7 @@ const MAX_BODY: usize = 32 * 1024;
 /// Where its line goes on the screen, after the Powerwall's.
 const PANEL_ORDER: u8 = 2;
 
-/// The fields of each zappi kept, those marco-sparko's StatusSample and ct_names use. Of the other devices only the
+/// The fields of each zappi kept, those bruce-smart-home's StatusSample and ct_names use. Of the other devices only the
 /// serial number is kept, sno, so that the app can fetch their minute records.
 const ZAPPI_FIELDS: &[&str] = &[
     "sno", "dat", "tim", "pst", "sta", "zmo", "che", "div", "grd", "gen", "ectp1", "ectp2", "ectp3", "ectp4", "ectt1",
@@ -152,7 +152,7 @@ struct Myenergi {
 
 impl Myenergi {
     /// GETs path, answering the server's digest challenge, on one connection. A request without authentication gets
-    /// the challenge, as the nonce may only be good for one request, as marco-sparko's MyenergiClient::get does.
+    /// the challenge, as the nonce may only be good for one request, as bruce-smart-home's MyenergiClient::get does.
     fn get(&mut self, path: &str) -> anyhow::Result<Value> {
         crate::device::log_memory("Before myenergi");
         let mut client = Client::wrap(EspHttpConnection::new(&Configuration {
@@ -226,7 +226,7 @@ fn read_body(response: &mut embedded_svc::http::client::Response<&mut EspHttpCon
     }
 }
 
-/// A digest challenge, from a WWW-Authenticate header, as marco-sparko's src/myenergi/digest.rs.
+/// A digest challenge, from a WWW-Authenticate header, as bruce-smart-home's src/myenergi/digest.rs.
 struct Challenge {
     realm: String,
     nonce: String,
@@ -271,7 +271,7 @@ fn md5_hex(text: &str) -> String {
     Md5::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// The Authorization header answering challenge, as marco-sparko's src/myenergi/digest.rs.
+/// The Authorization header answering challenge, as bruce-smart-home's src/myenergi/digest.rs.
 fn digest_authorization(challenge: &Challenge, username: &str, password: &str, method: &str, uri: &str, nc: u32, cnonce: &str) -> String {
     let ha1 = md5_hex(&format!("{username}:{}:{password}", challenge.realm));
     let ha2 = md5_hex(&format!("{method}:{uri}"));
@@ -339,7 +339,7 @@ fn panel_line(status: &Value) -> Line {
     let pst = zappi.get("pst").and_then(|value| value.as_str()).unwrap_or_default();
     let che = zappi.get("che").and_then(|value| value.as_f64()).unwrap_or_default();
     let kw = zappi.get("div").and_then(|value| value.as_f64()).unwrap_or_default() / 1000.0;
-    // The plug's state, as marco-sparko's plug_state, shortened.
+    // The plug's state, as bruce-smart-home's plug_state, shortened.
     let state = match pst {
         "A" => return ("zappi: no car".to_string(), false),
         "B1" => "connected",

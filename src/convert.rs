@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn a_days_file_is_known_by_its_path() {
-        let dir = std::env::temp_dir().join(format!("marco-sparko-convert-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("bruce-smart-home-convert-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("2026/November")).unwrap();
         std::fs::write(dir.join("2026/November/1#status-134000"), "{}").unwrap();

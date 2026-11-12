@@ -1,7 +1,7 @@
 # The documentation, built from docs with mdBook (https://rust-lang.github.io/mdBook/) into target/book, and published
 # to GitHub Pages by .github/workflows/docs.yml. Preview it with: mdbook serve --open
 [book]
-title = "Marco Sparko"
+title = "Bruce's Smart Home"
 authors = ["Bruce Skingle"]
 language = "en"
 src = "docs"
@@ -18,6 +18,6 @@ preferred-dark-theme = "navy"
 theme = "book/theme"
 additional-css = ["book/marco-sparko.css"]
 additional-js = ["book/marco-sparko.js"]
-git-repository-url = "https://github.com/bruceskingle/marco-sparko"
-edit-url-template = "https://github.com/bruceskingle/marco-sparko/edit/main/{path}"
-site-url = "/marco-sparko/"
+git-repository-url = "https://github.com/bruceskingle/bruce-smart-home"
+edit-url-template = "https://github.com/bruceskingle/bruce-smart-home/edit/main/{path}"
+site-url = "/bruce-smart-home/"

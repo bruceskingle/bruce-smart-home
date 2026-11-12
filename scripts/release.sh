@@ -1,34 +1,34 @@
 #!/bin/bash
-# The release process for marco-sparko and bruce-graphql, see docs/Release.md
+# The release process for bruce-smart-home and bruce-graphql, see docs/Release.md
 #
-# The version comes from the version in marco-sparko's Cargo.toml, which "start" sets at the beginning of each release
+# The version comes from the version in bruce-smart-home's Cargo.toml, which "start" sets at the beginning of each release
 # cycle. Each command checks that the repos are in the state it expects before changing anything, and stops at the
 # first problem.
 #
-# This is for macOS (it uses BSD sed) with both repos checked out side by side, e.g. ~/git/marco-sparko and
+# This is for macOS (it uses BSD sed) with both repos checked out side by side, e.g. ~/git/bruce-smart-home and
 # ~/git/bruce-graphql, and needs the GitHub CLI (gh) signed in. sync and download also work in Git Bash on Windows, to
 # test there.
 
 set -euo pipefail
 
-# bruce-graphql first, as marco-sparko depends on it.
-REPOS="bruce-graphql marco-sparko"
+# bruce-graphql first, as bruce-smart-home depends on it.
+REPOS="bruce-graphql bruce-smart-home"
 WORKFLOW=release.yml
 # The installers attached to each release, with VERSION replaced by the version. The Intel Mac's was _x64.dmg before
 # dx 0.7.10.
-INSTALLERS="MarcoSparko_VERSION_aarch64.dmg MarcoSparko_VERSION_x86_64.dmg MarcoSparko_VERSION_x64-setup.exe
-MarcoSparko_VERSION_arm64-setup.exe"
+INSTALLERS="BrucesSmartHome_VERSION_aarch64.dmg BrucesSmartHome_VERSION_x86_64.dmg BrucesSmartHome_VERSION_x64-setup.exe
+BrucesSmartHome_VERSION_arm64-setup.exe"
 
 GIT_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 
-# The GitHub account or organisation of the repos, from marco-sparko's origin, so that the script also works on forks
+# The GitHub account or organisation of the repos, from bruce-smart-home's origin, so that the script also works on forks
 # (e.g. to try it out), checked out side by side in another directory.
 github_owner() {
     git -C "$GIT_ROOT/$1" remote get-url origin | sed -E 's#^.*github\.com[:/]([^/]+)/.*$#\1#'
 }
-OWNER=$(github_owner marco-sparko)
+OWNER=$(github_owner bruce-smart-home)
 [ "$(github_owner bruce-graphql)" = "$OWNER" ] \
-    || { echo "ERROR: marco-sparko is from $OWNER but bruce-graphql is from $(github_owner bruce-graphql)" >&2; exit 1; }
+    || { echo "ERROR: bruce-smart-home is from $OWNER but bruce-graphql is from $(github_owner bruce-graphql)" >&2; exit 1; }
 
 usage() {
     cat <<EOF
@@ -72,15 +72,15 @@ cargo_version() {
     sed -n 's/^version = "\(.*\)"/\1/p' "$1/Cargo.toml" | head -1
 }
 
-# The version being released, from marco-sparko's Cargo.toml, after checking that bruce-graphql has the same version.
+# The version being released, from bruce-smart-home's Cargo.toml, after checking that bruce-graphql has the same version.
 release_version() {
     local version graphql_version dependency_version
-    version=$(cargo_version "$(repo_dir marco-sparko)")
+    version=$(cargo_version "$(repo_dir bruce-smart-home)")
     graphql_version=$(cargo_version "$(repo_dir bruce-graphql)")
-    dependency_version=$(sed -n 's/^bruce-graphql = {version = "\([^"]*\)".*/\1/p' "$(repo_dir marco-sparko)/Cargo.toml")
-    [ -n "$version" ] || die "No version in marco-sparko/Cargo.toml"
-    [ "$graphql_version" = "$version" ] || die "bruce-graphql is version $graphql_version but marco-sparko is $version"
-    [ "$dependency_version" = "$version" ] || die "marco-sparko depends on bruce-graphql $dependency_version but is version $version"
+    dependency_version=$(sed -n 's/^bruce-graphql = {version = "\([^"]*\)".*/\1/p' "$(repo_dir bruce-smart-home)/Cargo.toml")
+    [ -n "$version" ] || die "No version in bruce-smart-home/Cargo.toml"
+    [ "$graphql_version" = "$version" ] || die "bruce-graphql is version $graphql_version but bruce-smart-home is $version"
+    [ "$dependency_version" = "$version" ] || die "bruce-smart-home depends on bruce-graphql $dependency_version but is version $version"
     echo "$version"
 }
 
@@ -141,7 +141,7 @@ delete_tag() {
 # Whether the GitHub release for the tag is a draft, a published release, or does not exist.
 release_state() {
     local draft
-    if draft=$(gh release view "$1" -R "$OWNER/marco-sparko" --json isDraft --jq .isDraft 2>/dev/null); then
+    if draft=$(gh release view "$1" -R "$OWNER/bruce-smart-home" --json isDraft --jq .isDraft 2>/dev/null); then
         if [ "$draft" = "true" ]; then echo draft; else echo published; fi
     else
         echo none
@@ -149,7 +149,7 @@ release_state() {
 }
 
 latest_run_id() {
-    gh run list -R "$OWNER/marco-sparko" --workflow "$WORKFLOW" --limit 1 --json databaseId --jq '.[0].databaseId // ""'
+    gh run list -R "$OWNER/bruce-smart-home" --workflow "$WORKFLOW" --limit 1 --json databaseId --jq '.[0].databaseId // ""'
 }
 
 # Runs the workflow from ref to build tag, attaching the installers to the draft release for tag if attach is true,
@@ -158,7 +158,7 @@ run_workflow() {
     local ref=$1 tag=$2 attach=$3 previous id
     previous=$(latest_run_id)
     info "Starting the $WORKFLOW workflow for $tag"
-    gh workflow run "$WORKFLOW" -R "$OWNER/marco-sparko" --ref "$ref" -f tag="$tag" -f attach="$attach"
+    gh workflow run "$WORKFLOW" -R "$OWNER/bruce-smart-home" --ref "$ref" -f tag="$tag" -f attach="$attach"
 
     id=$previous
     for _ in $(seq 30); do
@@ -166,7 +166,7 @@ run_workflow() {
         id=$(latest_run_id)
         [ "$id" != "$previous" ] && break
     done
-    [ "$id" != "$previous" ] || die "The workflow run did not start, see the Actions tab of the marco-sparko repo"
+    [ "$id" != "$previous" ] || die "The workflow run did not start, see the Actions tab of the bruce-smart-home repo"
 
     watch_run "$id"
     RUN_ID=$id
@@ -176,12 +176,12 @@ run_workflow() {
 watch_run() {
     local id=$1
     info "Watching run $id (about 30 to 40 minutes), Ctrl+C stops watching but not the run, $(basename "$0") watch resumes"
-    if ! gh run watch "$id" -R "$OWNER/marco-sparko" --exit-status; then
+    if ! gh run watch "$id" -R "$OWNER/bruce-smart-home" --exit-status; then
         echo >&2
-        echo "To see why it failed: gh run view $id -R $OWNER/marco-sparko --log-failed" >&2
-        echo "To re-run the failed jobs: gh run rerun $id -R $OWNER/marco-sparko --failed" >&2
+        echo "To see why it failed: gh run view $id -R $OWNER/bruce-smart-home --log-failed" >&2
+        echo "To re-run the failed jobs: gh run rerun $id -R $OWNER/bruce-smart-home --failed" >&2
         echo "To download the installers which were built, e.g. to try one which failed its check:" >&2
-        echo "  gh run download $id -R $OWNER/marco-sparko --dir ~/Downloads/marco-sparko-run-$id" >&2
+        echo "  gh run download $id -R $OWNER/bruce-smart-home --dir ~/Downloads/bruce-smart-home-run-$id" >&2
         die "The workflow run failed"
     fi
 }
@@ -189,9 +189,9 @@ watch_run() {
 # Downloads the installers built by try's workflow run.
 download_test_installers() {
     local version=$1 id=$2 download
-    download="$HOME/Downloads/marco-sparko-$version-test"
+    download="$HOME/Downloads/bruce-smart-home-$version-test"
     rm -rf "$download"
-    gh run download "$id" -R "$OWNER/marco-sparko" --dir "$download"
+    gh run download "$id" -R "$OWNER/bruce-smart-home" --dir "$download"
     info "The installers are in $download"
 }
 
@@ -199,10 +199,10 @@ download_test_installers() {
 # release has its own title). Links to other docs are relative, so they are made links to the docs on GitHub at the tag.
 changelog_notes() {
     local tag="release$1"
-    git -C "$(repo_dir marco-sparko)" show "$tag:docs/ChangeLog.md" \
+    git -C "$(repo_dir bruce-smart-home)" show "$tag:docs/ChangeLog.md" \
         | awk -v version="$1" '/^## Release /{ show = ($3 == version); next } show' \
         | unwrap_markdown \
-        | sed -E "s#\]\(([^)#:][^):]*)\)#](https://github.com/$OWNER/marco-sparko/blob/$tag/docs/\1)#g"
+        | sed -E "s#\]\(([^)#:][^):]*)\)#](https://github.com/$OWNER/bruce-smart-home/blob/$tag/docs/\1)#g"
 }
 
 # Joins the lines of each paragraph, list item and quote, which the docs wrap at 120 characters, because GitHub shows
@@ -244,13 +244,13 @@ changelog_notes_file() {
 download_release_installers() {
     local version=$1 tag download
     tag="release$version"
-    download="$HOME/Downloads/marco-sparko-$version"
+    download="$HOME/Downloads/bruce-smart-home-$version"
     rm -rf "$download"
-    gh release download "$tag" -R "$OWNER/marco-sparko" --dir "$download"
+    gh release download "$tag" -R "$OWNER/bruce-smart-home" --dir "$download"
     info "The installers are in $download"
     echo
     echo "Try them, and check the release notes, from the ChangeLog, on GitHub (the draft is listed on the Releases page):"
-    gh release view "$tag" -R "$OWNER/marco-sparko" --json url --jq .url
+    gh release view "$tag" -R "$OWNER/bruce-smart-home" --json url --jq .url
     echo
     info "When it is ready, next: $(basename "$0") publish"
 }
@@ -287,7 +287,7 @@ installer_pattern() {
 
 # The latest vX.X.X release branch on GitHub, by version, empty if there is none.
 latest_release_branch() {
-    git -C "$(repo_dir marco-sparko)" ls-remote --heads origin 'v*' \
+    git -C "$(repo_dir bruce-smart-home)" ls-remote --heads origin 'v*' \
         | sed -n 's#.*refs/heads/\(v[0-9]*\.[0-9]*\.[0-9]*\)$#\1#p' \
         | sort -t. -k1.2,1n -k2,2n -k3,3n | tail -1
 }
@@ -331,8 +331,8 @@ cmd_sync() {
 
 cmd_status() {
     local version state
-    version=$(cargo_version "$(repo_dir marco-sparko)")
-    echo "Version (marco-sparko Cargo.toml): $version"
+    version=$(cargo_version "$(repo_dir bruce-smart-home)")
+    echo "Version (bruce-smart-home Cargo.toml): $version"
     for repo in $REPOS; do
         local dir changes
         dir=$(repo_dir "$repo")
@@ -353,7 +353,7 @@ cmd_status() {
     echo
     echo "GitHub release release$version: $state"
     echo
-    gh run list -R "$OWNER/marco-sparko" --workflow "$WORKFLOW" --limit 3
+    gh run list -R "$OWNER/bruce-smart-home" --workflow "$WORKFLOW" --limit 3
 }
 
 cmd_start() {
@@ -362,7 +362,7 @@ cmd_start() {
         require_clean "$repo"
         git -C "$(repo_dir "$repo")" fetch -q origin
     done
-    main_version=$(git -C "$(repo_dir marco-sparko)" show origin/main:Cargo.toml | sed -n 's/^version = "\(.*\)"/\1/p' | head -1)
+    main_version=$(git -C "$(repo_dir bruce-smart-home)" show origin/main:Cargo.toml | sed -n 's/^version = "\(.*\)"/\1/p' | head -1)
     # The next minor version, e.g. 0.4.4 to 0.5.0, so that patch versions are left for fixes to the last release.
     new_version=${1:-$(echo "$main_version" | awk -F. '{ printf "%d.%d.0", $1, $2 + 1 }')}
     [[ "$new_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "$new_version is not a version like 0.4.4"
@@ -388,7 +388,7 @@ cmd_start() {
     sed -i '' "1,/^version = /s/^version = .*/version = \"$new_version\"/" "$(repo_dir bruce-graphql)/Cargo.toml"
     sed -i '' -e "1,/^version = /s/^version = .*/version = \"$new_version\"/" \
         -e "s/^bruce-graphql = {version = \"[^\"]*\"/bruce-graphql = {version = \"$new_version\"/" \
-        "$(repo_dir marco-sparko)/Cargo.toml"
+        "$(repo_dir bruce-smart-home)/Cargo.toml"
     release_version >/dev/null
 
     # Updates the Cargo.lock files.
@@ -490,7 +490,7 @@ cmd_check() {
     done
 
     info "Clean build and run, quit the app when you have finished checking it"
-    (cd "$(repo_dir marco-sparko)" && cargo clean && dx run --release) || echo "The app did not build or run"
+    (cd "$(repo_dir bruce-smart-home)" && cargo clean && dx run --release) || echo "The app did not build or run"
 
     for repo in $REPOS; do
         local dir
@@ -511,7 +511,7 @@ cmd_build() {
     for repo in $REPOS; do
         remote_tag_exists "$repo" "$tag" || die "$repo has no $tag tag, run merge first"
     done
-    git -C "$(repo_dir marco-sparko)" fetch -q --tags origin
+    git -C "$(repo_dir bruce-smart-home)" fetch -q --tags origin
 
     state=$(release_state "$tag")
     case $state in
@@ -519,7 +519,7 @@ cmd_build() {
         none)
             notes=$(changelog_notes_file "$version")
             info "Creating the draft release $tag, with the notes from the ChangeLog"
-            gh release create "$tag" -R "$OWNER/marco-sparko" --draft --verify-tag --title "Release $version" \
+            gh release create "$tag" -R "$OWNER/bruce-smart-home" --draft --verify-tag --title "Release $version" \
                 --notes-file "$notes"
             rm -f "$notes"
             ;;
@@ -538,7 +538,7 @@ cmd_watch() {
     id=$(latest_run_id)
     [ -n "$id" ] || die "There are no runs of the $WORKFLOW workflow"
     # The branch or tag the run was started from, which shows whether it was started by try or build.
-    ref=$(gh run view "$id" -R "$OWNER/marco-sparko" --json headBranch --jq .headBranch)
+    ref=$(gh run view "$id" -R "$OWNER/bruce-smart-home" --json headBranch --jq .headBranch)
     case $ref in
         "v$version")
             watch_run "$id"
@@ -561,20 +561,20 @@ cmd_download() {
     platform=$(this_platform)
     id=$(latest_run_id)
     [ -n "$id" ] || die "There are no runs of the $WORKFLOW workflow"
-    ref=$(gh run view "$id" -R "$OWNER/marco-sparko" --json headBranch --jq .headBranch)
-    status=$(gh run view "$id" -R "$OWNER/marco-sparko" --json status --jq .status)
+    ref=$(gh run view "$id" -R "$OWNER/bruce-smart-home" --json headBranch --jq .headBranch)
+    status=$(gh run view "$id" -R "$OWNER/bruce-smart-home" --json status --jq .status)
     [ "$status" = "completed" ] || die "The latest run ($id) is $status, wait for it with: $(basename "$0") watch"
     case $ref in
         "v$version")
-            download="$HOME/Downloads/marco-sparko-$version-test/$platform"
+            download="$HOME/Downloads/bruce-smart-home-$version-test/$platform"
             rm -rf "$download"
             info "Downloading $platform from run $id"
-            gh run download "$id" -R "$OWNER/marco-sparko" -n "$platform" --dir "$download"
+            gh run download "$id" -R "$OWNER/bruce-smart-home" -n "$platform" --dir "$download"
             ;;
         "release$version")
-            download="$HOME/Downloads/marco-sparko-$version"
+            download="$HOME/Downloads/bruce-smart-home-$version"
             info "Downloading $(installer_pattern "$platform") from release$version"
-            gh release download "release$version" -R "$OWNER/marco-sparko" -p "$(installer_pattern "$platform")" \
+            gh release download "release$version" -R "$OWNER/bruce-smart-home" -p "$(installer_pattern "$platform")" \
                 --dir "$download" --clobber
             ;;
         *) die "The latest run ($id) is from $ref, not from try or build of $version" ;;
@@ -588,12 +588,12 @@ cmd_notes() {
     version=$(release_version)
     tag="release$version"
     [ "$(release_state "$tag")" = "draft" ] || die "There is no draft release $tag, run build first"
-    git -C "$(repo_dir marco-sparko)" fetch -q --tags origin
+    git -C "$(repo_dir bruce-smart-home)" fetch -q --tags origin
     notes=$(changelog_notes_file "$version")
-    gh release edit "$tag" -R "$OWNER/marco-sparko" --notes-file "$notes"
+    gh release edit "$tag" -R "$OWNER/bruce-smart-home" --notes-file "$notes"
     rm -f "$notes"
     info "The notes of $tag are now the ChangeLog's:"
-    gh release view "$tag" -R "$OWNER/marco-sparko" --json url --jq .url
+    gh release view "$tag" -R "$OWNER/bruce-smart-home" --json url --jq .url
 }
 
 cmd_publish() {
@@ -603,16 +603,16 @@ cmd_publish() {
     tag="release$version"
     [ "$(release_state "$tag")" = "draft" ] || die "There is no draft release $tag, run build first"
 
-    assets=$(gh release view "$tag" -R "$OWNER/marco-sparko" --json assets --jq '.assets[].name')
+    assets=$(gh release view "$tag" -R "$OWNER/bruce-smart-home" --json assets --jq '.assets[].name')
     for installer in $INSTALLERS; do
         installer=${installer//VERSION/$version}
         echo "$assets" | grep -qx "$installer" || missing="$missing $installer"
     done
     [ -z "$missing" ] || die "The draft release is missing:$missing"
 
-    gh release edit "$tag" -R "$OWNER/marco-sparko" --draft=false --latest
+    gh release edit "$tag" -R "$OWNER/bruce-smart-home" --draft=false --latest
     info "Published:"
-    gh release view "$tag" -R "$OWNER/marco-sparko" --json url --jq .url
+    gh release view "$tag" -R "$OWNER/bruce-smart-home" --json url --jq .url
     info "Next: $(basename "$0") start"
 }
 
@@ -625,7 +625,7 @@ cmd_untag() {
     [ "$state" != "published" ] || die "$tag has been published, so start a new version instead"
     if [ "$state" = "draft" ]; then
         info "Deleting the draft release $tag"
-        gh release delete "$tag" -R "$OWNER/marco-sparko" --yes
+        gh release delete "$tag" -R "$OWNER/bruce-smart-home" --yes
     fi
     for repo in $REPOS; do
         info "$repo: deleting $tag"

@@ -14,10 +14,10 @@
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=marco-sparko"
+                    "--package=bruce-smart-home"
                 ],
                 "filter": {
-                    "name": "marco-sparko",
+                    "name": "bruce-smart-home",
                     "kind": "lib"
                 }
             },
@@ -35,10 +35,10 @@
         //             "octopus::tests::test_handle_bill_total",
         //             "--no-run",
         //             "--lib",
-        //             "--package=marco-sparko"
+        //             "--package=bruce-smart-home"
         //         ],
         //         "filter": {
-        //             "name": "marco-sparko",
+        //             "name": "bruce-smart-home",
         //             "kind": "lib"
         //         }
         //     },
@@ -49,15 +49,15 @@
         // {
         //     "type": "lldb",
         //     "request": "launch",
-        //     "name": "Debug executable 'marco-sparko bill'",
+        //     "name": "Debug executable 'bruce-smart-home bill'",
         //     "cargo": {
         //         "args": [
         //             "build",
-        //             "--bin=marco-sparko",
-        //             "--package=marco-sparko"
+        //             "--bin=bruce-smart-home",
+        //             "--package=bruce-smart-home"
         //         ],
         //         "filter": {
-        //             "name": "marco-sparko",
+        //             "name": "bruce-smart-home",
         //             "kind": "bin"
         //         }
         //     },
@@ -70,15 +70,15 @@
         // {
         //     "type": "lldb",
         //     "request": "launch",
-        //     "name": "Debug executable 'marco-sparko summary'",
+        //     "name": "Debug executable 'bruce-smart-home summary'",
         //     "cargo": {
         //         "args": [
         //             "build",
-        //             "--bin=marco-sparko",
-        //             "--package=marco-sparko"
+        //             "--bin=bruce-smart-home",
+        //             "--package=bruce-smart-home"
         //         ],
         //         "filter": {
-        //             "name": "marco-sparko",
+        //             "name": "bruce-smart-home",
         //             "kind": "bin"
         //         }
         //     },
@@ -91,15 +91,15 @@
         // {
         //     "type": "lldb",
         //     "request": "launch",
-        //     "name": "Debug executable 'marco-sparko test'",
+        //     "name": "Debug executable 'bruce-smart-home test'",
         //     "cargo": {
         //         "args": [
         //             "build",
-        //             "--bin=marco-sparko",
-        //             "--package=marco-sparko"
+        //             "--bin=bruce-smart-home",
+        //             "--package=bruce-smart-home"
         //         ],
         //         "filter": {
-        //             "name": "marco-sparko",
+        //             "name": "bruce-smart-home",
         //             "kind": "bin"
         //         }
         //     },
@@ -136,7 +136,7 @@
             "presentation": { "group": "1 App", "order": 3 },
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/target/debug/marco-sparko",
+            "program": "${workspaceFolder}/target/debug/bruce-smart-home",
             "cwd": "${workspaceFolder}",
             "env": {
                 "CARGO_MANIFEST_DIR": "${workspaceFolder}",
@@ -153,12 +153,12 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=marco-sparko",
-                    "--package=marco-sparko",
+                    "--bin=bruce-smart-home",
+                    "--package=bruce-smart-home",
                     "--features=dioxus/desktop"
                 ],
                 "filter": {
-                    "name": "marco-sparko",
+                    "name": "bruce-smart-home",
                     "kind": "bin"
                 }
             },
@@ -174,7 +174,7 @@
             }
         },
         // The app with the demo profile, a redacted, offline, copy of a real profile's data, e.g. for screenshots, see
-        // docs/Redaction.md. Make or refresh it with: marco-sparko --redact <profile> demo
+        // docs/Redaction.md. Make or refresh it with: bruce-smart-home --redact <profile> demo
         {
             "type": "lldb",
             "request": "launch",
@@ -183,12 +183,12 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=marco-sparko",
-                    "--package=marco-sparko",
+                    "--bin=bruce-smart-home",
+                    "--package=bruce-smart-home",
                     "--features=dioxus/desktop"
                 ],
                 "filter": {
-                    "name": "marco-sparko",
+                    "name": "bruce-smart-home",
                     "kind": "bin"
                 }
             },
@@ -216,12 +216,12 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=marco-sparko",
-                    "--package=marco-sparko",
+                    "--bin=bruce-smart-home",
+                    "--package=bruce-smart-home",
                     "--features=dioxus/desktop"
                 ],
                 "filter": {
-                    "name": "marco-sparko",
+                    "name": "bruce-smart-home",
                     "kind": "bin"
                 }
             },
@@ -246,12 +246,12 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=marco-sparko",
-                    "--package=marco-sparko",
+                    "--bin=bruce-smart-home",
+                    "--package=bruce-smart-home",
                     "--features=dioxus/desktop"
                 ],
                 "filter": {
-                    "name": "marco-sparko",
+                    "name": "bruce-smart-home",
                     "kind": "bin"
                 }
             },
@@ -279,12 +279,12 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=marco-sparko",
-                    "--package=marco-sparko",
+                    "--bin=bruce-smart-home",
+                    "--package=bruce-smart-home",
                     "--features=dioxus/desktop"
                 ],
                 "filter": {
-                    "name": "marco-sparko",
+                    "name": "bruce-smart-home",
                     "kind": "bin"
                 }
             },
@@ -311,12 +311,12 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=marco-sparko",
-                    "--package=marco-sparko",
+                    "--bin=bruce-smart-home",
+                    "--package=bruce-smart-home",
                     "--features=dioxus/desktop"
                 ],
                 "filter": {
-                    "name": "marco-sparko",
+                    "name": "bruce-smart-home",
                     "kind": "bin"
                 }
             },
@@ -336,15 +336,15 @@
         // {
         //     "type": "lldb",
         //     "request": "launch",
-        //     "name": "Debug executable 'marco-sparko'",
+        //     "name": "Debug executable 'bruce-smart-home'",
         //     "cargo": {
         //         "args": [
         //             "build",
-        //             "--bin=marco-sparko",
-        //             "--package=marco-sparko"
+        //             "--bin=bruce-smart-home",
+        //             "--package=bruce-smart-home"
         //         ],
         //         "filter": {
-        //             "name": "marco-sparko",
+        //             "name": "bruce-smart-home",
         //             "kind": "bin"
         //         }
         //     },
@@ -356,16 +356,16 @@
         // {
         //     "type": "lldb",
         //     "request": "launch",
-        //     "name": "Debug unit tests in executable 'marco-sparko'",
+        //     "name": "Debug unit tests in executable 'bruce-smart-home'",
         //     "cargo": {
         //         "args": [
         //             "test",
         //             "--no-run",
-        //             "--bin=marco-sparko",
-        //             "--package=marco-sparko"
+        //             "--bin=bruce-smart-home",
+        //             "--package=bruce-smart-home"
         //         ],
         //         "filter": {
-        //             "name": "marco-sparko",
+        //             "name": "bruce-smart-home",
         //             "kind": "bin"
         //         }
         //     },

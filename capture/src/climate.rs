@@ -79,7 +79,7 @@ impl Feature for ClimateCapture {
             .map(|schedule| schedule.pattern.to_string())
             .unwrap_or_else(|| DEFAULT_SCHEDULE.to_string());
         let store = Arc::new(Mutex::new(Store { last_poll: None }));
-        // The app reads every 5 minutes, see marco-sparko's src/climate.rs, not on every sample.
+        // The app reads every 5 minutes, see bruce-smart-home's src/climate.rs, not on every sample.
         let device = Arc::new(Device::new("0 */5 * * * *"));
 
         let sample = SampleTask {

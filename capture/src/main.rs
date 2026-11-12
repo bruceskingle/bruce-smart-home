@@ -1,4 +1,4 @@
-//! A Capture Device: an ESP32 which polls what Marco Sparko needs while the computer it runs on sleeps, keeps it, and
+//! A Capture Device: an ESP32 which polls what Bruce's Smart Home needs while the computer it runs on sleeps, keeps it, and
 //! gives it to the app, which reads it from the device's store, see db.rs: the Tesla gateway, see tesla.rs,
 //! myenergi's zappi, see myenergi.rs, and Octopus's smart charging, see octopus.rs, on a CYD, whose screen shows a graph
 //! of the gateway's power, as it has too little memory for the internet polls, a Waveshare ESP32-C6-Touch-LCD-1.47, whose small screen shows a graph of

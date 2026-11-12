@@ -1,6 +1,6 @@
 # Notes for Coding Agents
 
-Marco Sparko is a Rust desktop app, built with [Dioxus](https://dioxuslabs.com), for seeing a household's energy: its
+Bruce's Smart Home is a Rust desktop app, built with [Dioxus](https://dioxuslabs.com), for seeing a household's energy: its
 use, costs and bills from Octopus Energy, and what its Tesla Powerwalls and myenergi zappi did. People's guides are in
 [docs/developers.md](docs/developers.md), which links to the notes on releases, help, redaction and screenshots.
 

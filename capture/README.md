@@ -1,6 +1,6 @@
-# Marco Sparko Capture Device
+# Bruce's Smart Home Capture Device
 
-Firmware for an ESP32 which polls what Marco Sparko needs while the computer it runs on sleeps, built on
+Firmware for an ESP32 which polls what Bruce's Smart Home needs while the computer it runs on sleeps, built on
 [bruce-esp-idf](../../bruce-esp-idf), which must be checked out next to this repo, with
 [bruce-embedded-std](../../bruce-embedded-std) and bruce-embedded-firmware-record. It polls the Tesla
 gateway, myenergi's zappi and Octopus's smart charging, and keeps what it gets on an SD card. It runs on:

@@ -1,18 +1,18 @@
-# marco-sparko
+# bruce-smart-home
 # Release Process
 
-Each release is developed on a branch called `vX.X.X` in both bruce-graphql and marco-sparko, which is squash
+Each release is developed on a branch called `vX.X.X` in both bruce-graphql and bruce-smart-home, which is squash
 merged to `main` and tagged `releaseX.X.X`. The installers are built on GitHub and attached to a draft release, which
 is published once they have been tried. Then the branches for the next version are started.
 
 The steps are run with [scripts/release.sh](../scripts/release.sh) on the main dev machine, with both repos checked
 out side by side in `~/git`. It needs the GitHub CLI, `gh`, signed in with `gh auth login`. The version comes from
-marco-sparko's Cargo.toml, which `start` sets at the beginning of each release, so it never needs to be typed again.
+bruce-smart-home's Cargo.toml, which `start` sets at the beginning of each release, so it never needs to be typed again.
 Each command checks that both repos are in the state it expects (the right branch, nothing uncommitted, the tags it
 needs) and stops with an explanation at the first problem.
 
 ```
-cd ~/git/marco-sparko
+cd ~/git/bruce-smart-home
 ./scripts/release.sh status
 ```
 
@@ -33,10 +33,10 @@ release branches `testX.X.X` (moving the tags if they exist), runs the workflow,
 the Intel Mac is the slowest) and downloads the installers, each in a folder named after its build:
 
 ```
-~/Downloads/marco-sparko-X.X.X-test/macos-aarch64/MarcoSparko_X.X.X_aarch64.dmg      Apple silicon Mac
-~/Downloads/marco-sparko-X.X.X-test/macos-x64/MarcoSparko_X.X.X_x86_64.dmg           Intel Mac
-~/Downloads/marco-sparko-X.X.X-test/windows-arm64/MarcoSparko_X.X.X_arm64-setup.exe  ARM PC
-~/Downloads/marco-sparko-X.X.X-test/windows-x64/MarcoSparko_X.X.X_x64-setup.exe      Intel or AMD PC
+~/Downloads/bruce-smart-home-X.X.X-test/macos-aarch64/BrucesSmartHome_X.X.X_aarch64.dmg      Apple silicon Mac
+~/Downloads/bruce-smart-home-X.X.X-test/macos-x64/BrucesSmartHome_X.X.X_x86_64.dmg           Intel Mac
+~/Downloads/bruce-smart-home-X.X.X-test/windows-arm64/BrucesSmartHome_X.X.X_arm64-setup.exe  ARM PC
+~/Downloads/bruce-smart-home-X.X.X-test/windows-x64/BrucesSmartHome_X.X.X_x64-setup.exe      Intel or AMD PC
 ```
 
 Each run of `try` replaces them. Run it again after fixing anything. The test tags are deleted by `merge`.
@@ -57,13 +57,13 @@ To try the installer on another machine, see
 <summary>Manual commands</summary>
 
 ```
-for repo in bruce-graphql marco-sparko; do
+for repo in bruce-graphql bruce-smart-home; do
   cd ~/git/$repo
   git tag -f test$RELEASE
   git push -f origin test$RELEASE
 done
 
-cd ~/git/marco-sparko
+cd ~/git/bruce-smart-home
 gh workflow run release.yml --ref v$RELEASE -f tag=test$RELEASE
 ```
 
@@ -73,7 +73,7 @@ Wait a few seconds for the run to start, then watch it and download the installe
 ```
 RUN=$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
 gh run watch $RUN
-gh run download $RUN --dir ~/Downloads/marco-sparko-$RELEASE-test
+gh run download $RUN --dir ~/Downloads/bruce-smart-home-$RELEASE-test
 ```
 
 Each build's installers are kept as an artifact named `macos-aarch64`, `macos-x64`, `windows-x64` or `windows-arm64`
@@ -81,8 +81,8 @@ for 90 days. Particular builds can be downloaded with `-n`, e.g. while the slowe
 refuses because the run is in progress, wait for it to finish):
 
 ```
-gh run download $RUN -n windows-arm64 -n macos-aarch64 --dir ~/Downloads/marco-sparko-$RELEASE-test
-gh api repos/bruceskingle/marco-sparko/actions/runs/$RUN/artifacts --jq '.artifacts[] | "\(.name) \(.size_in_bytes)"'
+gh run download $RUN -n windows-arm64 -n macos-aarch64 --dir ~/Downloads/bruce-smart-home-$RELEASE-test
+gh api repos/bruceskingle/bruce-smart-home/actions/runs/$RUN/artifacts --jq '.artifacts[] | "\(.name) \(.size_in_bytes)"'
 ```
 
 On a Windows VM, in PowerShell:
@@ -96,9 +96,9 @@ On a Windows VM, in PowerShell:
    - In the first line which `gh run watch` shows, after "Release ·": `* v0.4.4 Release · 40215599738`. The other
      numbers it shows, `(ID 121252356794)` after each job, are job IDs, which are not what is needed here (they are
      only used to get one job's log, see below).
-   - In the address of the run's page on the Actions tab: `.../marco-sparko/actions/runs/40215599738`
+   - In the address of the run's page on the Actions tab: `.../bruce-smart-home/actions/runs/40215599738`
    - Listed with the recent runs, on either machine, with
-     `gh run list -R bruceskingle/marco-sparko --workflow release.yml --limit 5`
+     `gh run list -R bruceskingle/bruce-smart-home --workflow release.yml --limit 5`
      (the ID is the long number in the ID column, the newest run is first).
 
 3. Set `$RUN` to it. The variables set on the Mac are not set in PowerShell, so this is always needed there. With the
@@ -111,7 +111,7 @@ On a Windows VM, in PowerShell:
    or, to use the latest run without looking up its number:
 
    ```
-   $RUN = gh run list -R bruceskingle/marco-sparko --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId'
+   $RUN = gh run list -R bruceskingle/bruce-smart-home --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId'
    ```
 
    `echo $RUN` shows which run it is set to.
@@ -119,12 +119,12 @@ On a Windows VM, in PowerShell:
 4. Download the installer, `windows-arm64` on an ARM PC or `windows-x64` on an Intel or AMD PC:
 
    ```
-   gh run download $RUN -R bruceskingle/marco-sparko -n windows-arm64 --dir $HOME\Downloads\marco-sparko-test
+   gh run download $RUN -R bruceskingle/bruce-smart-home -n windows-arm64 --dir $HOME\Downloads\bruce-smart-home-test
    ```
 
-   `-R` means these commands work in any directory. The setup.exe is in `Downloads\marco-sparko-test`.
+   `-R` means these commands work in any directory. The setup.exe is in `Downloads\bruce-smart-home-test`.
 
-The artifacts can also be downloaded from the run's page on the Actions tab of the marco-sparko repo, under
+The artifacts can also be downloaded from the run's page on the Actions tab of the bruce-smart-home repo, under
 **Artifacts** at the bottom of the Summary (only the name is a link).
 
 If a build fails, see why with the first command, or the second if that prints nothing (the job ID is shown next to
@@ -132,14 +132,14 @@ the job by `gh run watch`), and re-run the failed jobs with the third:
 
 ```
 gh run view $RUN --log-failed
-gh api repos/bruceskingle/marco-sparko/actions/jobs/<job id>/logs | grep -B2 -A10 -i "error\|panicked"
+gh api repos/bruceskingle/bruce-smart-home/actions/jobs/<job id>/logs | grep -B2 -A10 -i "error\|panicked"
 gh run rerun $RUN --failed
 ```
 
 Delete the test tags afterwards:
 
 ```
-for repo in bruce-graphql marco-sparko; do
+for repo in bruce-graphql bruce-smart-home; do
   cd ~/git/$repo
   git tag -d test$RELEASE
   git push origin --delete test$RELEASE
@@ -172,7 +172,7 @@ branches, then run `merge` again.
 <summary>Manual commands</summary>
 
 ```
-for repo in bruce-graphql marco-sparko; do
+for repo in bruce-graphql bruce-smart-home; do
   cd ~/git/$repo
   git checkout v$RELEASE
   git status --short
@@ -186,7 +186,7 @@ The pull requests can be merged on GitHub instead, choose **Squash and merge**. 
 into the release branches:
 
 ```
-for repo in bruce-graphql marco-sparko; do
+for repo in bruce-graphql bruce-smart-home; do
   cd ~/git/$repo
   git fetch origin
   git tag release$RELEASE origin/main
@@ -200,7 +200,7 @@ To make more changes, delete the draft release (if there is one) and the release
 
 ```
 gh release delete release$RELEASE --yes
-for repo in bruce-graphql marco-sparko; do
+for repo in bruce-graphql bruce-smart-home; do
   cd ~/git/$repo
   git tag -d release$RELEASE
   git push origin --delete release$RELEASE
@@ -224,7 +224,7 @@ switches both repos back to the release branches. If something needs fixing, use
 ```
 cd ~/git/bruce-graphql
 git checkout release$RELEASE
-cd ~/git/marco-sparko
+cd ~/git/bruce-smart-home
 git checkout release$RELEASE
 cargo clean
 dx run --release
@@ -234,7 +234,7 @@ Then go back to the release branches. If Cargo.lock shows as changed, it was reg
 is safe to discard it:
 
 ```
-for repo in bruce-graphql marco-sparko; do
+for repo in bruce-graphql bruce-smart-home; do
   cd ~/git/$repo
   git restore Cargo.lock
   git checkout v$RELEASE
@@ -256,10 +256,10 @@ them to the draft. The files are only attached if all four builds succeed. It do
 one folder, and shows the draft's URL:
 
 ```
-~/Downloads/marco-sparko-X.X.X/MarcoSparko_X.X.X_aarch64.dmg      Apple silicon Mac
-~/Downloads/marco-sparko-X.X.X/MarcoSparko_X.X.X_x86_64.dmg       Intel Mac
-~/Downloads/marco-sparko-X.X.X/MarcoSparko_X.X.X_arm64-setup.exe  ARM PC
-~/Downloads/marco-sparko-X.X.X/MarcoSparko_X.X.X_x64-setup.exe    Intel or AMD PC
+~/Downloads/bruce-smart-home-X.X.X/BrucesSmartHome_X.X.X_aarch64.dmg      Apple silicon Mac
+~/Downloads/bruce-smart-home-X.X.X/BrucesSmartHome_X.X.X_x86_64.dmg       Intel Mac
+~/Downloads/bruce-smart-home-X.X.X/BrucesSmartHome_X.X.X_arm64-setup.exe  ARM PC
+~/Downloads/bruce-smart-home-X.X.X/BrucesSmartHome_X.X.X_x64-setup.exe    Intel or AMD PC
 ```
 
 Try the installers, and check the release notes on GitHub (the draft is at the top of the Releases page). A draft is
@@ -290,7 +290,7 @@ on another machine, see [Trying the Installer on Another Machine](#trying-the-in
 <summary>Manual commands</summary>
 
 ```
-cd ~/git/marco-sparko
+cd ~/git/bruce-smart-home
 gh release create release$RELEASE --draft --verify-tag --title "Release $RELEASE" --notes-file <file>
 gh workflow run release.yml --ref release$RELEASE -f tag=release$RELEASE -f attach=true
 ```
@@ -300,7 +300,7 @@ Wait a few seconds for the run to start, then watch it and download the installe
 ```
 RUN=$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
 gh run watch $RUN
-gh release download release$RELEASE --dir ~/Downloads/marco-sparko-$RELEASE
+gh release download release$RELEASE --dir ~/Downloads/bruce-smart-home-$RELEASE
 ```
 
 `<file>` is the release's section of the ChangeLog, without its heading, with the lines of each paragraph joined, see
@@ -310,16 +310,16 @@ instead.
 On a Windows VM in PowerShell, just the Windows installers (with the version in place of 0.4.4):
 
 ```
-gh release download release0.4.4 -R bruceskingle/marco-sparko -p '*-setup.exe' --dir $HOME\Downloads\marco-sparko
+gh release download release0.4.4 -R bruceskingle/bruce-smart-home -p '*-setup.exe' --dir $HOME\Downloads\bruce-smart-home
 ```
 
 The release should have these files:
 
 ```
-MarcoSparko_X.X.X_aarch64.dmg
-MarcoSparko_X.X.X_x86_64.dmg
-MarcoSparko_X.X.X_x64-setup.exe
-MarcoSparko_X.X.X_arm64-setup.exe
+BrucesSmartHome_X.X.X_aarch64.dmg
+BrucesSmartHome_X.X.X_x86_64.dmg
+BrucesSmartHome_X.X.X_x64-setup.exe
+BrucesSmartHome_X.X.X_arm64-setup.exe
 ```
 
 </details>
@@ -332,7 +332,7 @@ Build it from the tagged commit, which puts it in the shared firmware folder as 
 it:
 
 ```
-cd ~/git/marco-sparko/capture
+cd ~/git/bruce-smart-home/capture
 ./build-firmware.sh
 gh release upload release$RELEASE "$(dirname "$(./build-firmware.sh --path cyd-esp32-28)")"/*.elf
 ```
@@ -366,7 +366,7 @@ or choose **Publish release** on the draft's edit page on GitHub.
 ```
 
 Creates the `vX.X.X` branches for the next minor version (e.g. 0.5.0 after 0.4.4) in both repos from `main`, sets
-the version in both Cargo.toml files and the version of bruce-graphql which marco-sparko uses, builds to update the
+the version in both Cargo.toml files and the version of bruce-graphql which bruce-smart-home uses, builds to update the
 Cargo.lock files, commits and pushes. For a different version, give it, e.g. `./scripts/release.sh start 0.4.5`. If
 the branches already exist it switches to them.
 
@@ -387,7 +387,7 @@ has the fix too, keeping its own version where the Cargo.toml files conflict:
 
 ```
 ./scripts/release.sh sync v0.5.0
-git -C ~/git/marco-sparko merge origin/main
+git -C ~/git/bruce-smart-home merge origin/main
 git -C ~/git/bruce-graphql merge origin/main
 ```
 
@@ -409,7 +409,7 @@ git push
 ```
 export RELEASE=0.4.5
 
-for repo in bruce-graphql marco-sparko; do
+for repo in bruce-graphql bruce-smart-home; do
   cd ~/git/$repo
   git checkout main
   git pull
@@ -420,12 +420,12 @@ cd ~/git/bruce-graphql
 sed -i '' "1,/^version = /s/^version = .*/version = \"$RELEASE\"/" Cargo.toml
 cargo build
 
-cd ~/git/marco-sparko
+cd ~/git/bruce-smart-home
 sed -i '' -e "1,/^version = /s/^version = .*/version = \"$RELEASE\"/" \
   -e "s/^bruce-graphql = {version = \"[^\"]*\"/bruce-graphql = {version = \"$RELEASE\"/" Cargo.toml
 cargo build
 
-for repo in bruce-graphql marco-sparko; do
+for repo in bruce-graphql bruce-smart-home; do
   cd ~/git/$repo
   git diff --stat
   git commit -am "Start v$RELEASE"
@@ -443,7 +443,7 @@ To build and test the latest release branch on another machine, with both repos 
 ./scripts/release.sh sync
 ```
 
-Fetches both repos and checks out and updates the latest `vX.X.X` branch in each, so that marco-sparko is built with
+Fetches both repos and checks out and updates the latest `vX.X.X` branch in each, so that bruce-smart-home is built with
 the matching bruce-graphql. For another branch, give it, e.g. `./scripts/release.sh sync 0.4.4` or
 `./scripts/release.sh sync main`. It does not need `gh`. It stops without changing anything if either repo has
 uncommitted changes, and only fast forwards, so it stops if a branch has commits on that machine which are not on
@@ -455,7 +455,7 @@ GitHub. Then build as usual, e.g. `dx serve`.
 ```
 export RELEASE=0.4.4
 
-for repo in bruce-graphql marco-sparko; do
+for repo in bruce-graphql bruce-smart-home; do
   cd ~/git/$repo
   git fetch
   git checkout v$RELEASE
@@ -481,13 +481,13 @@ or the `setup.exe` for an ARM or Intel/AMD PC. It stops if the run has not finis
 After `try`, the installer is in a folder named after its build, e.g. on an Apple silicon Mac:
 
 ```
-~/Downloads/marco-sparko-X.X.X-test/macos-aarch64/MarcoSparko_X.X.X_aarch64.dmg
+~/Downloads/bruce-smart-home-X.X.X-test/macos-aarch64/BrucesSmartHome_X.X.X_aarch64.dmg
 ```
 
 After `build`, it is downloaded from the draft release, e.g. on an ARM PC:
 
 ```
-~/Downloads/marco-sparko-X.X.X/MarcoSparko_X.X.X_arm64-setup.exe
+~/Downloads/bruce-smart-home-X.X.X/BrucesSmartHome_X.X.X_arm64-setup.exe
 ```
 
 The folder and file names for each machine are listed in [step 1](#1-try-the-installers-optional) and
@@ -496,7 +496,7 @@ The folder and file names for each machine are listed in [step 1](#1-try-the-ins
 On Windows, in PowerShell (or a Command Prompt), one command does both:
 
 ```
-~\git\marco-sparko\scripts\sync-and-download.cmd
+~\git\bruce-smart-home\scripts\sync-and-download.cmd
 ```
 
 It runs `release.sh` in Git Bash, which comes with Git for Windows. `gh` needs to be installed and signed in, as in the
@@ -507,7 +507,7 @@ Git for Windows usually gives files Windows line endings, which bash cannot run,
 still have Windows ones, and fail with errors like `$'\r': command not found`. Fix it once, in PowerShell:
 
 ```
-cd ~\git\marco-sparko
+cd ~\git\bruce-smart-home
 git pull
 Remove-Item scripts\release.sh
 git checkout scripts/release.sh
@@ -526,7 +526,7 @@ which the workflow asks Apple to notarize it. Without the secrets the app is bui
 
 This is done once, then again only when the certificate or the key expires or is replaced. It needs the Apple
 Developer account's Account Holder or an Admin, and is done on the Mac the release is run from, in Terminal, in
-`~/git/marco-sparko`.
+`~/git/bruce-smart-home`.
 
 ### Part 1: the certificate
 
@@ -541,7 +541,7 @@ Developer account's Account Holder or an Admin, and is done on the Mac the relea
    and is not listed here.)
 2. **Make a certificate request.** Open **Keychain Access** (Spotlight finds it). From its menu: Keychain Access >
    Certificate Assistant > **Request a Certificate From a Certificate Authority…**. User Email Address: your Apple
-   developer email. Common Name: e.g. `Marco Sparko Developer ID`. CA Email Address: empty. Choose **Saved to disk**,
+   developer email. Common Name: e.g. `Bruce's Smart Home Developer ID`. CA Email Address: empty. Choose **Saved to disk**,
    Continue, and save the `.certSigningRequest` file, e.g. to the Desktop. This also makes the certificate's private
    key in your login keychain, so do it on this Mac.
 3. **Ask Apple for the certificate.** Go to [Certificates](https://developer.apple.com/account/resources/certificates/list)
@@ -565,7 +565,7 @@ Developer account's Account Holder or an Admin, and is done on the Mac the relea
 9. **Note the Issuer ID.** It is above the list of keys, labelled Issuer ID, a UUID, five groups of letters and digits
    joined by hyphens, e.g. `69a6de7e-1234-47e3-e053-5b8c7c11a4d1`. Copy it with the Copy link next to it.
 10. **Make a key, or use the one there.** If there is no key yet, click **+** (Generate API Key), name it e.g.
-    `Marco Sparko notarize`, Access **Developer**, and Generate.
+    `Bruce's Smart Home notarize`, Access **Developer**, and Generate.
 11. **Note the Key ID.** It is in the key's row, in the KEY ID column, 10 capital letters and digits, e.g. `2X9R4HXF34`.
 12. **Download the key**, from the key's row, a file named `AuthKey_` and its Key ID, e.g. `AuthKey_2X9R4HXF34.p8`,
     which goes to Downloads. Apple lets it be downloaded only once: if it was downloaded before and lost, revoke that
@@ -580,7 +580,7 @@ Developer account's Account Holder or an Admin, and is done on the Mac the relea
 
 ### Part 3: the secrets on GitHub
 
-14. **Set the five secrets**, in Terminal in `~/git/marco-sparko`, putting in your own file names, Key ID and Issuer ID
+14. **Set the five secrets**, in Terminal in `~/git/bruce-smart-home`, putting in your own file names, Key ID and Issuer ID
     as in step 13. The files are read and sent as they are, so nothing secret is typed or shown:
 
     ```

@@ -3,8 +3,8 @@
 The screenshots and examples in the documentation come from real Octopus accounts, so everything which identifies
 the account holder is replaced with made up values first. The app does this itself:
 
-- `marco-sparko --redact <profile> <new profile>` copies a profile's data to a new, offline, profile.
-- `marco-sparko --redact docs`, run in the repository's directory, redacts the documents in `unredacted_docs` into
+- `bruce-smart-home --redact <profile> <new profile>` copies a profile's data to a new, offline, profile.
+- `bruce-smart-home --redact docs`, run in the repository's directory, redacts the documents in `unredacted_docs` into
   `docs`.
 
 Both run without opening a window, print what they did, and exit with status 1 if anything went wrong.

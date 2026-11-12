@@ -654,6 +654,58 @@ dependencies = [
 ]
 
 [[package]]
+name = "bruce-smart-home"
+version = "0.5.0"
+dependencies = [
+ "aho-corasick",
+ "anyhow",
+ "arboard",
+ "async-trait",
+ "base64",
+ "bruce-db",
+ "bruce-embedded-flash-ui",
+ "bruce-graphql",
+ "bruce-graphql-builder",
+ "chacha20poly1305",
+ "chrono",
+ "clap",
+ "croner",
+ "dioxus",
+ "dioxus-desktop",
+ "dioxus-free-icons",
+ "dirs 5.0.1",
+ "display_json",
+ "futures",
+ "hmac 0.12.1",
+ "indexmap",
+ "keyring",
+ "md-5 0.10.6",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "pdf-extract",
+ "pulldown-cmark",
+ "rand 0.9.2",
+ "regex",
+ "reqwest",
+ "rfd",
+ "rsa",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "rustls",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "time",
+ "time-tz",
+ "tokio",
+ "trash",
+ "webbrowser",
+ "windows 0.54.0",
+]
+
+[[package]]
 name = "bruce-util-progress"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3827,58 +3879,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.108",
-]
-
-[[package]]
-name = "marco-sparko"
-version = "0.5.0"
-dependencies = [
- "aho-corasick",
- "anyhow",
- "arboard",
- "async-trait",
- "base64",
- "bruce-db",
- "bruce-embedded-flash-ui",
- "bruce-graphql",
- "bruce-graphql-builder",
- "chacha20poly1305",
- "chrono",
- "clap",
- "croner",
- "dioxus",
- "dioxus-desktop",
- "dioxus-free-icons",
- "dirs 5.0.1",
- "display_json",
- "futures",
- "hmac 0.12.1",
- "indexmap",
- "keyring",
- "md-5 0.10.6",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "pdf-extract",
- "pulldown-cmark",
- "rand 0.9.2",
- "regex",
- "reqwest",
- "rfd",
- "rsa",
- "rust_decimal",
- "rust_decimal_macros",
- "rustls",
- "semver",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "time",
- "time-tz",
- "tokio",
- "trash",
- "webbrowser",
- "windows 0.54.0",
 ]
 
 [[package]]

@@ -3,10 +3,10 @@ name = "marco-sparko-capture"
 version = "0.1.0"
 edition = "2024"
 resolver = "2"
-description = "Firmware for an ESP32 Capture Device, which polls what Marco Sparko needs while the computer sleeps"
+description = "Firmware for an ESP32 Capture Device, which polls what Bruce's Smart Home needs while the computer sleeps"
 
 # Firmware for a CYD (ESP32-2432S028R), with the wave-esp32c6-touch-147 feature a Waveshare ESP32-C6-Touch-LCD-1.47, or with
-# the wave-esp32s3-rlcd-42 feature a Waveshare ESP32-S3-RLCD-4.2, built on ../../bruce-esp-idf, see README.md. It is its own Cargo project, not part of marco-sparko's build:
+# the wave-esp32s3-rlcd-42 feature a Waveshare ESP32-S3-RLCD-4.2, built on ../../bruce-esp-idf, see README.md. It is its own Cargo project, not part of bruce-smart-home's build:
 # cd capture && cargo build --release, see README.md for the Waveshare.
 
 [[bin]]

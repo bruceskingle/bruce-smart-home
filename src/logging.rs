@@ -265,7 +265,7 @@ pub fn start(profile_name: &str, settings: &LogSettings, process: Process) {
         retention: settings.retention,
     });
     UNWRITTEN.lock().unwrap().clear();
-    log(Level::Info, format!("Started, Marco Sparko {}, profile {profile_name}", env!("CARGO_PKG_VERSION")));
+    log(Level::Info, format!("Started, Bruce's Smart Home {}, profile {profile_name}", env!("CARGO_PKG_VERSION")));
 }
 
 /// Changes when the log is rolled, from the next entry.
@@ -427,7 +427,7 @@ mod tests {
 
     #[test]
     fn the_reader_follows_the_file_as_it_grows_and_is_rolled() {
-        let dir = std::env::temp_dir().join(format!("marco-sparko-log-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("bruce-smart-home-log-test-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test.log");
         let _ = fs::remove_file(&path);

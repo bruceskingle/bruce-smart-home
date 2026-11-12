@@ -17,7 +17,7 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 
 # The Tesla gateway's certificate is one it made itself, so it cannot be checked. These only skip the check for
 # connections given no CA, i.e. only the gateway's: one given the certificate bundle is still checked.
-# TODO: pin the gateway's certificate instead, as marco-sparko should too.
+# TODO: pin the gateway's certificate instead, as bruce-smart-home should too.
 CONFIG_ESP_TLS_INSECURE=y
 CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
 

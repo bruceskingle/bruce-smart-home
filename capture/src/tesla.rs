@@ -1,4 +1,4 @@
-//! Polls the local API of the Tesla Powerwall's gateway, as marco-sparko's src/tesla/local.rs does, which says more.
+//! Polls the local API of the Tesla Powerwall's gateway, as bruce-smart-home's src/tesla/local.rs does, which says more.
 //!
 //! Other programs, e.g. Home Assistant, use the gateway too, so this must never get in their way:
 //! - Only GETs of the endpoints in records::ENDPOINTS, which change nothing.
@@ -41,7 +41,7 @@ const FEATURE_NAME: &str = "TeslaCapture";
 /// The name of the password in the config, see forget_password.
 const PASSWORD: &str = "tesla_password";
 
-/// Every 10 seconds, on the 5 minute slots the app polls on too, see marco-sparko's src/polling.rs, which the gateway, on
+/// Every 10 seconds, on the 5 minute slots the app polls on too, see bruce-smart-home's src/polling.rs, which the gateway, on
 /// the home network, can easily answer, as the connection to it is kept between polls, see PollTask::fetch. The power
 /// at that resolution is what the Octopus Home Mini's telemetry has, for comparison.
 const DEFAULT_SCHEDULE: &str = "*/10 * * * * *";
@@ -437,7 +437,7 @@ impl PollTask {
                 .and_then(|body| Response::parse(endpoint, &body));
             match response {
                 Ok(response) => responses.push(Ok(response)),
-                // Recorded as the app does, see marco-sparko's snapshot::fetch, but anything else, e.g. the gateway
+                // Recorded as the app does, see bruce-smart-home's snapshot::fetch, but anything else, e.g. the gateway
                 // not answering, stops the poll, rather than waiting for it to time out on every endpoint.
                 Err(error) if error.is::<StatusError>() || error.is::<serde_json::Error>() => {
                     warn!("Unable to fetch {endpoint} from the Tesla gateway, {error:#}");

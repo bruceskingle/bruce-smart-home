@@ -12,11 +12,11 @@ use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Where the documentation is published, for links to documents in it other than the help pages.
-const BOOK_URL: &str = "https://bruceskingle.github.io/marco-sparko/";
+const BOOK_URL: &str = "https://bruceskingle.github.io/bruce-smart-home/";
 /// The contents of the documentation, which says which documents are in it.
 const BOOK_SUMMARY: &str = include_str!("../docs/SUMMARY.md");
 /// Where the repository is on GitHub, for links to anything else in it.
-const REPO_URL: &str = "https://github.com/bruceskingle/marco-sparko/blob/main/";
+const REPO_URL: &str = "https://github.com/bruceskingle/bruce-smart-home/blob/main/";
 /// Where the documentation is, relative to the repository.
 const DOCS_DIR: &str = "docs/";
 /// Where the help pages are, relative to the repository.
@@ -266,12 +266,12 @@ mod tests {
         assert_eq!(follow("octopus/meters.md", "../graphs.md#zooming"), HelpLink::Page(String::from("graphs.md")));
         assert_eq!(follow("home.md", "octopus/index.md"), HelpLink::Page(String::from("octopus/index.md")));
         assert_eq!(follow("home.md", "../ScheduledFetch.md"),
-            HelpLink::Web(String::from("https://bruceskingle.github.io/marco-sparko/ScheduledFetch.html")));
+            HelpLink::Web(String::from("https://bruceskingle.github.io/bruce-smart-home/ScheduledFetch.html")));
         assert_eq!(follow("octopus/index.md", "../../gettingStarted/profiles.md#moving-the-data-directory"),
-            HelpLink::Web(String::from("https://bruceskingle.github.io/marco-sparko/gettingStarted/profiles.html#moving-the-data-directory")));
+            HelpLink::Web(String::from("https://bruceskingle.github.io/bruce-smart-home/gettingStarted/profiles.html#moving-the-data-directory")));
         // Not in the book, so on GitHub.
         assert_eq!(follow("home.md", "../Release.md"),
-            HelpLink::Web(String::from("https://github.com/bruceskingle/marco-sparko/blob/main/docs/Release.md")));
+            HelpLink::Web(String::from("https://github.com/bruceskingle/bruce-smart-home/blob/main/docs/Release.md")));
         assert_eq!(follow("home.md", "https://octopus.energy"), HelpLink::Web(String::from("https://octopus.energy")));
         assert_eq!(follow("home.md", "#top"), HelpLink::None);
     }

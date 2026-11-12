@@ -1,5 +1,5 @@
 //! The device's store, bruce-db, in /sd/store/<site hex>/, which each feature puts its records in, as the items the app
-//! would put, see marco-sparko's src/device_kinds.rs, and which the app reads through the store's change feed,
+//! would put, see bruce-smart-home's src/device_kinds.rs, and which the app reads through the store's change feed,
 //! /api/store/changes, see bruce-db's docs/design.md, "Capture devices on the store".
 //!
 //! The site is a setting, which the app sets when it adopts the device; until it is set, or if there is no SD card,

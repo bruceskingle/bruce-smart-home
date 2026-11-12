@@ -1,5 +1,5 @@
 # Your Data
-Marco Sparko keeps what it has in two directories in your home directory, or in the data directory, see
+Bruce's Smart Home keeps what it has in two directories in your home directory, or in the data directory, see
 [Profiles](profiles.md#moving-the-data-directory), kept apart so that your settings and secrets are never mixed with the
 data, which may be large, copied or deleted:
 
@@ -14,7 +14,7 @@ data, which may be large, copied or deleted:
   key kept in your computer's own store of secrets: the Keychain on macOS, the Credential Manager on Windows, and the
   Secret Service (GNOME Keyring or KWallet) on Linux, under "Bruce's Smart Home". So a copy of the files, for example
   in a backup, does not give them away, and they can only be read on the computer which has the key. On macOS the
-  Keychain may ask whether Marco Sparko may use the key, the first time, and after it is updated.
+  Keychain may ask whether Bruce's Smart Home may use the key, the first time, and after it is updated.
   - ```node```, this installation's identity in the store, and ```window-state.json```, where the window was.
 - ```.bruce-smart-home-data```, the data, which holds no secrets:
   - ```store```, each profile's data, a directory for each, named by its site's ID: everything fetched from the data

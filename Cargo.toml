@@ -1,9 +1,9 @@
 [package]
-name = "marco-sparko"
+name = "bruce-smart-home"
 description = "The Energy Explorer"
 version = "0.5.0"
 edition = "2024"
-default-run = "marco-sparko"
+default-run = "bruce-smart-home"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

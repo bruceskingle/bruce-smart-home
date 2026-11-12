@@ -1,4 +1,4 @@
-//! Screenshots of the app for the documentation, taken by the app itself: marco-sparko --profile demo --screenshots
+//! Screenshots of the app for the documentation, taken by the app itself: bruce-smart-home --profile demo --screenshots
 //!
 //! The shots are listed in a JSON file, docs/screenshots.json by default, see ShotFile. For each one the app goes to
 //! the home page, follows the shot's steps, e.g. clicking on what has a given text, as someone using it would, then
