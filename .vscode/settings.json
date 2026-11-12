@@ -1,4 +1,9 @@
 {
+    // This repository is not formatted with rustfmt yet, so the workspaces it is opened in must not format its Rust
+    // files on save, see AGENTS.md.
+    "[rust]": {
+        "editor.formatOnSave": false
+    },
     "cSpell.words": [
         "Aira",
         "AMBRIDGE",
