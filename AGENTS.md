@@ -32,8 +32,8 @@ use, costs and bills from Octopus Energy, and what its Tesla Powerwalls and myen
 - The VS Code debug launch, `.vscode/launch.json`, runs the app with `-v` and writes its stdout to `target/verbose.log`,
   overwritten each run: the GraphQL requests and replies, errors and cache activity. Read it after a run the owner
   reports, rather than asking for the log. `eprintln!` output is not in it.
-- The code is not formatted with rustfmt, so do not run `cargo fmt` or treat `cargo fmt --check` as a failure; match
-  the formatting of the code around a change.
+- The code is formatted with rustfmt, `rustfmt.toml`'s `max_width = 120`: run `cargo fmt` after a change, and in
+  `capture/` `cargo +stable fmt`, as its `esp` toolchain's rustfmt may differ.
 - Try changes with a redacted, offline profile, made with `--redact <profile> <new profile>`, see
   [docs/Redaction.md](docs/Redaction.md), or with `--home=<an empty directory>` to start afresh, rather than with a
   real account. Never put an account's details, API keys or passwords in a commit, an issue or a
