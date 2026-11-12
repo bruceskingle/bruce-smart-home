@@ -7,7 +7,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use sparko_graphql::types::DateTime;
+use bruce_graphql::types::DateTime;
 use time_tz::Tz;
 
 use crate::data_set::CancelToken;

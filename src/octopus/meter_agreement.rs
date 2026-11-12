@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use sparko_graphql::{GraphQLCaller, GraphQLQueryBuilder};
-use sparko_graphql::types::DateTime;
+use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder};
+use bruce_graphql::types::DateTime;
 
 use crate::CacheConfig;
 use crate::data_set::MultiQueryDataSet;

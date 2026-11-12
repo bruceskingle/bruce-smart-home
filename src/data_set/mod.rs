@@ -49,8 +49,8 @@ pub struct DataSetAttributes {
 }
 
 /// The first day of the month containing date, and of the next month, the month of a monthly DataSet.
-pub(crate) fn month_bounds(date: &sparko_graphql::types::Date) -> anyhow::Result<(sparko_graphql::types::Date, sparko_graphql::types::Date)> {
-    use sparko_graphql::types::Date;
+pub(crate) fn month_bounds(date: &bruce_graphql::types::Date) -> anyhow::Result<(bruce_graphql::types::Date, bruce_graphql::types::Date)> {
+    use bruce_graphql::types::Date;
     let start = Date::from_calendar_date(date.year(), date.month(), 1)?;
     let next = if date.month() == time::Month::December {
         Date::from_calendar_date(date.year() + 1, time::Month::January, 1)?
@@ -69,6 +69,6 @@ pub(crate) fn time_key(time: &time::OffsetDateTime) -> String {
 
 /// A monthly DataSet's file in the old layout, relative to the module's cache directory, e.g. 2026/October#<hash key>,
 /// see Records::import_legacy.
-pub(crate) fn legacy_month_file(hash_key: &str, start: &sparko_graphql::types::Date) -> String {
+pub(crate) fn legacy_month_file(hash_key: &str, start: &bruce_graphql::types::Date) -> String {
     format!("{}/{}#{hash_key}", start.year(), start.month())
 }

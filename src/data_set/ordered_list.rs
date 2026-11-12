@@ -1,7 +1,7 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use serde::{Serialize, de::DeserializeOwned};
-use sparko_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse};
+use bruce_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse};
 
 use crate::{CacheConfig, OrderedMap};
 use super::DataSetAttributes;
@@ -38,8 +38,8 @@ where
         where
             R: GraphQLResponse,
             Q: GraphQLQuery<R>,
-            IQP: FnOnce(Option<&V>) -> Result<Q, sparko_graphql::Error>,
-            CQP: Fn(&R) -> Option<Result<Q, sparko_graphql::Error>>,
+            IQP: FnOnce(Option<&V>) -> Result<Q, bruce_graphql::Error>,
+            CQP: Fn(&R) -> Option<Result<Q, bruce_graphql::Error>>,
             RI: Fn(R) -> I,
             IN: Fn(&V) -> (K, O, bool),
             I: IntoIterator<Item = V>,

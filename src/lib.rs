@@ -449,7 +449,7 @@ impl ModuleRegistrations {
             if context.args.marco_sparko_args.verbose {
                 let mut redacted_profile = profile.clone();
                 if let Some(value) = &mut redacted_profile {
-                    sparko_graphql::redact::redact_secrets(value);
+                    bruce_graphql::redact::redact_secrets(value);
                 }
                 println!("Initializing module '{}' with profile '{:?}'", module_id, redacted_profile);
             }

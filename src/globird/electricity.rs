@@ -8,7 +8,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use sparko_graphql::types::{Currency, DateTime};
+use bruce_graphql::types::{Currency, DateTime};
 use time::{Date, OffsetDateTime};
 use time_tz::Tz;
 

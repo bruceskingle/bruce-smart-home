@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use sparko_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse, ProgressMonitor};
+use bruce_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse, ProgressMonitor};
 
 use crate::data_set::{brief, is_transient};
 use crate::{log_error, log_info, log_warning};
@@ -15,7 +15,7 @@ pub struct LoggingCaller<C>(pub C);
 
 impl<C: GraphQLCaller> GraphQLCaller for LoggingCaller<C> {
     async fn call3<Q: GraphQLQuery<R>, R: GraphQLResponse, P: ProgressMonitor + ?Sized>(&self, query: &Q, token: Option<&Arc<String>>, progress: &P)
-        -> Result<R, sparko_graphql::Error>
+        -> Result<R, bruce_graphql::Error>
     {
         let started = Instant::now();
         let result = self.0.call3(query, token, progress).await;

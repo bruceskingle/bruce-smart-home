@@ -5,7 +5,7 @@
 use std::{collections::BTreeMap, time::Duration};
 
 use serde::{Serialize, de::DeserializeOwned};
-use sparko_graphql::{
+use bruce_graphql::{
     GraphQLCaller, GraphQLQuery, GraphQLResponse, ProgressMonitor,
     types::{Date, DateTime},
 };
@@ -48,8 +48,8 @@ where
         where
             R: GraphQLResponse,
             Q: GraphQLQuery<R>,
-            IQP: FnOnce(&Date, Option<&V>) -> Result<Q, sparko_graphql::Error>,
-            CQP: Fn(&Date, &R) -> Option<Result<Q, sparko_graphql::Error>>,
+            IQP: FnOnce(&Date, Option<&V>) -> Result<Q, bruce_graphql::Error>,
+            CQP: Fn(&Date, &R) -> Option<Result<Q, bruce_graphql::Error>>,
             RI: Fn(R) -> I,
             IN: Fn(&V) -> (DateTime, bool),
             I: IntoIterator<Item = V>,

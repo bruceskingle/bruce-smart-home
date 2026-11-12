@@ -3,7 +3,7 @@
 
 use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, icons::ld_icons::{LdCalendar, LdChevronLeft, LdChevronRight}};
-use sparko_graphql::types::{Date, DateTime};
+use bruce_graphql::types::{Date, DateTime};
 use time_tz::{OffsetDateTimeExt, PrimitiveDateTimeExt, Tz};
 
 /// The number of half hour slots in a day.
@@ -508,7 +508,7 @@ pub fn DateRangePicker(props: DateRangePickerProps) -> Element {
 mod tests {
     use time::macros::{date, datetime};
 
-    use sparko_graphql::types::DateTime;
+    use bruce_graphql::types::DateTime;
 
     use super::{LocalSlot, QuickRange, RangeSelection};
 

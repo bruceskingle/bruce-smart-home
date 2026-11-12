@@ -4,7 +4,7 @@ use crate::CacheConfig;
 use crate::data_set::SingleRecordDataSet;
 
 use super::graphql::account;
-use sparko_graphql::GraphQLCaller;
+use bruce_graphql::GraphQLCaller;
 
 pub struct ViewerDataSet {
     pub data_set: SingleRecordDataSet<account::viewer::Response>,

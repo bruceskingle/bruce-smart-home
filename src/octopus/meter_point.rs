@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::CacheConfig;
 use crate::data_set::SingleRecordDataSet;
-use sparko_graphql::{GraphQLCaller, GraphQLQueryBuilder};
+use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder};
 
 use super::graphql::meter;
 

@@ -5,7 +5,7 @@ use std::str::FromStr;
 use serde::{Deserializer, Serialize, Serializer};
 use serde::de::{self, Visitor};
 
-use sparko_graphql::types::Int;
+use bruce_graphql::types::Int;
 
 /*
 Implementation of the Decimal CustomScalar defined in the Octopus graphql API Schema.

@@ -7,8 +7,8 @@ use dioxus::prelude::*;
 use display_json::DisplayAsJsonPretty;
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
-use sparko_graphql::types::{Currency, Date, DateTime, ForwardPageOf};
-use sparko_graphql::{GraphQLCaller, GraphQLQueryBuilder, ProgressMonitor};
+use bruce_graphql::types::{Currency, Date, DateTime, ForwardPageOf};
+use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder, ProgressMonitor};
 use time_tz::{TimeZone, Tz};
 
 use crate::CacheConfig;
@@ -707,7 +707,7 @@ pub struct MeasurementsReadingConsumption {
     units: Decimal,
     cost:  Decimal,
     rate: Decimal,
-    ccy: sparko_graphql::types::Currency,
+    ccy: bruce_graphql::types::Currency,
     /// Whether the units were worked out from the cost and the rate, rather than given, as in the old format, see
     /// from_tou, so that the table shows them as derived. Left out when false, so that a reading's serialized form,
     /// which is compared to detect changes, is as it was.
@@ -730,7 +730,7 @@ impl MeasurementsReadingConsumption {
                 inc_cost.cost_currency_
             }
             else {
-                sparko_graphql::types::Currency::NONE
+                bruce_graphql::types::Currency::NONE
             }
         };
 
@@ -777,7 +777,7 @@ impl MeasurementsReadingConsumption {
                 inc_cost.cost_currency_
             }
             else {
-                sparko_graphql::types::Currency::NONE
+                bruce_graphql::types::Currency::NONE
             }
         };
 

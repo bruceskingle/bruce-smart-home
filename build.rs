@@ -41,9 +41,9 @@ mod create_info {{
     }
 
     println!("cargo::rerun-if-changed=build.rs");
-    sparko_graphql_builder::builder("graphql")
-        .with_type("Date", "sparko_graphql::types::Date")
-        .with_type("DateTime", "sparko_graphql::types::DateTime")
+    bruce_graphql_builder::builder("graphql")
+        .with_type("Date", "bruce_graphql::types::Date")
+        .with_type("DateTime", "bruce_graphql::types::DateTime")
         .with_type("Decimal", "crate::octopus::decimal::Decimal")
         .with_schema("graphql/octopus/octopus-schema.graphql")
         .with_query("graphql/octopus/Login.graphql", "login")

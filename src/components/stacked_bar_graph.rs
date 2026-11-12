@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
-use sparko_graphql::types::{Currency, DateTime};
+use bruce_graphql::types::{Currency, DateTime};
 use time_tz::Tz;
 
 const LEFT: f64 = 64.0;
@@ -791,7 +791,7 @@ pub fn StackedBarGraph(
 
 #[cfg(test)]
 mod tests {
-    use sparko_graphql::types::Currency;
+    use bruce_graphql::types::Currency;
 
     use super::{StackedBarMode, axis_label, axis_unit, day_bands, format_money, nice_step, time_tick_label};
 

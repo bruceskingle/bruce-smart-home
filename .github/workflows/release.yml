@@ -1,5 +1,5 @@
 # Builds the macOS and Windows installers for a tag, tests them, and keeps them on the run's page under Artifacts.
-# The tag (e.g. release0.4.4) must exist in both marco-sparko and sparko_graphql.
+# The tag (e.g. release0.4.4) must exist in both marco-sparko and bruce-graphql.
 #
 # With attach, the installers are also attached to the draft GitHub release for the tag, ready to be tried before the
 # release is published. A published release is never changed.
@@ -55,7 +55,7 @@ jobs:
         working-directory: marco-sparko
 
     steps:
-      # The two repos are checked out side by side, as in ~/git, because Cargo.toml refers to ../sparko_graphql
+      # The two repos are checked out side by side, as in ~/git, because Cargo.toml refers to ../bruce-graphql
       - name: Check out marco-sparko
         uses: actions/checkout@v7
         with:
@@ -64,13 +64,13 @@ jobs:
           # The build records the tag and branch, so it needs the history.
           fetch-depth: 0
 
-      - name: Check out sparko_graphql
+      - name: Check out bruce-graphql
         uses: actions/checkout@v7
         with:
-          # From the same account as this repo, so that forks build their own sparko_graphql.
-          repository: ${{ github.repository_owner }}/sparko_graphql
+          # From the same account as this repo, so that forks build their own bruce-graphql.
+          repository: ${{ github.repository_owner }}/bruce-graphql
           ref: ${{ env.TAG }}
-          path: sparko_graphql
+          path: bruce-graphql
 
       # The Windows ARM runner may not have Rust installed.
       - name: Install rustup

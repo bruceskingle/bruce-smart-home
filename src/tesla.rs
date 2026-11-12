@@ -56,7 +56,7 @@ impl std::fmt::Debug for Profile {
             .field("gateway_host", &self.gateway_host)
             .field("din", &self.din)
             .field("email", &self.email)
-            .field("password", &self.password.as_ref().map(|_| sparko_graphql::redact::REDACTED))
+            .field("password", &self.password.as_ref().map(|_| bruce_graphql::redact::REDACTED))
             .finish()
     }
 }

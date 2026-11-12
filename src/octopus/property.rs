@@ -1,13 +1,13 @@
 use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, icons::ld_icons::LdExternalLink};
 use indexmap::IndexMap;
-use sparko_graphql::types::Date;
+use bruce_graphql::types::Date;
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::CacheConfig;
 use crate::data_set::SingleRecordDataSet;
-use sparko_graphql::{GraphQLCaller, GraphQLQueryBuilder};
+use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder};
 
 use super::graphql::meter;
 

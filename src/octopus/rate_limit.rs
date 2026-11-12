@@ -1,6 +1,6 @@
 //! When a field which Octopus has blocked for too many requests can be requested again, from its rateLimitInfo query.
 
-use sparko_graphql::{GraphQLCaller, NoProgress};
+use bruce_graphql::{GraphQLCaller, NoProgress};
 
 use crate::data_set::{RateLimitBlock, RateLimitReset};
 use super::graphql::meter::rate_limit;

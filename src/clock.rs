@@ -4,7 +4,7 @@
 
 use std::sync::atomic::{AtomicI64, Ordering};
 
-use sparko_graphql::types::{Date, DateTime};
+use bruce_graphql::types::{Date, DateTime};
 use time::OffsetDateTime;
 use time_tz::{OffsetDateTimeExt, Tz};
 

@@ -69,10 +69,10 @@ pub fn use_key_for_tests(key: [u8; 32]) {
     *KEY.lock().unwrap() = Some(key);
 }
 
-/// Whether the field holds a secret, which is encrypted when saved: those which sparko_graphql redacts from logs, e.g.
+/// Whether the field holds a secret, which is encrypted when saved: those which bruce_graphql redacts from logs, e.g.
 /// apiKey, password or a token, a login's email, and a capture device's key.
 fn is_secret_field(name: &str) -> bool {
-    sparko_graphql::redact::is_secret_name(name) || name == "email" || name == "key"
+    bruce_graphql::redact::is_secret_name(name) || name == "email" || name == "key"
 }
 
 /// Whether the text is an encrypted value.

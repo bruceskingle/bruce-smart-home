@@ -3,9 +3,9 @@ use std::fmt::Display;
 use std::time::Duration;
 
 use dioxus::prelude::*;
-use sparko_graphql::types::{Date, DateTime};
-use sparko_graphql::GraphQLCaller;
-use sparko_graphql::GraphQLQueryBuilder;
+use bruce_graphql::types::{Date, DateTime};
+use bruce_graphql::GraphQLCaller;
+use bruce_graphql::GraphQLQueryBuilder;
 
 use crate::data_set::MonthlyDataSet;
 use crate::{CacheConfig, NULL};
@@ -410,7 +410,7 @@ impl AgreementLineItems {
                     indexer,
                     config,
                     request_manager,
-                    &sparko_graphql::NoProgress,
+                    &bruce_graphql::NoProgress,
                 ).await?;
 
                 let mut data = BTreeMap::new();
@@ -480,7 +480,7 @@ impl AgreementLineItems {
                     indexer,
                     config,
                     request_manager,
-                    &sparko_graphql::NoProgress,
+                    &bruce_graphql::NoProgress,
                 ).await?;
 
                 (data_set.start_date, data_set.next_date, data_set.data)

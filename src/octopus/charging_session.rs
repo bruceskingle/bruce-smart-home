@@ -3,9 +3,9 @@
 
 use std::time::Duration;
 
-use sparko_graphql::types::{Date, DateTime};
+use bruce_graphql::types::{Date, DateTime};
 use time_tz::Tz;
-use sparko_graphql::{GraphQLCaller, GraphQLQueryBuilder, ProgressMonitor};
+use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder, ProgressMonitor};
 
 use crate::CacheConfig;
 use crate::data_set::{CancelToken, MonthlyDataSet};
@@ -434,7 +434,7 @@ pub fn graph_points(sessions: &[&ChargingSession], start: &DateTime, end: &DateT
 
 #[cfg(test)]
 mod tests {
-    use sparko_graphql::types::DateTime;
+    use bruce_graphql::types::DateTime;
 
     use super::{ChargingSession, ERROR, FULL, NO_CHARGE, PUBLIC, Problem, SMART, graph_points};
     use crate::octopus::decimal::Decimal;

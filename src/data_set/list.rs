@@ -5,7 +5,7 @@ use std::{sync::Arc, time::Duration};
 
 use indexmap::IndexMap;
 use serde::{Serialize, de::DeserializeOwned};
-use sparko_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse};
+use bruce_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse};
 
 use crate::{CacheConfig};
 use super::DataSetAttributes;
@@ -35,8 +35,8 @@ where
         where
             R: GraphQLResponse,
             Q: GraphQLQuery<R>,
-            IQP: FnOnce() -> Result<Q, sparko_graphql::Error>,
-            CQP: Fn(&R) -> Option<Result<Q, sparko_graphql::Error>>,
+            IQP: FnOnce() -> Result<Q, bruce_graphql::Error>,
+            CQP: Fn(&R) -> Option<Result<Q, bruce_graphql::Error>>,
             RI: Fn(R) -> I,
             IN: Fn(&V) -> K,
             I: IntoIterator<Item = V>,

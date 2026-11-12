@@ -1,10 +1,10 @@
 //! What the modules whose APIs are not GraphQL share for making requests, e.g. myenergi and Tesla. The GraphQL
-//! equivalent is sparko_graphql's RequestManager. This may become a crate of its own which that is built on, once what
+//! equivalent is bruce_graphql's RequestManager. This may become a crate of its own which that is built on, once what
 //! the APIs have in common is clearer.
 
 use std::time::Duration;
 
-use sparko_graphql::redact::redact_secrets;
+use bruce_graphql::redact::redact_secrets;
 
 include!(concat!(env!("OUT_DIR"), "/crate_info.rs"));
 

@@ -69,7 +69,7 @@ impl std::fmt::Debug for Profile {
 
 /// A secret for debug output, showing only whether there is one.
 fn redacted(secret: &Option<String>) -> Option<&'static str> {
-    secret.as_ref().map(|_| sparko_graphql::redact::REDACTED)
+    secret.as_ref().map(|_| bruce_graphql::redact::REDACTED)
 }
 
 /// What the pages of the module share.

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use sparko_graphql::GraphQLCaller;
-use sparko_graphql::types::{Date, DateTime};
+use bruce_graphql::GraphQLCaller;
+use bruce_graphql::types::{Date, DateTime};
 
 use crate::CacheConfig;
 

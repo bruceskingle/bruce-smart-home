@@ -13,7 +13,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
-use sparko_graphql::{GraphQLCaller, GraphQLQueryBuilder};
+use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 

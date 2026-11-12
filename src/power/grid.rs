@@ -1,7 +1,7 @@
 //! Readings of the grid every few seconds, e.g. of the Octopus Home Mini, which a module gives, see GridSample, and
 //! their totals over periods, see aggregate.
 
-use sparko_graphql::types::DateTime;
+use bruce_graphql::types::DateTime;
 use time_tz::Tz;
 
 use crate::period::{Period, calendar_bounds};

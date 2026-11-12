@@ -10,7 +10,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use crate::components::error_text::ErrorText;
 use dioxus_free_icons::{Icon, icons::ld_icons::LdRefreshCw};
-use sparko_graphql::types::{Currency, DateTime};
+use bruce_graphql::types::{Currency, DateTime};
 use time_tz::{OffsetDateTimeExt, Tz};
 
 use crate::components::date_range_picker::{DateRangePicker, LocalSlot, RangeSelection};

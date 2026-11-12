@@ -630,6 +630,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "bruce-graphql"
+version = "0.5.0"
+dependencies = [
+ "display_json",
+ "indexmap",
+ "iso_currency",
+ "once_cell",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "time",
+ "time-tz",
+]
+
+[[package]]
+name = "bruce-graphql-builder"
+version = "0.1.0"
+dependencies = [
+ "graphql-parser",
+ "indexmap",
+ "inflections",
+]
+
+[[package]]
 name = "bruce-util-progress"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3816,6 +3840,8 @@ dependencies = [
  "base64",
  "bruce-db",
  "bruce-embedded-flash-ui",
+ "bruce-graphql",
+ "bruce-graphql-builder",
  "chacha20poly1305",
  "chrono",
  "clap",
@@ -3847,8 +3873,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "sparko_graphql",
- "sparko_graphql_builder",
  "time",
  "time-tz",
  "tokio",
@@ -6231,30 +6255,6 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
-]
-
-[[package]]
-name = "sparko_graphql"
-version = "0.5.0"
-dependencies = [
- "display_json",
- "indexmap",
- "iso_currency",
- "once_cell",
- "reqwest",
- "serde",
- "serde_json",
- "time",
- "time-tz",
-]
-
-[[package]]
-name = "sparko_graphql_builder"
-version = "0.1.0"
-dependencies = [
- "graphql-parser",
- "indexmap",
- "inflections",
 ]
 
 [[package]]

@@ -8,7 +8,7 @@ default-run = "marco-sparko"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-sparko_graphql_builder = { path = "../sparko_graphql/sparko_graphql_builder" }
+bruce-graphql-builder = { path = "../bruce-graphql/bruce-graphql-builder" }
 time = { version = "0.3", features = ["serde", "parsing", "formatting"] }
 
 [dependencies]
@@ -24,7 +24,7 @@ async-trait = "0.1.81"
 display_json = "0.2.1"
 rust_decimal = "1.36.0"
 rust_decimal_macros = "1.36.0"
-sparko_graphql = {version = "0.5.0", path = "../sparko_graphql" }
+bruce-graphql = {version = "0.5.0", path = "../bruce-graphql" }
 # The store every module keeps its data in, see store.rs; a git-ignored .cargo/config.toml may patch in a checkout of
 # bruce-db next to this one, to work on both.
 bruce-db = "0.1.0"
@@ -61,7 +61,7 @@ hmac = "0.12"
 # A capture device's poll schedule, the same cron specs as the device's, see capture_device.rs.
 croner = "3.0.1"
 chrono = "0.4"
-# HTTP for the modules whose APIs are not GraphQL, the same version and features as sparko_graphql uses
+# HTTP for the modules whose APIs are not GraphQL, the same version and features as bruce-graphql uses
 reqwest = { version = "0.12.7", default-features = false, features = ["json", "rustls-tls", "charset", "http2", "macos-system-configuration"] }
 # The digest authentication of the myenergi API
 md-5 = "0.10"

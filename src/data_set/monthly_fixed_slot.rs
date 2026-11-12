@@ -5,7 +5,7 @@ use std::{
 use futures::future::{Either, select};
 
 use serde::{Serialize, de::DeserializeOwned};
-use sparko_graphql::{
+use bruce_graphql::{
     GraphQLCaller, GraphQLQuery, GraphQLResponse, ProgressMonitor,
     types::{Date, DateTime},
 };
@@ -133,10 +133,10 @@ const FIRST_RETRY_DELAY: Duration = Duration::from_secs(2);
 const TOO_MANY_REQUESTS: &str = "KT-CT-1199";
 
 /// Whether a request failed as too many requests have been made.
-fn is_rate_limited(error: &sparko_graphql::Error) -> bool {
+fn is_rate_limited(error: &bruce_graphql::Error) -> bool {
     match error {
-        sparko_graphql::Error::HttpError(status, _) => status.as_u16() == 429,
-        sparko_graphql::Error::GraphQLError(errors) => errors.iter()
+        bruce_graphql::Error::HttpError(status, _) => status.as_u16() == 429,
+        bruce_graphql::Error::GraphQLError(errors) => errors.iter()
             .any(|error| error.extensions.get("errorCode").and_then(|code| code.as_str()) == Some(TOO_MANY_REQUESTS)),
         _ => false,
     }
@@ -144,10 +144,10 @@ fn is_rate_limited(error: &sparko_graphql::Error) -> bool {
 
 /// Whether a request which failed with this error may succeed if it is made again, e.g. after a network error, a
 /// gateway timeout or too many requests.
-pub fn is_transient(error: &sparko_graphql::Error) -> bool {
+pub fn is_transient(error: &bruce_graphql::Error) -> bool {
     match error {
-        sparko_graphql::Error::IOError(_) => true,
-        sparko_graphql::Error::HttpError(status, _) => status.is_server_error() || is_rate_limited(error),
+        bruce_graphql::Error::IOError(_) => true,
+        bruce_graphql::Error::HttpError(status, _) => status.is_server_error() || is_rate_limited(error),
         _ => is_rate_limited(error),
     }
 }
@@ -201,17 +201,17 @@ fn minutes_and_seconds(seconds: i64) -> String {
 
 /// A short description of a transient error, for progress messages, e.g. "Too many requests" rather than the whole
 /// GraphQL error.
-pub fn brief(error: &sparko_graphql::Error) -> String {
+pub fn brief(error: &bruce_graphql::Error) -> String {
     match error {
-        sparko_graphql::Error::GraphQLError(errors) => {
+        bruce_graphql::Error::GraphQLError(errors) => {
             let messages: Vec<&str> = errors.iter()
                 .filter_map(|error| error.message.as_deref())
                 .map(|message| message.trim_end_matches('.'))
                 .collect();
             if messages.is_empty() { String::from("Octopus returned an error") } else { messages.join(", ") }
         },
-        sparko_graphql::Error::IOError(_) => String::from("Could not connect to Octopus"),
-        sparko_graphql::Error::HttpError(status, _) => format!("Octopus returned {status}"),
+        bruce_graphql::Error::IOError(_) => String::from("Could not connect to Octopus"),
+        bruce_graphql::Error::HttpError(status, _) => format!("Octopus returned {status}"),
         _ => error.to_string(),
     }
 }
@@ -826,7 +826,7 @@ mod tests {
 mod window_complete_tests {
     use std::collections::BTreeMap;
 
-    use sparko_graphql::types::DateTime;
+    use bruce_graphql::types::DateTime;
 
     use super::{Item, missing_outside, window_complete};
     use crate::data_set::DataSetAttributes;
@@ -889,9 +889,9 @@ mod retry_tests {
 
     #[test]
     fn network_errors_gateway_timeouts_and_rate_limits_are_retried_but_not_other_errors() {
-        use sparko_graphql::Error;
+        use bruce_graphql::Error;
 
-        // sparko_graphql uses a different version of reqwest, so its status codes are made from numbers.
+        // bruce_graphql uses a different version of reqwest, so its status codes are made from numbers.
         let http = |code: u16| Error::HttpError(code.try_into().unwrap(), String::new());
         assert!(is_transient(&http(504)));
         assert!(is_transient(&http(502)));
@@ -912,7 +912,7 @@ mod retry_tests {
 
 #[cfg(test)]
 mod day_windows_tests {
-    use sparko_graphql::types::DateTime;
+    use bruce_graphql::types::DateTime;
     use time_tz::timezones;
 
     use super::day_windows;

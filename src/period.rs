@@ -1,7 +1,7 @@
 //! The periods which energy is shown in, e.g. half hours or days, and where each starts and ends, which for days, weeks
 //! and months depends on the timezone.
 
-use sparko_graphql::types::{Date, DateTime};
+use bruce_graphql::types::{Date, DateTime};
 use time_tz::Tz;
 
 /// How long the periods of the graph and table are.

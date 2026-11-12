@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use sparko_graphql::types::Date;
+use bruce_graphql::types::Date;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,7 +14,7 @@ use crate::util::as_decimal;
 use crate::{CacheConfig, NONE, NULL};
 
 use super::graphql::bill;
-use sparko_graphql::{GraphQLCaller, GraphQLQueryBuilder};
+use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder};
 use super::line_items::{LineItemDataSet, TariffLineItems};
 use super::meter::MeterType;
 use bill::get_statement_transactions::{Charge, TransactionType};

@@ -6,7 +6,7 @@ use crate::MarcoSparkoContext;
 
 use super::graphql::ObtainJsonWebTokenInput;
 
-use sparko_graphql::{GraphQLCaller, RequestManager, TokenManager};
+use bruce_graphql::{GraphQLCaller, RequestManager, TokenManager};
 use super::graphql::login::obtain_kraken_token::ObtainKrakenJsonWebToken;
 
 /*
@@ -112,7 +112,7 @@ impl OctopusAuthenticator {
         OctopusAuthenticator::EMailPassword { email, password } 
     }
 
-    pub fn to_obtain_json_web_token_input(&self) ->  Result<ObtainJsonWebTokenInput, sparko_graphql::Error>{
+    pub fn to_obtain_json_web_token_input(&self) ->  Result<ObtainJsonWebTokenInput, bruce_graphql::Error>{
         match self {
             OctopusAuthenticator::ApiKey(api_key) => 
                 ObtainJsonWebTokenInput::builder()
@@ -172,7 +172,7 @@ impl OctopusTokenManager {
 
 impl TokenManager for OctopusTokenManager {
 
-    async fn get_authenticator(&self, refresh: bool)  -> Result<Arc<String>, sparko_graphql::Error> {
+    async fn get_authenticator(&self, refresh: bool)  -> Result<Arc<String>, bruce_graphql::Error> {
         let mut locked_token = self.token.lock().await;
 
         let mut current_token = None;
@@ -217,7 +217,7 @@ impl TokenManager for OctopusTokenManager {
                 }
 
                 if let Err(error) = self.context.update_cache(crate::octopus::MODULE_ID, &StoredToken::from(&token)) {
-                    return Err(sparko_graphql::Error::InternalError(format!("Failed to update cache {}", error)))
+                    return Err(bruce_graphql::Error::InternalError(format!("Failed to update cache {}", error)))
                 }
         
                 let result = token.token.clone();
@@ -243,7 +243,7 @@ impl TokenManager for OctopusTokenManager {
                     let token = OctopusToken::from(response.obtain_kraken_token_);
             
                     if let Err(error) = self.context.update_cache(crate::octopus::MODULE_ID, &StoredToken::from(&token)) {
-                        return Err(sparko_graphql::Error::InternalError(format!("Failed to update cache {}", error)))
+                        return Err(bruce_graphql::Error::InternalError(format!("Failed to update cache {}", error)))
                     }
             
                     let result = token.token.clone();
@@ -253,7 +253,7 @@ impl TokenManager for OctopusTokenManager {
                     Ok(result)
                 }
                 else {
-                    Err(sparko_graphql::Error::MissingRequiredValueError("No authenticator provided"))
+                    Err(bruce_graphql::Error::MissingRequiredValueError("No authenticator provided"))
                 }
             }
         }
@@ -274,7 +274,7 @@ impl TokenManager for OctopusTokenManager {
 //             println!("result {:?}", octopus_error);
 //             if let Error::GraphQLError(gql_error) = octopus_error {
 
-//                 if let sparko_graphql::error::Error::GraphQLError(json_errors) = &gql_error {
+//                 if let bruce_graphql::error::Error::GraphQLError(json_errors) = &gql_error {
 //                     let x = json_errors.get(0).unwrap().extensions.error_code.as_ref().unwrap();
 //                     assert_eq!(x, "KT-CT-1139");
 //                 }
@@ -316,7 +316,7 @@ impl TokenManager for OctopusTokenManager {
 //             println!("result {:?}", octopus_error);
 //             if let Error::GraphQLError(gql_error) = octopus_error {
 
-//                 if let sparko_graphql::error::Error::GraphQLError(json_errors) = &gql_error {
+//                 if let bruce_graphql::error::Error::GraphQLError(json_errors) = &gql_error {
 //                     let x = json_errors.get(0).unwrap().extensions.error_code.as_ref().unwrap();
 //                     assert_eq!(x, "KT-CT-1135");
 //                 }
@@ -376,7 +376,7 @@ impl TokenManager for OctopusTokenManager {
 //             println!("result {:?}", octopus_error);
 //             if let Error::GraphQLError(gql_error) = octopus_error {
 
-//                 if let sparko_graphql::error::Error::GraphQLError(json_errors) = &gql_error {
+//                 if let bruce_graphql::error::Error::GraphQLError(json_errors) = &gql_error {
 //                     let x = json_errors.get(0).unwrap().extensions.error_code.as_ref().unwrap();
 //                      assert_eq!(x, "KT-CT-1135");
 //                 }

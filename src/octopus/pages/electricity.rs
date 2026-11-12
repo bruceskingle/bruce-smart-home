@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, anyhow};
 use dioxus::prelude::*;
-use sparko_graphql::types::DateTime;
+use bruce_graphql::types::DateTime;
 use time_tz::Tz;
 
 use crate::data_set::CancelToken;

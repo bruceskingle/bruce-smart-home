@@ -1,18 +1,18 @@
 #!/bin/bash
-# The release process for marco-sparko and sparko_graphql, see docs/Release.md
+# The release process for marco-sparko and bruce-graphql, see docs/Release.md
 #
 # The version comes from the version in marco-sparko's Cargo.toml, which "start" sets at the beginning of each release
 # cycle. Each command checks that the repos are in the state it expects before changing anything, and stops at the
 # first problem.
 #
 # This is for macOS (it uses BSD sed) with both repos checked out side by side, e.g. ~/git/marco-sparko and
-# ~/git/sparko_graphql, and needs the GitHub CLI (gh) signed in. sync and download also work in Git Bash on Windows, to
+# ~/git/bruce-graphql, and needs the GitHub CLI (gh) signed in. sync and download also work in Git Bash on Windows, to
 # test there.
 
 set -euo pipefail
 
-# sparko_graphql first, as marco-sparko depends on it.
-REPOS="sparko_graphql marco-sparko"
+# bruce-graphql first, as marco-sparko depends on it.
+REPOS="bruce-graphql marco-sparko"
 WORKFLOW=release.yml
 # The installers attached to each release, with VERSION replaced by the version. The Intel Mac's was _x64.dmg before
 # dx 0.7.10.
@@ -27,8 +27,8 @@ github_owner() {
     git -C "$GIT_ROOT/$1" remote get-url origin | sed -E 's#^.*github\.com[:/]([^/]+)/.*$#\1#'
 }
 OWNER=$(github_owner marco-sparko)
-[ "$(github_owner sparko_graphql)" = "$OWNER" ] \
-    || { echo "ERROR: marco-sparko is from $OWNER but sparko_graphql is from $(github_owner sparko_graphql)" >&2; exit 1; }
+[ "$(github_owner bruce-graphql)" = "$OWNER" ] \
+    || { echo "ERROR: marco-sparko is from $OWNER but bruce-graphql is from $(github_owner bruce-graphql)" >&2; exit 1; }
 
 usage() {
     cat <<EOF
@@ -72,15 +72,15 @@ cargo_version() {
     sed -n 's/^version = "\(.*\)"/\1/p' "$1/Cargo.toml" | head -1
 }
 
-# The version being released, from marco-sparko's Cargo.toml, after checking that sparko_graphql has the same version.
+# The version being released, from marco-sparko's Cargo.toml, after checking that bruce-graphql has the same version.
 release_version() {
-    local version sparko_version dependency_version
+    local version graphql_version dependency_version
     version=$(cargo_version "$(repo_dir marco-sparko)")
-    sparko_version=$(cargo_version "$(repo_dir sparko_graphql)")
-    dependency_version=$(sed -n 's/^sparko_graphql = {version = "\([^"]*\)".*/\1/p' "$(repo_dir marco-sparko)/Cargo.toml")
+    graphql_version=$(cargo_version "$(repo_dir bruce-graphql)")
+    dependency_version=$(sed -n 's/^bruce-graphql = {version = "\([^"]*\)".*/\1/p' "$(repo_dir marco-sparko)/Cargo.toml")
     [ -n "$version" ] || die "No version in marco-sparko/Cargo.toml"
-    [ "$sparko_version" = "$version" ] || die "sparko_graphql is version $sparko_version but marco-sparko is $version"
-    [ "$dependency_version" = "$version" ] || die "marco-sparko depends on sparko_graphql $dependency_version but is version $version"
+    [ "$graphql_version" = "$version" ] || die "bruce-graphql is version $graphql_version but marco-sparko is $version"
+    [ "$dependency_version" = "$version" ] || die "marco-sparko depends on bruce-graphql $dependency_version but is version $version"
     echo "$version"
 }
 
@@ -385,9 +385,9 @@ cmd_start() {
     done
 
     info "Setting the version to $new_version"
-    sed -i '' "1,/^version = /s/^version = .*/version = \"$new_version\"/" "$(repo_dir sparko_graphql)/Cargo.toml"
+    sed -i '' "1,/^version = /s/^version = .*/version = \"$new_version\"/" "$(repo_dir bruce-graphql)/Cargo.toml"
     sed -i '' -e "1,/^version = /s/^version = .*/version = \"$new_version\"/" \
-        -e "s/^sparko_graphql = {version = \"[^\"]*\"/sparko_graphql = {version = \"$new_version\"/" \
+        -e "s/^bruce-graphql = {version = \"[^\"]*\"/bruce-graphql = {version = \"$new_version\"/" \
         "$(repo_dir marco-sparko)/Cargo.toml"
     release_version >/dev/null
 

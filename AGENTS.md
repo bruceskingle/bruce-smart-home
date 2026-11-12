@@ -16,7 +16,7 @@ use, costs and bills from Octopus Energy, and what its Tesla Powerwalls and myen
 - `src/profile.rs`, `src/cache.rs`, `src/data_home.rs`: profiles, and where their settings and caches are kept.
 - `src/redact.rs`: redacted, offline copies of a profile, for the docs and for testing without an account.
 - `graphql/octopus/`: the Octopus schema and the queries, from which `build.rs` generates the typed code, using the
-  `sparko_graphql` crates in a checkout of [sparko_graphql](https://github.com/bruceskingle/sparko_graphql) next to this
+  `bruce-graphql` crates in a checkout of [bruce-graphql](https://github.com/bruceskingle/bruce-graphql) next to this
   one, on the branch of the same name.
 - `capture/`: firmware for the ESP32 capture devices, built separately, see [capture/README.md](capture/README.md).
   It logs with the `log` macros, never `println!`, which panics on a device with no computer reading its USB port,
@@ -63,7 +63,7 @@ use, costs and bills from Octopus Energy, and what its Tesla Powerwalls and myen
 
 ## Branches
 
-Each release is developed on a `vX.Y.Z` branch, in both this repo and sparko_graphql, which is squash merged to `main`
+Each release is developed on a `vX.Y.Z` branch, in both this repo and bruce-graphql, which is squash merged to `main`
 when it is released, see [docs/Release.md](docs/Release.md). Base a pull request on the release branch being developed,
 not on `main`.
 

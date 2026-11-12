@@ -9,7 +9,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, icons::ld_icons::LdRefreshCw};
-use sparko_graphql::types::{Currency, DateTime};
+use bruce_graphql::types::{Currency, DateTime};
 use time_tz::{OffsetDateTimeExt, Tz};
 
 use crate::components::category_filter::{CategoryFilter, CategoryFilterMenu, CategoryValues, STANDING_CHARGE_LABEL};

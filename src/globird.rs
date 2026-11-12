@@ -73,7 +73,7 @@ impl std::fmt::Debug for Profile {
 
 /// The session's cookies, in the module's cache file, see MarcoSparkoContext::update_cache, so that the app does not
 /// log in each time it starts, see GlobirdClient::session_token. The field's name has token in it so that it is hidden
-/// in verbose output, see sparko_graphql::redact.
+/// in verbose output, see bruce_graphql::redact.
 #[derive(Serialize, Deserialize)]
 struct StoredSession {
     session_token: String,
@@ -81,7 +81,7 @@ struct StoredSession {
 
 /// A secret for debug output, showing only whether there is one.
 fn redacted(secret: &Option<String>) -> Option<&'static str> {
-    secret.as_ref().map(|_| sparko_graphql::redact::REDACTED)
+    secret.as_ref().map(|_| bruce_graphql::redact::REDACTED)
 }
 
 /// What the pages of the module share.

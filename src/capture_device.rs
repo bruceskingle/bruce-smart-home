@@ -44,7 +44,7 @@ impl std::fmt::Debug for DeviceProfile {
             .field("id", &self.id)
             .field("address", &self.address)
             .field("fingerprint", &self.fingerprint)
-            .field("key", &sparko_graphql::redact::REDACTED)
+            .field("key", &bruce_graphql::redact::REDACTED)
             .finish()
     }
 }

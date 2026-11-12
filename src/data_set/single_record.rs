@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use sparko_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse};
+use bruce_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse};
 
 use crate::CacheConfig;
 
@@ -25,7 +25,7 @@ impl<R: GraphQLResponse> SingleRecordDataSet<R>
         ) -> anyhow::Result<Self>
         where
             Q: GraphQLQuery<R>,
-            QP: FnOnce() -> Result<Q, sparko_graphql::Error>,
+            QP: FnOnce() -> Result<Q, bruce_graphql::Error>,
     {
         let records = super::records::Records::open(config, hash_key)?;
         records.import_legacy(config, hash_key, &mut |records, value| records.put(RECORD, value))?;

@@ -1,7 +1,7 @@
 # marco-sparko
 # Release Process
 
-Each release is developed on a branch called `vX.X.X` in both sparko_graphql and marco-sparko, which is squash
+Each release is developed on a branch called `vX.X.X` in both bruce-graphql and marco-sparko, which is squash
 merged to `main` and tagged `releaseX.X.X`. The installers are built on GitHub and attached to a draft release, which
 is published once they have been tried. Then the branches for the next version are started.
 
@@ -57,7 +57,7 @@ To try the installer on another machine, see
 <summary>Manual commands</summary>
 
 ```
-for repo in sparko_graphql marco-sparko; do
+for repo in bruce-graphql marco-sparko; do
   cd ~/git/$repo
   git tag -f test$RELEASE
   git push -f origin test$RELEASE
@@ -139,7 +139,7 @@ gh run rerun $RUN --failed
 Delete the test tags afterwards:
 
 ```
-for repo in sparko_graphql marco-sparko; do
+for repo in bruce-graphql marco-sparko; do
   cd ~/git/$repo
   git tag -d test$RELEASE
   git push origin --delete test$RELEASE
@@ -154,7 +154,7 @@ done
 ./scripts/release.sh merge
 ```
 
-For each repo, sparko_graphql first: creates a pull request from the release branch (unless there is one), squash
+For each repo, bruce-graphql first: creates a pull request from the release branch (unless there is one), squash
 merges it to `main` (`gh` asks for confirmation), and tags `main` `releaseX.X.X`. It then merges `main` back into the
 release branch, which changes no files but means a later pull request only shows new changes, and deletes the test
 tags. If it fails part way, run it again and it carries on.
@@ -172,7 +172,7 @@ branches, then run `merge` again.
 <summary>Manual commands</summary>
 
 ```
-for repo in sparko_graphql marco-sparko; do
+for repo in bruce-graphql marco-sparko; do
   cd ~/git/$repo
   git checkout v$RELEASE
   git status --short
@@ -186,7 +186,7 @@ The pull requests can be merged on GitHub instead, choose **Squash and merge**. 
 into the release branches:
 
 ```
-for repo in sparko_graphql marco-sparko; do
+for repo in bruce-graphql marco-sparko; do
   cd ~/git/$repo
   git fetch origin
   git tag release$RELEASE origin/main
@@ -200,7 +200,7 @@ To make more changes, delete the draft release (if there is one) and the release
 
 ```
 gh release delete release$RELEASE --yes
-for repo in sparko_graphql marco-sparko; do
+for repo in bruce-graphql marco-sparko; do
   cd ~/git/$repo
   git tag -d release$RELEASE
   git push origin --delete release$RELEASE
@@ -222,7 +222,7 @@ switches both repos back to the release branches. If something needs fixing, use
 <summary>Manual commands</summary>
 
 ```
-cd ~/git/sparko_graphql
+cd ~/git/bruce-graphql
 git checkout release$RELEASE
 cd ~/git/marco-sparko
 git checkout release$RELEASE
@@ -234,7 +234,7 @@ Then go back to the release branches. If Cargo.lock shows as changed, it was reg
 is safe to discard it:
 
 ```
-for repo in sparko_graphql marco-sparko; do
+for repo in bruce-graphql marco-sparko; do
   cd ~/git/$repo
   git restore Cargo.lock
   git checkout v$RELEASE
@@ -366,7 +366,7 @@ or choose **Publish release** on the draft's edit page on GitHub.
 ```
 
 Creates the `vX.X.X` branches for the next minor version (e.g. 0.5.0 after 0.4.4) in both repos from `main`, sets
-the version in both Cargo.toml files and the version of sparko_graphql which marco-sparko uses, builds to update the
+the version in both Cargo.toml files and the version of bruce-graphql which marco-sparko uses, builds to update the
 Cargo.lock files, commits and pushes. For a different version, give it, e.g. `./scripts/release.sh start 0.4.5`. If
 the branches already exist it switches to them.
 
@@ -388,7 +388,7 @@ has the fix too, keeping its own version where the Cargo.toml files conflict:
 ```
 ./scripts/release.sh sync v0.5.0
 git -C ~/git/marco-sparko merge origin/main
-git -C ~/git/sparko_graphql merge origin/main
+git -C ~/git/bruce-graphql merge origin/main
 ```
 
 If a change needs its own branch, e.g. because someone else is working on it, branch from the release branch and
@@ -409,23 +409,23 @@ git push
 ```
 export RELEASE=0.4.5
 
-for repo in sparko_graphql marco-sparko; do
+for repo in bruce-graphql marco-sparko; do
   cd ~/git/$repo
   git checkout main
   git pull
   git checkout -b v$RELEASE
 done
 
-cd ~/git/sparko_graphql
+cd ~/git/bruce-graphql
 sed -i '' "1,/^version = /s/^version = .*/version = \"$RELEASE\"/" Cargo.toml
 cargo build
 
 cd ~/git/marco-sparko
 sed -i '' -e "1,/^version = /s/^version = .*/version = \"$RELEASE\"/" \
-  -e "s/^sparko_graphql = {version = \"[^\"]*\"/sparko_graphql = {version = \"$RELEASE\"/" Cargo.toml
+  -e "s/^bruce-graphql = {version = \"[^\"]*\"/bruce-graphql = {version = \"$RELEASE\"/" Cargo.toml
 cargo build
 
-for repo in sparko_graphql marco-sparko; do
+for repo in bruce-graphql marco-sparko; do
   cd ~/git/$repo
   git diff --stat
   git commit -am "Start v$RELEASE"
@@ -444,7 +444,7 @@ To build and test the latest release branch on another machine, with both repos 
 ```
 
 Fetches both repos and checks out and updates the latest `vX.X.X` branch in each, so that marco-sparko is built with
-the matching sparko_graphql. For another branch, give it, e.g. `./scripts/release.sh sync 0.4.4` or
+the matching bruce-graphql. For another branch, give it, e.g. `./scripts/release.sh sync 0.4.4` or
 `./scripts/release.sh sync main`. It does not need `gh`. It stops without changing anything if either repo has
 uncommitted changes, and only fast forwards, so it stops if a branch has commits on that machine which are not on
 GitHub. Then build as usual, e.g. `dx serve`.
@@ -455,7 +455,7 @@ GitHub. Then build as usual, e.g. `dx serve`.
 ```
 export RELEASE=0.4.4
 
-for repo in sparko_graphql marco-sparko; do
+for repo in bruce-graphql marco-sparko; do
   cd ~/git/$repo
   git fetch
   git checkout v$RELEASE

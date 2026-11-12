@@ -41,7 +41,7 @@ use time_tz::timezones;
 use token::{OctopusTokenManager};
 use clap::Parser;
 
-use sparko_graphql::TokenManager;
+use bruce_graphql::TokenManager;
 use crate::{CacheConfig, InitRequested, MarcoSparkoContext, Module, ModuleFactory, ModuleRegistration, PageInfo, octopus::token::OctopusAuthenticator};
 
 // include!("octopus/graphql.rs");
@@ -53,7 +53,7 @@ compile_error!("graphql built with Errors");
 
 
 /// Makes the requests of the pages, logging each one, see logging_caller.rs.
-pub type RequestManager = logging_caller::LoggingCaller<sparko_graphql::AuthenticatedRequestManager<OctopusTokenManager>>;
+pub type RequestManager = logging_caller::LoggingCaller<bruce_graphql::AuthenticatedRequestManager<OctopusTokenManager>>;
 
 
 /*
@@ -108,7 +108,7 @@ impl std::fmt::Debug for Profile {
 
 /// A secret for debug output, showing only whether there is one.
 fn redacted(secret: &Option<String>) -> Option<&'static str> {
-    secret.as_ref().map(|_| sparko_graphql::redact::REDACTED)
+    secret.as_ref().map(|_| bruce_graphql::redact::REDACTED)
 }
 
 /// The API host for a profile which does not have one, i.e. one created before it was added.
@@ -516,7 +516,7 @@ pub struct OctopusModuleFactory {
     octopus_args: OctopusArgs,
     cache_config: Arc<CacheConfig>,
     token_manager: Arc<OctopusTokenManager>,
-    request_manager: Arc<sparko_graphql::RequestManager>,
+    request_manager: Arc<bruce_graphql::RequestManager>,
     profile: Profile,
     verbose: bool,
     /// Why the saved login could not be used, shown on the login page. None if there was no saved login.
@@ -524,12 +524,12 @@ pub struct OctopusModuleFactory {
 }
 
 /// An error from logging in, for display, including the response if the server rejected the request.
-fn describe_login_error(error: &sparko_graphql::Error) -> String {
+fn describe_login_error(error: &bruce_graphql::Error) -> String {
     match error {
         // The response often explains the error, e.g. that a firewall blocked the request.
-        sparko_graphql::Error::HttpError(status, message) if !message.is_empty() =>
+        bruce_graphql::Error::HttpError(status, message) if !message.is_empty() =>
             format!("the server responded {}: {}", status, message),
-        sparko_graphql::Error::HttpError(status, _) => format!("the server responded {}", status),
+        bruce_graphql::Error::HttpError(status, _) => format!("the server responded {}", status),
         _ => error.to_string(),
     }
 }
@@ -537,7 +537,7 @@ fn describe_login_error(error: &sparko_graphql::Error) -> String {
 impl OctopusModuleFactory {
     pub async fn do_build(&self) -> anyhow::Result<OctopusModule> {
 
-        let authenticated_request_manager = Arc::new(logging_caller::LoggingCaller(sparko_graphql::AuthenticatedRequestManager::new(self.request_manager.clone(), self.token_manager.clone())?));
+        let authenticated_request_manager = Arc::new(logging_caller::LoggingCaller(bruce_graphql::AuthenticatedRequestManager::new(self.request_manager.clone(), self.token_manager.clone())?));
        
         let mut client = OctopusModule::new(self.octopus_args.clone(), self.cache_config.clone(), self.context.store()?, self.profile.clone(),
             authenticated_request_manager, self.verbose
@@ -559,7 +559,7 @@ impl OctopusModuleFactory {
                     Ok(())
                 },
                 Err(error) => {
-                    if let sparko_graphql::Error::GraphQLError(graphql_errors) = &error {
+                    if let bruce_graphql::Error::GraphQLError(graphql_errors) = &error {
                         let graphql_errors = &**graphql_errors;
                         for graphql_error in graphql_errors {
                             if let Some(error_code) = graphql_error.extensions.get("errorCode") {
@@ -667,7 +667,7 @@ impl ModuleFactory for OctopusModuleFactory {
         let (ready, error) = match self.token_manager.get_authenticator(false).await {
             Ok(_token) => (true, None),
             // There is no saved login, so the login page is shown without an error.
-            Err(sparko_graphql::Error::MissingRequiredValueError(_)) => (false, None),
+            Err(bruce_graphql::Error::MissingRequiredValueError(_)) => (false, None),
             Err(error) => (false, Some(format!("Unable to log in with the saved login details, {}", describe_login_error(&error)))),
         };
         if let Some(error) = &error {
@@ -911,7 +911,7 @@ impl OctopusModuleFactoryBuilder {
             println!("Octopus API initialized with URL {}", &url);
         }
         
-        let request_manager = Arc::new(sparko_graphql::RequestManager::new(url, verbose, create_info::USER_AGENT)?);
+        let request_manager = Arc::new(bruce_graphql::RequestManager::new(url, verbose, create_info::USER_AGENT)?);
         let cache_config = self.context.create_cache_config(crate::octopus::MODULE_ID)?;
 
         Ok(OctopusModuleFactory {

@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use anyhow::anyhow;
-use sparko_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse};
+use bruce_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse};
 
 use crate::CacheConfig;
 use super::DataSetAttributes;
@@ -29,7 +29,7 @@ where
         ) -> anyhow::Result<Self>
         where
             Q: GraphQLQuery<R>,
-            QI: IntoIterator<Item = Result<Q, sparko_graphql::Error>>,
+            QI: IntoIterator<Item = Result<Q, bruce_graphql::Error>>,
     {
 
         let mut data: Vec<R> = Vec::new();

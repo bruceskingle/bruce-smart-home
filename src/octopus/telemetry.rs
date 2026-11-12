@@ -11,8 +11,8 @@ use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use sparko_graphql::types::DateTime;
-use sparko_graphql::{GraphQLCaller, GraphQLQueryBuilder, ProgressMonitor};
+use bruce_graphql::types::DateTime;
+use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder, ProgressMonitor};
 use time_tz::Tz;
 
 use crate::CacheConfig;
@@ -108,13 +108,13 @@ fn now() -> i64 {
 }
 
 /// The sort key of a day's #fetched record.
-fn fetched_key(day: &sparko_graphql::types::Date) -> String {
+fn fetched_key(day: &bruce_graphql::types::Date) -> String {
     format!("#fetched/{day}")
 }
 
 /// When a day was last fetched, as a unix timestamp, 0 if not all its missing hours were, so that it is fetched again,
 /// as a file dated the epoch was, None if it never has been.
-fn modified(records: &crate::data_set::Records, day: &sparko_graphql::types::Date) -> anyhow::Result<Option<i64>> {
+fn modified(records: &crate::data_set::Records, day: &bruce_graphql::types::Date) -> anyhow::Result<Option<i64>> {
     let key = fetched_key(day);
     let stale = records.get(&key)?.map(|fetched| fetched.get("stale").and_then(|stale| stale.as_bool()) == Some(true));
     Ok(match stale {
@@ -203,7 +203,7 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
     struct DayFetch {
         day_start: i64,
         day_end: i64,
-        day: sparko_graphql::types::Date,
+        day: bruce_graphql::types::Date,
         readings: BTreeMap<i64, TelemetryReading>,
         /// The hours to fetch, and the day's missing hours, whether they are fetched or not.
         hours: Vec<i64>,

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use dioxus::prelude::*;
 use time_tz::Tz;
-use sparko_graphql::types::DateTime;
+use bruce_graphql::types::DateTime;
 
 use crate::components::date_range_picker::{DateRangePicker, RangeSelection};
 use crate::components::export::{ExportButton, ExportFormat, export_file_name, save_table};
@@ -24,8 +24,8 @@ use crate::components::stacked_bar_graph::{BarClick, BarMenuItem, GraphMode, MAX
 /// message, and its code, e.g. "Unable to find matching device for this request. Ensure the device id is correct.
 /// (KT-CT-4716)", or None if it is not from GraphQL errors.
 pub(super) fn graphql_error_descriptions(error: &anyhow::Error) -> Option<Vec<String>> {
-    let errors = error.chain().find_map(|cause| match cause.downcast_ref::<sparko_graphql::Error>() {
-        Some(sparko_graphql::Error::GraphQLError(errors)) => Some(errors.clone()),
+    let errors = error.chain().find_map(|cause| match cause.downcast_ref::<bruce_graphql::Error>() {
+        Some(bruce_graphql::Error::GraphQLError(errors)) => Some(errors.clone()),
         _ => None,
     })?;
     let text = |value: Option<&serde_json::Value>| value.and_then(|value| value.as_str()).map(String::from);
@@ -720,14 +720,14 @@ fn MeasurementsDetail(props: MeasurementsDetailProps) -> Element {
                 return;
             };
             let month = bar_start.to_date();
-            let Ok(first) = sparko_graphql::types::Date::from_calendar_date(month.year(), month.month(), 1) else {
+            let Ok(first) = bruce_graphql::types::Date::from_calendar_date(month.year(), month.month(), 1) else {
                 return;
             };
             let next_month = if month.month() == time::Month::December {
-                sparko_graphql::types::Date::from_calendar_date(month.year() + 1, time::Month::January, 1)
+                bruce_graphql::types::Date::from_calendar_date(month.year() + 1, time::Month::January, 1)
             }
             else {
-                sparko_graphql::types::Date::from_calendar_date(month.year(), month.month().next(), 1)
+                bruce_graphql::types::Date::from_calendar_date(month.year(), month.month().next(), 1)
             };
             // From the day before the month, for the same reason as Reload this bar starts at the bar before.
             if let Ok(next_month) = next_month {
