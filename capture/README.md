@@ -1,7 +1,8 @@
 # Marco Sparko Capture Device
 
 Firmware for an ESP32 which polls what Marco Sparko needs while the computer it runs on sleeps, built on
-[sparko-embedded-std](../../sparko-embedded-std), which must be checked out next to this repo. It polls the Tesla
+[bruce-esp-idf](../../bruce-esp-idf), which must be checked out next to this repo, with
+[bruce-embedded-std](../../bruce-embedded-std) and bruce-embedded-firmware-record. It polls the Tesla
 gateway, myenergi's zappi and Octopus's smart charging, and keeps what it gets on an SD card. It runs on:
 
 - a CYD (ESP32-2432S028R), whose screen, on its side, shows a graph of the gateway's power, as the Waveshare's does, the
@@ -17,10 +18,10 @@ gateway, myenergi's zappi and Octopus's smart charging, and keeps what it gets o
 
 ## Building and flashing
 
-From this directory, with the ESP Rust toolchain installed (see sparko-embedded-std), and sparko-embedded-std's
+From this directory, with the ESP Rust toolchain installed (see bruce-esp-idf), and bruce-embedded-flash's
 `bruce-embedded-flash`, which flashes only firmware built for the board on the port, refusing firmware built for
 another, and asking which board it is if the firmware on it does not say (see its README; install it with
-`cargo install --path ../../sparko-embedded-std/tools/bruce-embedded-flash`). Flash with it, never with espflash
+`cargo install --path ../../bruce-embedded-flash/bruce-embedded-flash`). Flash with it, never with espflash
 directly:
 
 - `cargo build --release` for a CYD, and `cargo run --release` flashes the CYD plugged in by USB, and shows its log.
@@ -37,8 +38,8 @@ directly:
 
 `./build-firmware.sh` builds every board's firmware, or `./build-firmware.sh <board>...` those named, and copies each,
 as soon as it is built, as boards with the same chip build to the same path in `target/`, to the shared firmware
-folder, as `bruce-smart-home/dev/marco-sparko-capture-<board>.elf`, see sparko-embedded-std's
-`tools/bruce-embedded-firmware`, e.g. `~/Library/Application Support/bruce-embedded-std/firmware/` on macOS, where
+folder, as `bruce-smart-home/dev/marco-sparko-capture-<board>.elf`, see bruce-embedded-flash's
+`bruce-embedded-firmware`, e.g. `~/Library/Application Support/bruce-embedded-std/firmware/` on macOS, where
 the app's Devices page and bruce-embedded-flash's window find it. `./build-firmware.sh --path <board>` prints where a
 board's goes.
 
@@ -79,5 +80,5 @@ Then enter the device's IP address on the app's Powerwall page.
 The records are only kept in RAM, so they are lost when the device restarts.
 
 The same records are at `https://<device>/api/capture/tesla/records`, on the device's HTTPS API, which also has
-`/api/info`, `/api/config` and `/api/restart`, see sparko-embedded-std's CLAUDE.md. Its certificate is the device's
+`/api/info`, `/api/config` and `/api/restart`, see bruce-esp-idf's CLAUDE.md. Its certificate is the device's
 own, so use `curl -k` for now; the app will pin its fingerprint, from `/api/info`, when it adopts the device.

@@ -132,6 +132,8 @@ dependencies = [
 [[package]]
 name = "bruce-db"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "940a408519a476c864b5514339d8c0a1987bff9b7e007f0a970d2fbd7557a481"
 dependencies = [
  "anyhow",
  "base64",
@@ -150,8 +152,67 @@ name = "bruce-embedded-firmware-record"
 version = "0.1.0"
 
 [[package]]
+name = "bruce-embedded-std"
+version = "0.1.0"
+dependencies = [
+ "ahrs",
+ "anyhow",
+ "bruce-embedded-std-derive",
+ "chrono",
+ "croner",
+ "embedded-graphics",
+ "heapless 0.9.3",
+ "indexmap",
+ "log",
+ "nalgebra",
+ "rgb",
+ "serde_json",
+ "simple-dns",
+]
+
+[[package]]
+name = "bruce-embedded-std-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "bruce-esp-idf"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bruce-embedded-firmware-record",
+ "bruce-embedded-std",
+ "chrono",
+ "croner",
+ "embedded-graphics",
+ "embedded-hal 1.0.0",
+ "embedded-svc",
+ "embuild",
+ "esp-idf-hal",
+ "esp-idf-svc",
+ "esp-idf-sys",
+ "futures",
+ "heapless 0.9.3",
+ "hmac",
+ "indexmap",
+ "log",
+ "mipidsi",
+ "nalgebra",
+ "rgb",
+ "serde_json",
+ "sha2",
+ "url",
+]
+
+[[package]]
 name = "bruce-util-progress"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6881029ddf744ba996327094f2cb61740b974d424ebf887c3abec6e240aa4c19"
 
 [[package]]
 name = "bstr"
@@ -883,15 +944,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
-name = "feature-config-derive"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "filetime"
 version = "0.2.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1548,6 +1600,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bruce-db",
+ "bruce-embedded-std",
+ "bruce-esp-idf",
  "chrono",
  "croner",
  "embassy-time",
@@ -1561,8 +1615,6 @@ dependencies = [
  "rgb",
  "serde",
  "serde_json",
- "sparko-embedded-std",
- "sparko-esp-idf",
  "url",
 ]
 
@@ -2121,53 +2173,6 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
-
-[[package]]
-name = "sparko-embedded-std"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "croner",
- "embedded-graphics",
- "feature-config-derive",
- "heapless 0.9.3",
- "indexmap",
- "log",
- "rgb",
- "serde_json",
-]
-
-[[package]]
-name = "sparko-esp-idf"
-version = "0.1.0"
-dependencies = [
- "ahrs",
- "anyhow",
- "bruce-embedded-firmware-record",
- "chrono",
- "croner",
- "embedded-graphics",
- "embedded-hal 1.0.0",
- "embedded-svc",
- "embuild",
- "esp-idf-hal",
- "esp-idf-svc",
- "esp-idf-sys",
- "futures",
- "heapless 0.9.3",
- "hmac",
- "indexmap",
- "log",
- "mipidsi",
- "nalgebra",
- "rgb",
- "serde_json",
- "sha2",
- "simple-dns",
- "sparko-embedded-std",
- "url",
-]
 
 [[package]]
 name = "stable_deref_trait"
@@ -2937,3 +2942,7 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
+
+[[patch.unused]]
+name = "bruce-db"
+version = "0.2.0"

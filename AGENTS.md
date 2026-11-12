@@ -20,7 +20,7 @@ use, costs and bills from Octopus Energy, and what its Tesla Powerwalls and myen
   one, on the branch of the same name.
 - `capture/`: firmware for the ESP32 capture devices, built separately, see [capture/README.md](capture/README.md).
   It logs with the `log` macros, never `println!`, which panics on a device with no computer reading its USB port,
-  see the platform's CLAUDE.md in sparko-embedded-std.
+  see the platform's CLAUDE.md in bruce-esp-idf.
 - `docs/`: the user guide, an mdBook, whose `docs/help/` pages are also built into the app's help panel.
 
 ## Building and Running
@@ -48,7 +48,7 @@ use, costs and bills from Octopus Energy, and what its Tesla Powerwalls and myen
 - Before a request which changes a device, e.g. its settings, a restart, a release or a factory reset, check its state
   in the same command, e.g. `GET /api/info` says it is adopted, and stop if it is not as assumed: a "negative test" of a
   released device once wiped its Wi-Fi settings.
-- Flash only with sparko-embedded-std's `bruce-embedded-flash` (the cargo runner and the "Device: Flash" tasks use it),
+- Flash only with bruce-embedded-flash's `bruce-embedded-flash` (the cargo runner and the "Device: Flash" tasks use it),
   never espflash directly: it refuses firmware built for another board than the one on the port, from the record each
   image carries, and asks the owner which board it is if the firmware on it has no record. Never pass `--confirm-board`
   on the owner's behalf.

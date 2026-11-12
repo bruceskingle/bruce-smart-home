@@ -6,7 +6,7 @@
 		{
 			// Builds the capture device's firmware for a CYD, see capture/README.md, flashes it to the CYD plugged in by USB,
 			// whose port is /dev/cu.usbserial-*, its USB chip's, showing its progress, then shows the device's log. It flashes
-			// with bruce-embedded-flash, from sparko-embedded-std's tools, which refuses firmware built for another board than
+			// with bruce-embedded-flash, from the bruce-embedded-flash repo, which refuses firmware built for another board than
 			// the one on the port, and asks which board it is if its firmware does not say. Ctrl+R
 			// restarts the device, Ctrl+C stops showing the log, the device runs on. 460800 baud is 4 times faster than
 			// espflash's default (921600 fails on the CYD), take --baud out if flashing fails. Stop Device: Log CYD first, as

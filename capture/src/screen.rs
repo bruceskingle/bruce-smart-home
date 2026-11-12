@@ -17,10 +17,10 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Baseline, Text};
 use rgb::RGB8;
-use sparko_embedded_std::graphics::{Color, DisplayManager, DrawTargetResultExt};
-use sparko_embedded_std::platform::PlatformInitializer;
-use sparko_embedded_std::task::scheduler::ScheduledTask;
-use sparko_esp_idf::{Esp32Platform, Esp32PlatformInitializer};
+use bruce_embedded_std::graphics::{Color, DisplayManager, DrawTargetResultExt};
+use bruce_embedded_std::platform::PlatformInitializer;
+use bruce_embedded_std::task::scheduler::ScheduledTask;
+use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer};
 
 use crate::device::captured_by;
 use crate::graph::{self, History, Palette, Sample};
@@ -134,7 +134,7 @@ struct Screen {
     status_overlay: bool,
     /// Kept, as the touch driver only keeps a weak reference to it, see Swipe.
     #[cfg(feature = "touch")]
-    swipe: Option<Arc<dyn sparko_embedded_std::listener::Listener<sparko_esp_idf::touch::TouchPoint>>>,
+    swipe: Option<Arc<dyn bruce_embedded_std::listener::Listener<bruce_esp_idf::touch::TouchPoint>>>,
 }
 
 impl Screen {
@@ -171,7 +171,7 @@ impl Screen {
     #[cfg(feature = "touch")]
     fn listen(&mut self, sparko: &Esp32Platform) {
         if self.swipe.is_none() {
-            let swipe: Arc<dyn sparko_embedded_std::listener::Listener<_>> = Arc::new(Swipe::new(self.panel.clone()));
+            let swipe: Arc<dyn bruce_embedded_std::listener::Listener<_>> = Arc::new(Swipe::new(self.panel.clone()));
             sparko.touch_driver.add_listener(&swipe);
             self.swipe = Some(swipe);
         }
@@ -351,8 +351,8 @@ impl Swipe {
 }
 
 #[cfg(feature = "touch")]
-impl sparko_embedded_std::listener::Listener<sparko_esp_idf::touch::TouchPoint> for Swipe {
-    fn on_event(&self, point: &sparko_esp_idf::touch::TouchPoint) {
+impl bruce_embedded_std::listener::Listener<bruce_esp_idf::touch::TouchPoint> for Swipe {
+    fn on_event(&self, point: &bruce_esp_idf::touch::TouchPoint) {
         let (x, y) = (point.x as i32, point.y as i32);
         let now = Instant::now();
         let mut touch = self.touch.lock().unwrap();

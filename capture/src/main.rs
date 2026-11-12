@@ -27,7 +27,7 @@ mod screen;
 mod slots;
 mod tesla;
 
-use sparko_esp_idf::Esp32Platform;
+use bruce_esp_idf::Esp32Platform;
 
 /// What differs between the boards: the screen's orientation, and how much of the top of it the clock takes, the
 /// numbers having the rest, see screen.rs.
@@ -35,8 +35,8 @@ use sparko_esp_idf::Esp32Platform;
 mod board {
     use std::sync::Arc;
 
-    use sparko_embedded_std::DisplayOrientation;
-    use sparko_esp_idf::Esp32PlatformBuilder;
+    use bruce_embedded_std::DisplayOrientation;
+    use bruce_esp_idf::Esp32PlatformBuilder;
 
     use crate::screen::Panel;
 
@@ -55,7 +55,7 @@ mod board {
     }
 
     /// Nothing, as the board has no speaker.
-    pub fn started(_platform: &sparko_esp_idf::Esp32PlatformRunner) -> anyhow::Result<()> {
+    pub fn started(_platform: &bruce_esp_idf::Esp32PlatformRunner) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -64,8 +64,8 @@ mod board {
 mod board {
     use std::sync::Arc;
 
-    use sparko_embedded_std::DisplayOrientation;
-    use sparko_esp_idf::Esp32PlatformBuilder;
+    use bruce_embedded_std::DisplayOrientation;
+    use bruce_esp_idf::Esp32PlatformBuilder;
 
     use crate::screen::Panel;
 
@@ -82,7 +82,7 @@ mod board {
     }
 
     /// Nothing, as the board has no speaker.
-    pub fn started(_platform: &sparko_esp_idf::Esp32PlatformRunner) -> anyhow::Result<()> {
+    pub fn started(_platform: &bruce_esp_idf::Esp32PlatformRunner) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -91,7 +91,7 @@ mod board {
 mod board {
     use std::sync::Arc;
 
-    use sparko_esp_idf::Esp32PlatformBuilder;
+    use bruce_esp_idf::Esp32PlatformBuilder;
 
     use crate::screen::Panel;
 
@@ -114,7 +114,7 @@ mod board {
     }
 
     /// Nothing, as its speaker is not driven yet.
-    pub fn started(_platform: &sparko_esp_idf::Esp32PlatformRunner) -> anyhow::Result<()> {
+    pub fn started(_platform: &bruce_esp_idf::Esp32PlatformRunner) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -125,8 +125,8 @@ mod board {
 
     use embedded_graphics::prelude::{Point, Size};
     use embedded_graphics::primitives::Rectangle;
-    use sparko_esp_idf::features::analog_clock::AnalogClock;
-    use sparko_esp_idf::{Esp32PlatformBuilder, Esp32PlatformRunner};
+    use bruce_esp_idf::features::analog_clock::AnalogClock;
+    use bruce_esp_idf::{Esp32PlatformBuilder, Esp32PlatformRunner};
 
     use crate::screen::Panel;
 
@@ -192,7 +192,7 @@ fn main() -> anyhow::Result<()> {
         .with_feature(Box::new(tesla::TeslaCapture::new(panel.clone(), db.clone(), gateway.clone())))?
         .with_feature(Box::new(myenergi::MyenergiCapture::new(panel.clone(), db.clone(), gateway.clone())))?
         .with_feature(Box::new(octopus::OctopusCapture::new(panel.clone(), db, gateway)))?
-        .with_firmware(sparko_esp_idf::firmware!())
+        .with_firmware(bruce_esp_idf::firmware!())
         .build()?;
     board::started(&sparko_esp32)?;
 

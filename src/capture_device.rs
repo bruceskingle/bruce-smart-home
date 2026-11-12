@@ -1,5 +1,5 @@
 //! Capture devices: ESP32s, see capture/ in this repo, which poll what the modules need while the computer sleeps, and
-//! which the app manages through their HTTPS API, see sparko-embedded-std's api.rs.
+//! which the app manages through their HTTPS API, see bruce-esp-idf's api.rs.
 //!
 //! A device's certificate is one it made itself, so the app pins it: it notes the certificate's fingerprint the first
 //! time it connects, checks it against what the device says in /api/info, and from then on only talks to a device with
@@ -201,7 +201,7 @@ const INFO_TIMEOUT: Duration = Duration::from_secs(20);
 const PAGE_TIMEOUT: Duration = Duration::from_secs(2 * 60);
 
 /// The Authorization header of a request, of method, for uri, its path and query as sent, signed with key, the 32 bytes
-/// of a device key as hex, at time, in seconds since 1970, as a device checks it, see sparko-embedded-std's
+/// of a device key as hex, at time, in seconds since 1970, as a device checks it, see bruce-esp-idf's
 /// Adoption::is_signed.
 fn sign(key: &str, method: &str, uri: &str, time: i64) -> anyhow::Result<String> {
     use hmac::Mac;
@@ -381,7 +381,7 @@ impl DeviceClient {
         self.post("restart", &serde_json::json!({})).await.map(|_| ())
     }
 
-    /// Every feature's config, see sparko-embedded-std's config_json.rs.
+    /// Every feature's config, see bruce-embedded-std's config_json.rs.
     pub async fn config(&self) -> anyhow::Result<Value> {
         self.get("config").await
     }

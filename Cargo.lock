@@ -571,6 +571,8 @@ dependencies = [
 [[package]]
 name = "bruce-db"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "940a408519a476c864b5514339d8c0a1987bff9b7e007f0a970d2fbd7557a481"
 dependencies = [
  "anyhow",
  "base64",
@@ -630,6 +632,8 @@ dependencies = [
 [[package]]
 name = "bruce-util-progress"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6881029ddf744ba996327094f2cb61740b974d424ebf887c3abec6e240aa4c19"
 
 [[package]]
 name = "built"
@@ -8579,3 +8583,7 @@ dependencies = [
  "syn 3.0.9",
  "winnow 1.0.5",
 ]
+
+[[patch.unused]]
+name = "bruce-db"
+version = "0.2.0"

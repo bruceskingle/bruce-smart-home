@@ -1,5 +1,5 @@
 //! Logs the board's own temperature and humidity sensor, e.g. the Waveshare ESP32-S3-RLCD-4.2's SHTC3, read every 10
-//! seconds, and its battery's voltage, see sparko_esp_idf::battery, as a third series, which the app shows on the
+//! seconds, and its battery's voltage, see bruce_esp_idf::battery, as a third series, which the app shows on the
 //! device's card rather than with the temperature and humidity, as it is about the device. Unlike the other features' records, which are copies of what a source said, these are the readings
 //! themselves, which no one else has, so each device's are its own.
 //!
@@ -16,14 +16,14 @@ use chrono::{DateTime, TimeDelta, Utc};
 use croner::Cron;
 use log::warn;
 use serde_json::json;
-use sparko_embedded_std::config::ConfigSpec;
-use sparko_embedded_std::config::ConfigSpecValue;
-use sparko_embedded_std::config::FeatureConfig;
-use sparko_embedded_std::config::TypedValue;
-use sparko_embedded_std::feature::FeatureDescriptor;
-use sparko_embedded_std::platform::PlatformInitializer;
-use sparko_embedded_std::task::scheduler::ScheduledTask;
-use sparko_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
+use bruce_embedded_std::config::ConfigSpec;
+use bruce_embedded_std::config::ConfigSpecValue;
+use bruce_embedded_std::config::FeatureConfig;
+use bruce_embedded_std::config::TypedValue;
+use bruce_embedded_std::feature::FeatureDescriptor;
+use bruce_embedded_std::platform::PlatformInitializer;
+use bruce_embedded_std::task::scheduler::ScheduledTask;
+use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
 
 use crate::db::Db;
 use crate::device::{Device, captured_by};
@@ -183,11 +183,11 @@ impl Series {
 }
 
 struct SampleTask {
-    sensor: sparko_esp_idf::shtc3::Shtc3,
+    sensor: bruce_esp_idf::shtc3::Shtc3,
     /// Temperature and humidity.
     series: [Series; 2],
     /// The board's battery, if it can be read, and its voltage.
-    battery: Option<(Arc<sparko_esp_idf::battery::Battery>, Series)>,
+    battery: Option<(Arc<bruce_esp_idf::battery::Battery>, Series)>,
     store: Arc<Mutex<Store>>,
     db: Arc<Db>,
     panel: Arc<Panel>,

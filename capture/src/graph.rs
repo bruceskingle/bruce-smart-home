@@ -12,7 +12,7 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Alignment, Baseline, Text, TextStyleBuilder};
 use rgb::RGB8;
-use sparko_embedded_std::graphics::DrawTargetResultExt;
+use bruce_embedded_std::graphics::DrawTargetResultExt;
 
 /// The gateway's meters which are graphed, in the order of Sample::power, with the colour of each: the grid, the solar,
 /// the battery and the house. Bright, as softer colours are too dark against the black on a small screen. The house is

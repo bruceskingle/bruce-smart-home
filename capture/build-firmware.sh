@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds the capture firmware for every board, or for those named, e.g. ./build-firmware.sh wave-esp32s3-rlcd-42, and
 # copies each to the shared firmware folder as soon as it is built, as bruce-smart-home's dev version, see
-# bruce-embedded-firmware in sparko-embedded-std, where the app's Devices page and bruce-embedded-flash find it. Boards
+# bruce-embedded-firmware in bruce-embedded-flash, where the app's Devices page and bruce-embedded-flash find it. Boards
 # with the same chip build to the same path in target/, so the last built would otherwise be the only one. Each file's
 # firmware record says which board it is for, so a file cannot be flashed to another board unnoticed.
 #

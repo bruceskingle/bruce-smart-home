@@ -327,7 +327,7 @@ MarcoSparko_X.X.X_arm64-setup.exe
 ### Capture Firmware
 
 Attach each board's capture firmware to the draft, so that the app's Devices page, and anything else which flashes
-these boards, can download it, see `bruce-embedded-std.md` and sparko-embedded-std's `tools/bruce-embedded-firmware`.
+these boards, can download it, see `bruce-embedded-std.md` and bruce-embedded-flash's `bruce-embedded-firmware`.
 Build it from the tagged commit, which puts it in the shared firmware folder as `bruce-smart-home/dev`, then upload
 it:
 

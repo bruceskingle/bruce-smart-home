@@ -14,14 +14,14 @@ use bruce_db::{Cursor, Id, Item, Micros, Part, Store};
 use chrono::{DateTime, Utc};
 use log::{info, warn};
 use serde_json::{Value, json};
-use sparko_embedded_std::config::ConfigSpec;
-use sparko_embedded_std::config::ConfigSpecValue;
-use sparko_embedded_std::config::FeatureConfig;
-use sparko_embedded_std::config::TypedValue;
-use sparko_embedded_std::feature::FeatureDescriptor;
-use sparko_embedded_std::platform::PlatformInitializer;
-use sparko_embedded_std::task::scheduler::ScheduledTask;
-use sparko_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
+use bruce_embedded_std::config::ConfigSpec;
+use bruce_embedded_std::config::ConfigSpecValue;
+use bruce_embedded_std::config::FeatureConfig;
+use bruce_embedded_std::config::TypedValue;
+use bruce_embedded_std::feature::FeatureDescriptor;
+use bruce_embedded_std::platform::PlatformInitializer;
+use bruce_embedded_std::task::scheduler::ScheduledTask;
+use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
 
 use crate::device_kinds::{self, Writer};
 use crate::screen::Panel;
@@ -124,7 +124,7 @@ impl Db {
     /// The SD card's size and free space, if the store is on one.
     pub fn sd_card(&self) -> Option<Value> {
         self.store()?;
-        sparko_esp_idf::sd_card::space().map(|(total, free)| json!({ "totalBytes": total, "freeBytes": free }))
+        bruce_esp_idf::sd_card::space().map(|(total, free)| json!({ "totalBytes": total, "freeBytes": free }))
     }
 
     /// Opens the site's store on the card mounted at mount_point, saying why not if it can not.
@@ -279,7 +279,7 @@ impl Feature for StoreFeature {
 
         let db = self.db.clone();
         sparko.api_get("/api/store/info", move |request| {
-            sparko_esp_idf::api::respond(request, 200, &db.info())
+            bruce_esp_idf::api::respond(request, 200, &db.info())
         })?;
         let db = self.db.clone();
         sparko.api_get("/api/store/changes", move |request| changes(request, &db))?;
@@ -335,7 +335,7 @@ fn changes(
         .min(MAX_CHANGES);
     let Some(store) = db.store() else {
         let problem = db.problem().unwrap_or_else(|| "There is no store".to_string());
-        return sparko_esp_idf::api::respond(request, 503, &json!({ "error": problem }));
+        return bruce_esp_idf::api::respond(request, 503, &json!({ "error": problem }));
     };
     let response = request.into_response(200, None, &[("Content-Type", "application/json")])?;
     let mut out = Chunks { out: response, buffer: Vec::with_capacity(CHUNK + 512) };

@@ -1,12 +1,12 @@
 //! The RLCD board's battery on the screen, a line below the temperature and humidity, see Panel::set, with its voltage
-//! and how full that says it is, see sparko_esp_idf::battery, read every 10 seconds, and in the log every minute.
+//! and how full that says it is, see bruce_esp_idf::battery, read every 10 seconds, and in the log every minute.
 
 use std::sync::Arc;
 
 use log::{info, warn};
-use sparko_embedded_std::platform::PlatformInitializer;
-use sparko_embedded_std::task::scheduler::ScheduledTask;
-use sparko_esp_idf::{Esp32Platform, Esp32PlatformInitializer};
+use bruce_embedded_std::platform::PlatformInitializer;
+use bruce_embedded_std::task::scheduler::ScheduledTask;
+use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer};
 
 use crate::screen::Panel;
 

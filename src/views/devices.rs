@@ -215,7 +215,7 @@ pub fn Devices() -> Element {
 const CAPTURE_FIRMWARE_NAME: &str = "marco-sparko-capture";
 
 /// Flashing firmware from the shared firmware folder, see bruce-embedded-firmware, to a board plugged in by USB, e.g.
-/// a new one, with sparko-embedded-std's Flasher, the capture firmware first, shown when asked, as it lists the USB ports every few seconds. Boards the profile has adopted are named as such,
+/// a new one, with bruce-embedded-flash's Flasher, the capture firmware first, shown when asked, as it lists the USB ports every few seconds. Boards the profile has adopted are named as such,
 /// and flashing other firmware to one is agreed to first.
 #[component]
 fn FlashBoard() -> Element {
