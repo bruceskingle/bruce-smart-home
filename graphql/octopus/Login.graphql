@@ -1,4 +1,4 @@
-mutation obtainKrakenToken($input: ObtainJSONWebTokenInput!) @ms_required_by_default {
+mutation obtainKrakenToken($input: ObtainJSONWebTokenInput!) @bruce_required_by_default {
   obtainKrakenToken(input: $input) {
     refreshToken
     refreshExpiresIn

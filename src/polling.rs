@@ -12,7 +12,7 @@ use std::time::Duration;
 use dioxus::prelude::*;
 use time::OffsetDateTime;
 
-use crate::{MarcoSparkoContext, Module, ModuleRegistrations};
+use crate::{AppContext, Module, ModuleRegistrations};
 
 /// After this many failures in a row a module is paused, so that e.g. a device which rejects the login is not asked
 /// again and again.
@@ -128,7 +128,7 @@ pub fn next_slot(now: OffsetDateTime, interval: Duration) -> OffsetDateTime {
 /// Builds the module, if it is logged in.
 async fn build(
     registrations: &ModuleRegistrations,
-    context: &Arc<MarcoSparkoContext>,
+    context: &Arc<AppContext>,
     module_id: &str,
 ) -> anyhow::Result<Option<Box<dyn Module + Send>>> {
     let factory = registrations.module_factory(module_id, context).await?;
@@ -141,7 +141,7 @@ async fn build(
 /// Polls the modules of the context's profile while it is shown. Renders nothing. It must be given a key which changes
 /// with the context, so that a new profile's modules are polled.
 #[component]
-pub fn Poller(context: crate::util::SharedProp<MarcoSparkoContext>) -> Element {
+pub fn Poller(context: crate::util::SharedProp<AppContext>) -> Element {
     let registrations = use_context::<ModuleRegistrations>();
     let mut statuses = use_context::<PollStatuses>();
     let id = use_hook(|| NEXT_POLLER_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst));

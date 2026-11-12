@@ -80,7 +80,7 @@ function create_app {
 	<key>CFBundleDisplayName</key>
 	<string>$APP_NAME</string>
     <key>CFBundleIconFile</key>
-    <string>MarcoSparko.icns</string>
+    <string>app-icon.icns</string>
 </dict>
 </plist>
 EOF
@@ -97,8 +97,8 @@ tell application "Terminal"
 end tell
 EOF
     chmod 555 "$RELEASE_ROOT/$arch/$APP_NAME.app/Contents/MacOS/$APP_NAME"
-    cp release/MarcoSparko.icns "$RELEASE_ROOT/$arch/$APP_NAME.app/Contents/Resources"
-    chmod 444 "$RELEASE_ROOT/$arch/$APP_NAME.app/Contents/Resources/MarcoSparko.icns"
+    cp release/app-icon.icns "$RELEASE_ROOT/$arch/$APP_NAME.app/Contents/Resources"
+    chmod 444 "$RELEASE_ROOT/$arch/$APP_NAME.app/Contents/Resources/app-icon.icns"
 }
 
 VERSION=`grep "^version = " Cargo.toml | sed -e 's/[^"]*"\([^"]*\)"/\1/'`

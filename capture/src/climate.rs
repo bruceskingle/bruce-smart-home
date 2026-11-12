@@ -73,7 +73,7 @@ impl Feature for ClimateCapture {
 
     fn start(
         &mut self,
-        sparko: &mut Esp32Platform,
+        platform: &mut Esp32Platform,
         initializer: &mut Esp32PlatformInitializer,
         config: ClimateConfig,
     ) -> anyhow::Result<()> {
@@ -86,20 +86,20 @@ impl Feature for ClimateCapture {
         let device = Arc::new(Device::new("0 */5 * * * *"));
 
         let sample = SampleTask {
-            sensor: sparko.shtc3(),
+            sensor: platform.shtc3(),
             series: [
                 Series::new("temperature", "°C", 0.1, 1),
                 Series::new("humidity", "%", 1.0, 0),
             ],
             // A step of 0.02 V, twice what is shown, so that its jitter of a hundredth does not make a period of each
             // reading.
-            battery: sparko
+            battery: platform
                 .battery()
                 .map(|battery| (battery, Series::new("battery", "V", 0.02, 2))),
             store: store.clone(),
             db: self.db.clone(),
             panel: self.panel.clone(),
-            captured_by: captured_by(sparko),
+            captured_by: captured_by(platform),
         };
         initializer.add_task(Box::new(sample), &schedule_spec)?;
 
@@ -216,7 +216,7 @@ struct SampleTask {
 }
 
 impl ScheduledTask<Esp32Platform> for SampleTask {
-    fn run(&mut self, _sparko: &mut Esp32Platform) -> anyhow::Result<()> {
+    fn run(&mut self, _platform: &mut Esp32Platform) -> anyhow::Result<()> {
         let time = Utc::now();
         // The battery whatever the sensor does, as it says how the board is powered.
         if let Some((battery, series)) = &mut self.battery {

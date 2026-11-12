@@ -12,10 +12,8 @@
 //!     logs/                    each profile's log, <profile>.log
 //! ```
 //!
-//! Before 0.5.0 the app was Marco Sparko, which kept the profiles in .marco-sparko and everything else in
-//! .marco-sparko-cache. Those are copied into the new layout the first time it is needed, and left as they were, see
-//! migrate; each profile's data is converted from .marco-sparko-cache into its store when it is upgraded, see
-//! profile::upgrade_profile.
+//! A profile's data from before 0.5.0, in the old cache directory, see old_cache_dir, is converted into its store when
+//! it is upgraded, see profile::upgrade_profile.
 //!
 //! The data home is the home directory unless it has been moved elsewhere, e.g. to keep the credentials on another
 //! drive.
@@ -29,22 +27,16 @@ use std::{
 
 use anyhow::anyhow;
 
-/// The environment variable which can give the data home, and its name before 0.5.0, which is still read.
+/// The environment variable which can give the data home.
 pub const HOME_ENV_VAR: &str = "BRUCE_SMART_HOME_DIR";
-const OLD_HOME_ENV_VAR: &str = "MARCO_SPARKO_HOME";
-/// The file in the home directory which can give the data home, it contains just the path, and its name before 0.5.0,
-/// which is still read.
+/// The file in the home directory which can give the data home, it contains just the path.
 pub const POINTER_FILE_NAME: &str = ".bruce-smart-home-dir";
-const OLD_POINTER_FILE_NAME: &str = ".marco-sparko-home";
 
 /// The directories of the settings and of the data, in the data home, see the module documentation.
 const SETTINGS_DIR: &str = ".bruce-smart-home";
 const DATA_DIR: &str = ".bruce-smart-home-data";
-/// What Marco Sparko kept, before 0.5.0, see migrate.
-const OLD_PROFILES: &str = ".marco-sparko";
-const OLD_CACHE_DIR: &str = ".marco-sparko-cache";
-/// The window's state, in the old cache directory, which is not a module's tokens.
-const WINDOW_STATE: &str = "window-state.json";
+/// The cache directory of the app before 0.5.0, in the data directory, see old_cache_dir.
+const OLD_CACHE_DIR: &str = "old-cache";
 
 /// The data directory and where it was set, None for the home directory.
 #[derive(Clone, Debug, PartialEq)]
@@ -57,8 +49,8 @@ static DATA_HOME: OnceLock<Result<DataHome, String>> = OnceLock::new();
 
 /// The data home, which is the first of
 /// 1. the --home command line option
-/// 2. the BRUCE_SMART_HOME_DIR environment variable, or MARCO_SPARKO_HOME, its name before 0.5.0
-/// 3. the path in the file ~/.bruce-smart-home-dir, or ~/.marco-sparko-home, its name before 0.5.0
+/// 2. the BRUCE_SMART_HOME_DIR environment variable
+/// 3. the path in the file ~/.bruce-smart-home-dir
 /// 4. the home directory
 ///
 /// It is worked out once. A data directory other than the home directory is created if its parent exists. If it does
@@ -67,10 +59,8 @@ static DATA_HOME: OnceLock<Result<DataHome, String>> = OnceLock::new();
 pub fn data_home() -> anyhow::Result<PathBuf> {
     let data_home = DATA_HOME
         .get_or_init(|| {
-            let option = crate::Args::ms_parse().marco_sparko_args.home;
-            let env = std::env::var_os(HOME_ENV_VAR)
-                .filter(|path| !path.is_empty())
-                .or_else(|| std::env::var_os(OLD_HOME_ENV_VAR));
+            let option = crate::Args::parse_all().app_args.home;
+            let env = std::env::var_os(HOME_ENV_VAR);
             resolve(option, env, dirs::home_dir()).map_err(|error| error.to_string())
         })
         .clone()
@@ -85,39 +75,31 @@ pub fn data_home() -> anyhow::Result<PathBuf> {
 /// The data directory there would be without the --home option, e.g. where the profiles normally are when another
 /// data directory is used for screenshots, see screenshots.rs.
 pub fn usual_data_home() -> anyhow::Result<PathBuf> {
-    let env = std::env::var_os(HOME_ENV_VAR)
-        .filter(|path| !path.is_empty())
-        .or_else(|| std::env::var_os(OLD_HOME_ENV_VAR));
-    Ok(resolve(None, env, dirs::home_dir())?.path)
+    Ok(resolve(None, std::env::var_os(HOME_ENV_VAR), dirs::home_dir())?.path)
 }
 
-/// The profiles of a data home, e.g. the usual one, see usual_data_home, from its profiles.json, or, if it has not been
-/// copied into the new layout yet, see migrate, from Marco Sparko's .marco-sparko.
+/// The profiles of a data home, e.g. the usual one, see usual_data_home.
 pub fn profiles_path_in(home: &Path) -> PathBuf {
-    let path = home.join(SETTINGS_DIR).join("profiles.json");
-    if path.exists() { path } else { home.join(OLD_PROFILES) }
+    home.join(SETTINGS_DIR).join("profiles.json")
 }
 
-/// Marco Sparko's cache directory in a data home, see old_cache_dir.
+/// The old cache directory in a data home, see old_cache_dir.
 pub fn old_cache_dir_in(home: &Path) -> PathBuf {
-    home.join(OLD_CACHE_DIR)
+    home.join(DATA_DIR).join(OLD_CACHE_DIR)
 }
 
-/// Deletes the settings and data of the data home, and what Marco Sparko kept, for the screenshots' fresh data
+/// Deletes the settings and data of the data home, with its old cache directory, for the screenshots' fresh data
 /// directory, see screenshots::prepare_data_directory, which checks it is not the usual one.
 pub fn clear(home: &Path) -> anyhow::Result<()> {
-    for dir in [SETTINGS_DIR, DATA_DIR, OLD_CACHE_DIR] {
+    for dir in [SETTINGS_DIR, DATA_DIR] {
         if home.join(dir).exists() {
             fs::remove_dir_all(home.join(dir))?;
         }
     }
-    if home.join(OLD_PROFILES).exists() {
-        fs::remove_file(home.join(OLD_PROFILES))?;
-    }
     Ok(())
 }
 
-/// Where the data directory was set, for display, e.g. "the MARCO_SPARKO_HOME environment variable", or None if it is
+/// Where the data directory was set, for display, e.g. "the BRUCE_SMART_HOME_DIR environment variable", or None if it is
 /// the home directory.
 pub fn data_home_source() -> Option<String> {
     DATA_HOME.get()?.as_ref().ok()?.source.clone()
@@ -139,11 +121,7 @@ fn resolve(option: Option<PathBuf>, env: Option<OsString>, home: Option<PathBuf>
     }
 
     let home = home.ok_or(anyhow!("Unable to locate home directory"))?;
-    let pointer_file = [POINTER_FILE_NAME, OLD_POINTER_FILE_NAME]
-        .iter()
-        .map(|name| home.join(name))
-        .find(|path| path.exists())
-        .unwrap_or_else(|| home.join(POINTER_FILE_NAME));
+    let pointer_file = home.join(POINTER_FILE_NAME);
     match fs::read_to_string(&pointer_file) {
         Ok(contents) => {
             let source = format!("the file {}", pointer_file.display());
@@ -173,24 +151,15 @@ fn resolve(option: Option<PathBuf>, env: Option<OsString>, home: Option<PathBuf>
     }
 }
 
-/// The settings directory, see the module documentation, made if it is not there, having copied what Marco Sparko kept
-/// into the new layout the first time, see migrate.
+/// The settings directory, see the module documentation, made if it is not there.
 pub fn settings_dir() -> anyhow::Result<PathBuf> {
-    static MIGRATED: OnceLock<Result<(), String>> = OnceLock::new();
-    let home = data_home()?;
-    MIGRATED
-        .get_or_init(|| migrate(&home).map_err(|error| format!("{error:#}")))
-        .clone()
-        .map_err(|error| anyhow!(error))?;
-    let dir = home.join(SETTINGS_DIR);
+    let dir = data_home()?.join(SETTINGS_DIR);
     crate::private_file::create_private_dir(&dir)?;
     Ok(dir)
 }
 
 /// The data directory, see the module documentation, made if it is not there.
 pub fn data_dir() -> anyhow::Result<PathBuf> {
-    // The settings first, so that what Marco Sparko kept has been copied before anything is written here.
-    settings_dir()?;
     let dir = data_home()?.join(DATA_DIR);
     crate::private_file::create_private_dir(&dir)?;
     Ok(dir)
@@ -220,82 +189,10 @@ pub fn store_dir() -> anyhow::Result<PathBuf> {
     Ok(data_dir()?.join("store"))
 }
 
-/// Marco Sparko's cache directory, from before 0.5.0, which is only read, to convert a profile's data into its store
+/// The cache directory of the app before 0.5.0, which is only read, to convert a profile's data into its store
 /// when it is upgraded, see convert.rs, and is not made if it is not there.
 pub fn old_cache_dir() -> anyhow::Result<PathBuf> {
-    Ok(data_home()?.join(OLD_CACHE_DIR))
-}
-
-/// Copies what Marco Sparko kept in home, the data home, into the new layout, see the module documentation, if it has
-/// not been, i.e. there is no profiles.json yet, and there is a .marco-sparko: the profiles, the modules' tokens, the
-/// window's state and the logs. They are copied, not moved, and left as they were, so that a build from before 0.5.0
-/// still runs from them; the profiles' data is converted when each profile is upgraded. The profiles' secrets and the
-/// tokens are encrypted as they are copied, see secrets.rs, so that they are never in the settings directory in plain.
-fn migrate(home: &Path) -> anyhow::Result<()> {
-    let settings = home.join(SETTINGS_DIR);
-    let old_profiles = home.join(OLD_PROFILES);
-    if settings.join("profiles.json").exists() || !old_profiles.is_file() {
-        return Ok(());
-    }
-    crate::private_file::create_private_dir(&settings)?;
-    let tokens = settings.join("tokens");
-    crate::private_file::create_private_dir(&tokens)?;
-    let data = home.join(DATA_DIR);
-    crate::private_file::create_private_dir(&data)?;
-    let logs = data.join("logs");
-    crate::private_file::create_private_dir(&logs)?;
-    let copy = |from: &Path, to: &Path| -> anyhow::Result<()> {
-        use std::io::Write;
-        crate::private_file::create_private_file(to)?.write_all(&fs::read(from)?)?;
-        Ok(())
-    };
-    // A file of JSON, as encrypt changes it.
-    let copy_encrypted = |from: &Path,
-                          to: &Path,
-                          encrypt: &dyn Fn(serde_json::Value) -> anyhow::Result<serde_json::Value>|
-     -> anyhow::Result<()> {
-        let value: serde_json::Value = serde_json::from_slice(&fs::read(from)?)
-            .map_err(|error| anyhow!("{} is not JSON: {error}", from.display()))?;
-        serde_json::to_writer_pretty(crate::private_file::create_private_file(to)?, &encrypt(value)?)?;
-        Ok(())
-    };
-    let mut copied = 0;
-    for entry in fs::read_dir(home.join(OLD_CACHE_DIR)).into_iter().flatten().flatten() {
-        let path = entry.path();
-        let Some(name) = path.file_name().and_then(|name| name.to_str()).map(str::to_string) else {
-            continue;
-        };
-        if !path.is_file() {
-            continue;
-        }
-        let target = if name == WINDOW_STATE {
-            settings.join(WINDOW_STATE)
-        }
-        // A module's tokens, <profile>-<module>.json, profile names being letters, digits and underscores, encrypted
-        // whole.
-        else if name.ends_with(".json") && name.contains('-') {
-            copy_encrypted(&path, &tokens.join(&name), &|value| crate::secrets::seal(&value))?;
-            copied += 1;
-            continue;
-        } else if name.ends_with(".log") || name.ends_with(".log.old") {
-            logs.join(&name)
-        } else {
-            continue;
-        };
-        copy(&path, &target)?;
-        copied += 1;
-    }
-    // The profiles last, as their being there says the copy is done.
-    copy_encrypted(&old_profiles, &settings.join("profiles.json"), &|mut value| {
-        crate::secrets::encrypt_secrets(&mut value)?;
-        Ok(value)
-    })?;
-    crate::log_info!(
-        "Copied Marco Sparko's profiles and {copied} other files into {} and {}",
-        settings.display(),
-        data.display()
-    );
-    Ok(())
+    Ok(old_cache_dir_in(&data_home()?))
 }
 
 /// Creates the data directory if its parent exists, and warns if it can be read by others.
@@ -305,7 +202,7 @@ fn ensure_dir(path: &Path, source: &str) -> anyhow::Result<()> {
             crate::private_file::create_private_dir(path)?;
         } else {
             return Err(anyhow!(
-                "The data directory {} (set by {}) does not exist. If it is on a drive which is not connected, connect it and restart Marco Sparko.",
+                "The data directory {} (set by {}) does not exist. If it is on a drive which is not connected, connect it and restart the app.",
                 path.display(),
                 source
             ));
@@ -333,7 +230,7 @@ mod tests {
 
     #[test]
     fn the_option_then_the_environment_then_the_pointer_file_then_the_home_directory_is_used() {
-        let home = std::env::temp_dir().join(format!("marco-sparko-home-test-{}", std::process::id()));
+        let home = std::env::temp_dir().join(format!("bruce-smart-home-test-{}", std::process::id()));
         fs::create_dir_all(&home).unwrap();
         // Full paths on every platform, Windows ones need a drive.
         let option = home.join("option");
@@ -357,62 +254,6 @@ mod tests {
         fs::write(home.join(POINTER_FILE_NAME), "relative").unwrap();
         assert!(path(None, None).is_err());
 
-        fs::remove_dir_all(&home).unwrap();
-    }
-
-    #[test]
-    fn marco_sparkos_profiles_tokens_window_and_logs_are_copied_once_and_left_as_they_were() {
-        crate::secrets::use_key_for_tests([7; 32]);
-        let home = std::env::temp_dir().join(format!("marco-sparko-migrate-test-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&home);
-        fs::create_dir_all(home.join(".marco-sparko-cache/n2-octopus")).unwrap();
-        let profiles =
-            r#"[{"name":"n2","modules":{"octopus":{"apiKey":"sk_live_x","billingTimezone":"Europe/London"}}}]"#;
-        fs::write(home.join(".marco-sparko"), profiles).unwrap();
-        for name in [
-            "window-state.json",
-            "n2.log",
-            "n2.log.old",
-            "n2.log.lock",
-            "n2-octopus/data",
-        ] {
-            fs::write(home.join(".marco-sparko-cache").join(name), name).unwrap();
-        }
-        fs::write(home.join(".marco-sparko-cache/n2-octopus.json"), r#"{"token":"abc"}"#).unwrap();
-        super::migrate(&home).unwrap();
-        let settings = home.join(".bruce-smart-home");
-        let data = home.join(".bruce-smart-home-data");
-        // The secrets are encrypted as they are copied, and decrypt to what they were.
-        let read_json =
-            |path: PathBuf| -> serde_json::Value { serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap() };
-        let mut copied = read_json(settings.join("profiles.json"));
-        let api_key = copied[0]["modules"]["octopus"]["apiKey"].as_str().unwrap().to_string();
-        assert!(crate::secrets::is_encrypted(&api_key) && !api_key.contains("sk_live_x"));
-        assert_eq!(copied[0]["modules"]["octopus"]["billingTimezone"], "Europe/London");
-        crate::secrets::decrypt_secrets(&mut copied).unwrap();
-        assert_eq!(copied, serde_json::from_str::<serde_json::Value>(profiles).unwrap());
-        let tokens = read_json(settings.join("tokens/n2-octopus.json"));
-        assert!(crate::secrets::is_encrypted(tokens.as_str().unwrap()));
-        assert_eq!(
-            crate::secrets::unseal(tokens).unwrap(),
-            serde_json::json!({ "token": "abc" })
-        );
-        assert_eq!(
-            fs::read_to_string(settings.join("window-state.json")).unwrap(),
-            "window-state.json"
-        );
-        assert!(data.join("logs/n2.log").exists() && data.join("logs/n2.log.old").exists());
-        assert!(!data.join("logs/n2.log.lock").exists());
-        assert!(!settings.join("tokens/window-state.json").exists());
-        assert!(
-            home.join(".marco-sparko").exists() && home.join(".marco-sparko-cache/n2-octopus.json").exists(),
-            "left as they were"
-        );
-
-        // Once: a profile changed since is not overwritten.
-        fs::write(settings.join("profiles.json"), "[changed]").unwrap();
-        super::migrate(&home).unwrap();
-        assert_eq!(fs::read_to_string(settings.join("profiles.json")).unwrap(), "[changed]");
         fs::remove_dir_all(&home).unwrap();
     }
 }

@@ -12,12 +12,12 @@ build-dir = "target/book"
 create-missing = false
 
 [output.html]
-# The app's look, see book/marco-sparko.css, with its dark theme as Dark and the light one as Light.
+# The app's look, see book/app.css, with its dark theme as Dark and the light one as Light.
 default-theme = "light"
 preferred-dark-theme = "navy"
 theme = "book/theme"
-additional-css = ["book/marco-sparko.css"]
-additional-js = ["book/marco-sparko.js"]
+additional-css = ["book/app.css"]
+additional-js = ["book/app.js"]
 git-repository-url = "https://github.com/bruceskingle/bruce-smart-home"
 edit-url-template = "https://github.com/bruceskingle/bruce-smart-home/edit/main/{path}"
 site-url = "/bruce-smart-home/"

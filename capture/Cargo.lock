@@ -209,6 +209,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "bruce-smart-home-capture"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bruce-db",
+ "bruce-embedded-std",
+ "bruce-esp-idf",
+ "chrono",
+ "croner",
+ "embassy-time",
+ "embedded-graphics",
+ "embedded-svc",
+ "embuild",
+ "esp-idf-svc",
+ "esp-idf-sys",
+ "log",
+ "md-5",
+ "rgb",
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "bruce-util-progress"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1593,30 +1617,6 @@ name = "log"
 version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
-
-[[package]]
-name = "marco-sparko-capture"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bruce-db",
- "bruce-embedded-std",
- "bruce-esp-idf",
- "chrono",
- "croner",
- "embassy-time",
- "embedded-graphics",
- "embedded-svc",
- "embuild",
- "esp-idf-svc",
- "esp-idf-sys",
- "log",
- "md-5",
- "rgb",
- "serde",
- "serde_json",
- "url",
-]
 
 [[package]]
 name = "matrixmultiply"

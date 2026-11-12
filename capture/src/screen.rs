@@ -140,15 +140,15 @@ struct Screen {
 impl Screen {
     /// Where to find the device, and what it needs, shown while no feature has set any lines, e.g. as none is
     /// enabled, as it has not been set up yet.
-    fn unconfigured(sparko: &Esp32Platform, adopted: bool) -> Vec<Line> {
+    fn unconfigured(platform: &Esp32Platform, adopted: bool) -> Vec<Line> {
         let needs = if adopted {
             "Nothing set up yet"
         } else {
             "Not adopted yet"
         };
         vec![
-            (captured_by(sparko), false),
-            (address(sparko), false),
+            (captured_by(platform), false),
+            (address(platform), false),
             (needs.to_string(), true),
             ("Find it on the app's".to_string(), false),
             ("Devices page".to_string(), false),
@@ -157,13 +157,13 @@ impl Screen {
 
     /// The device's status, shown after a swipe: its name and address, how long it has been up, its heap, and the
     /// features' lines, other than the meters', which are above the graph.
-    fn status(&self, sparko: &Esp32Platform) -> Vec<Line> {
+    fn status(&self, platform: &Esp32Platform) -> Vec<Line> {
         let up = unsafe { esp_idf_sys::esp_timer_get_time() } / 1_000_000;
         let heap = unsafe { esp_idf_sys::esp_get_free_heap_size() } / 1024;
         let minimum = unsafe { esp_idf_sys::esp_get_minimum_free_heap_size() } / 1024;
         let mut lines = vec![
-            (captured_by(sparko), false),
-            (address(sparko), false),
+            (captured_by(platform), false),
+            (address(platform), false),
             (
                 format!(
                     "Up {}d {:02}:{:02}  heap {heap}K/{minimum}K",
@@ -186,21 +186,21 @@ impl Screen {
 
     /// Listens for swipes, on a board with a touch screen, once the platform is running.
     #[cfg(feature = "touch")]
-    fn listen(&mut self, sparko: &Esp32Platform) {
+    fn listen(&mut self, platform: &Esp32Platform) {
         if self.swipe.is_none() {
             let swipe: Arc<dyn bruce_embedded_std::listener::Listener<_>> = Arc::new(Swipe::new(self.panel.clone()));
-            sparko.touch_driver.add_listener(&swipe);
+            platform.touch_driver.add_listener(&swipe);
             self.swipe = Some(swipe);
         }
     }
 
     #[cfg(not(feature = "touch"))]
-    fn listen(&mut self, _sparko: &Esp32Platform) {}
+    fn listen(&mut self, _platform: &Esp32Platform) {}
 }
 
 /// The device's address on the Wi-Fi, for the screen.
-fn address(sparko: &Esp32Platform) -> String {
-    sparko
+fn address(platform: &Esp32Platform) -> String {
+    platform
         .ip_address()
         .map_or_else(|| "Not on the Wi-Fi".to_string(), |address| address.to_string())
 }
@@ -278,10 +278,10 @@ fn draw_clock<DM: DisplayManager>(manager: &mut DM, area: Rectangle, time: &str)
 }
 
 impl ScheduledTask<Esp32Platform> for Screen {
-    fn run(&mut self, sparko: &mut Esp32Platform) -> anyhow::Result<()> {
-        self.listen(sparko);
+    fn run(&mut self, platform: &mut Esp32Platform) -> anyhow::Result<()> {
+        self.listen(platform);
         let generation = self.panel.generation.load(Ordering::SeqCst);
-        let adopted = sparko.is_adopted();
+        let adopted = platform.is_adopted();
         let status = self
             .panel
             .status_until
@@ -295,7 +295,7 @@ impl ScheduledTask<Esp32Platform> for Screen {
             (false, false) => Mode::Lines,
         };
         let lines = match mode {
-            Mode::Status => self.status(sparko),
+            Mode::Status => self.status(platform),
             _ => {
                 let lines: Vec<Line> = self
                     .panel
@@ -307,14 +307,14 @@ impl ScheduledTask<Esp32Platform> for Screen {
                     .cloned()
                     .collect();
                 if lines.is_empty() {
-                    Self::unconfigured(sparko, adopted)
+                    Self::unconfigured(platform, adopted)
                 } else {
                     lines
                 }
             }
         };
 
-        let display_manager = sparko.display_manager.clone();
+        let display_manager = platform.display_manager.clone();
         let mut manager = display_manager.lock().unwrap();
         // The status is shown as an overlay, so that the clock, which draws only its hands as they move, draws nothing
         // over it, and draws itself in full once it ends, which clears the screen, see DisplayManager::set_overlay.

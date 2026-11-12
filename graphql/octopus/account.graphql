@@ -1,4 +1,4 @@
-query viewer @ms_required_by_default{
+query viewer @bruce_required_by_default{
     viewer {
         id
         accounts {
@@ -6,8 +6,8 @@ query viewer @ms_required_by_default{
             brand
             overdueBalance
             billingName
-            billingSubName @ms_optional
-            billingEmail @ms_optional
+            billingSubName @bruce_optional
+            billingEmail @bruce_optional
         }
         givenName
         familyName
@@ -15,10 +15,10 @@ query viewer @ms_required_by_default{
         mobile
         landline
         title
-        pronouns @ms_optional
+        pronouns @bruce_optional
         isDeceased
-        liveSecretKey @ms_optional
-        dateOfBirth @ms_optional
+        liveSecretKey @bruce_optional
+        dateOfBirth @bruce_optional
         fullName
         preferredName
         alternativePhoneNumbers

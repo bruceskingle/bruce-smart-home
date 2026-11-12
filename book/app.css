@@ -82,7 +82,7 @@ html {
     height: 32px;
     margin-right: 10px;
     vertical-align: middle;
-    background: url("../images/MarcoSparko.png") center / contain no-repeat;
+    background: url("../images/app-icon.png") center / contain no-repeat;
 }
 
 /* The icons of the app's buttons in the help pages, drawn like the buttons, as in the app's help panel. They are black
@@ -103,7 +103,7 @@ html {
     background-color: #dbdbd3;
 }
 
-/* A picture which opens full size when clicked, see marco-sparko.js. */
+/* A picture which opens full size when clicked, see app.js. */
 .content img.full-size-link {
     cursor: zoom-in;
 }

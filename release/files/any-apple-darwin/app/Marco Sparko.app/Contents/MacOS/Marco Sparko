@@ -1,9 +1,0 @@
-#!/usr/bin/osascript
-set AppleScript's text item delimiters to "/"
-set myPath to {"clear && exec "} as text & (quoted form of ((text items 1 through -2 of (POSIX path of (path to me as text))) & {"marco-sparko"} as text))
-
-tell application "Terminal"
-	activate
-	do script myPath
-	set the number of columns of window 1 to 150
-end tell

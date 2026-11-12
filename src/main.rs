@@ -2,7 +2,7 @@ use bruce_smart_home::components::app::App;
 
 fn main() {
     // With --fetch the latest data is fetched without a window, e.g. from a scheduled task, then the app exits.
-    let args = bruce_smart_home::Args::ms_parse();
+    let args = bruce_smart_home::Args::parse_all();
     // With --redact a profile's data is copied to a redacted, offline, profile, then the app exits.
     if let Some((from, to)) = args.redact() {
         if let Err(error) = bruce_smart_home::redact::redact_profile(from, to) {

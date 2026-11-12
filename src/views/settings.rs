@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 
-use crate::MarcoSparkoContext;
+use crate::AppContext;
 use crate::logging::{self, LogRetention};
 use crate::profile::Settings as ProfileSettings;
 
@@ -15,7 +15,7 @@ const DEFAULT_MEGABYTES: u32 = 10;
 
 #[component]
 pub fn Settings() -> Element {
-    let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let mut settings = use_context::<Signal<ProfileSettings>>();
     let profile_name = context_signal
         .read()

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{Args, InitRequested, MarcoSparkoContext, ModuleRegistrations, views::*};
+use crate::{AppContext, Args, InitRequested, ModuleRegistrations, views::*};
 use dioxus::prelude::*;
 
 // use crate::views::{Blog, Home, Navbar};
@@ -58,7 +58,7 @@ pub fn App() -> Element {
     // let args = (&*context.read()).clone();
 
     crate::components::child_windows::use_main_window();
-    crate::screenshots::use_screenshots(Args::ms_parse().screenshots());
+    crate::screenshots::use_screenshots(Args::parse_all().screenshots());
     // The app only ends when the user quits it, by closing the main window or with Quit.
     dioxus::desktop::use_wry_event_handler(|event, _| {
         if let dioxus::desktop::tao::event::Event::LoopDestroyed = event {
@@ -67,16 +67,16 @@ pub fn App() -> Element {
         }
     });
 
-    let args = Args::ms_parse();
-    let verbose = args.marco_sparko_args.verbose;
+    let args = Args::parse_all();
+    let verbose = args.app_args.verbose;
     let mut init_signal = use_signal(|| InitRequested(true));
     let init = init_signal.read().0;
-    let mut context_signal = use_signal::<Option<Arc<MarcoSparkoContext>>>(|| None);
+    let mut context_signal = use_signal::<Option<Arc<AppContext>>>(|| None);
 
     // Store the init signal in context so it can be accessed and reset from anywhere
     use_context_provider::<Signal<InitRequested>>(move || init_signal);
 
-    use_context_provider::<Signal<Option<Arc<MarcoSparkoContext>>>>(move || context_signal);
+    use_context_provider::<Signal<Option<Arc<AppContext>>>>(move || context_signal);
 
     use_context_provider::<ModuleRegistrations>(move || ModuleRegistrations::new(verbose));
 
@@ -86,9 +86,9 @@ pub fn App() -> Element {
     // window.set_window_icon(window_icon);
 
     if init {
-        let marco_sparko_context = MarcoSparkoContext::new(args)?;
-        context_signal.set(Some(marco_sparko_context));
-        // let x: Signal<Arc<MarcoSparkoContext>>;
+        let app_context = AppContext::new(args)?;
+        context_signal.set(Some(app_context));
+        // let x: Signal<Arc<AppContext>>;
 
         init_signal.set(InitRequested(false));
 

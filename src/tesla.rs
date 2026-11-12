@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache_browser::CacheBrowser;
 use crate::util::SharedProp;
-use crate::{CacheConfig, InitRequested, MarcoSparkoContext, Module, ModuleFactory, ModuleRegistration, PageInfo};
+use crate::{AppContext, CacheConfig, InitRequested, Module, ModuleFactory, ModuleRegistration, PageInfo};
 
 use local::{LocalClient, PasswordRejected};
 use snapshot::Meter;
@@ -64,7 +64,7 @@ impl std::fmt::Debug for Profile {
     }
 }
 
-/// The token the gateway gave, in the module's cache file, see MarcoSparkoContext::update_cache.
+/// The token the gateway gave, in the module's cache file, see AppContext::update_cache.
 #[derive(Serialize, Deserialize)]
 struct StoredToken {
     token: String,
@@ -79,7 +79,7 @@ pub struct TeslaContext {
     /// The profile's store, which the snapshots are kept in, see snapshot.rs.
     store: Arc<bruce_db::Store>,
     cache_config: Arc<CacheConfig>,
-    context: Arc<MarcoSparkoContext>,
+    context: Arc<AppContext>,
     profile: Mutex<Profile>,
 }
 
@@ -186,7 +186,7 @@ impl TeslaModule {
     }
 
     pub fn constructor(
-        context: Arc<MarcoSparkoContext>,
+        context: Arc<AppContext>,
         json_profile: Option<serde_json::Value>,
     ) -> anyhow::Result<Arc<dyn ModuleFactory>> {
         let args = TeslaArgs::parse_from(context.args.module_args(MODULE_ID).unwrap_or_default());
@@ -198,7 +198,7 @@ impl TeslaModule {
         if args.tesla_gateway_host.is_some() {
             profile.gateway_host = args.tesla_gateway_host.clone();
         }
-        let verbose = context.args.marco_sparko_args.verbose;
+        let verbose = context.args.app_args.verbose;
         if verbose {
             println!("Tesla Module Args: {:?}", args);
             println!("Tesla Module Profile: {:?}", profile);
@@ -492,7 +492,7 @@ fn MeterRow(meter: Meter) -> Element {
 }
 
 pub struct TeslaModuleFactory {
-    context: Arc<MarcoSparkoContext>,
+    context: Arc<AppContext>,
     profile: Profile,
     cache_config: Arc<CacheConfig>,
     verbose: bool,
@@ -501,7 +501,7 @@ pub struct TeslaModuleFactory {
 impl TeslaModuleFactory {
     /// Finds the gateway if host is empty, logs in once, and saves the login in the profile and the token in the cache.
     async fn login(
-        context: Arc<MarcoSparkoContext>,
+        context: Arc<AppContext>,
         profile: Profile,
         host: String,
         email: String,

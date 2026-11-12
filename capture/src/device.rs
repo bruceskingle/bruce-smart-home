@@ -12,8 +12,8 @@ pub const FIRMWARE: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_
 
 /// What took the records, in each one's capturedBy, which the app shows as their source: the device's name on the
 /// network, e.g. cyd, or if it has none, the firmware.
-pub fn captured_by(sparko: &bruce_esp_idf::Esp32Platform) -> String {
-    sparko.hostname().unwrap_or_else(|| FIRMWARE.to_string())
+pub fn captured_by(platform: &bruce_esp_idf::Esp32Platform) -> String {
+    platform.hostname().unwrap_or_else(|| FIRMWARE.to_string())
 }
 
 /// Logs the free heap and its largest free block before an internet connection, whose TLS needs tens of KB, so that a

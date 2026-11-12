@@ -7,7 +7,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use serde_json::{Map, Value, json};
 
-use crate::MarcoSparkoContext;
+use crate::AppContext;
 use crate::capture_device::{self, DeviceClient, DeviceProfile, FoundDevice};
 use crate::components::error_text::ErrorText;
 use crate::profile::Settings as ProfileSettings;
@@ -225,7 +225,7 @@ fn up_time(seconds: u64) -> String {
 
 #[component]
 pub fn Devices() -> Element {
-    let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let settings = use_context::<Signal<ProfileSettings>>();
     let profile_name = context_signal
         .read()
@@ -280,7 +280,7 @@ pub fn Devices() -> Element {
 
 /// The capture firmware's name, as its firmware record says, which an adopted device must run, so that flashing other
 /// firmware to one, e.g. a board's demo, is agreed to first.
-const CAPTURE_FIRMWARE_NAME: &str = "marco-sparko-capture";
+const CAPTURE_FIRMWARE_NAME: &str = "bruce-smart-home-capture";
 
 /// Flashing firmware from the shared firmware folder, see bruce-embedded-firmware, to a board plugged in by USB, e.g.
 /// a new one, with bruce-embedded-flash's Flasher, the capture firmware first, shown when asked, as it lists the USB ports every few seconds. Boards the profile has adopted are named as such,
@@ -966,7 +966,7 @@ fn FeatureSettings(
     enabled_edits: Signal<BTreeMap<String, bool>>,
     device_id: String,
 ) -> Element {
-    let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let profile_name = context_signal
         .read()
         .as_ref()

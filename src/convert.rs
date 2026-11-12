@@ -205,7 +205,7 @@ pub fn convert_profile(profile_name: &str, progress: &mut dyn Progress) -> anyho
 /// Converts each part of the profile's old cache, the app's own and each module's, see convert_profile, stopping at
 /// the first which fails or is cancelled.
 fn convert_parts(store: &Arc<Store>, profile_name: &str, progress: &mut dyn Progress) -> anyhow::Result<()> {
-    let cache = crate::MarcoSparkoContext::get_cache_dir_path()?;
+    let cache = crate::AppContext::get_cache_dir_path()?;
     let dir = |name: &str| cache.join(format!("{profile_name}-{name}"));
     // Those with a directory to convert, numbered for the progress.
     let converters = crate::ModuleRegistrations::converters();

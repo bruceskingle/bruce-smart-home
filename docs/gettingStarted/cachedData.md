@@ -35,7 +35,6 @@ of files of its records in order of their sort keys, a file for each day of a se
 replaced by hashes in the keys and the names of the files.
 
 ## Before version 0.5.0
-Marco Sparko kept the profiles in ```.marco-sparko```, and everything else in a directory ```.marco-sparko-cache```.
-The first time version 0.5.0 runs, the profiles, tokens and logs are copied into the new directories, and each profile
-is offered an upgrade the first time it is opened, which copies its data from ```.marco-sparko-cache``` into its store.
-The old files are left as they were.
+The app was called Marco Sparko, and kept the profiles in ```.marco-sparko```, and everything else in a directory
+```.marco-sparko-cache```. This version does not read them, so its profiles are set up afresh. You can delete those
+files once you no longer need them.

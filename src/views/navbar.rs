@@ -4,7 +4,7 @@ use crate::components::error_text::ErrorText;
 use crate::views::help_panel::HelpPanel;
 use crate::views::log_panel::LogPanel;
 use crate::{
-    MarcoSparkoContext, UpgradeRequested,
+    AppContext, UpgradeRequested,
     components::{
         app::Route, copy_profile::CopyProfileDialog, delete_profile::DeleteProfileDialog,
         rename_profile::RenameProfileDialog,
@@ -19,7 +19,7 @@ use dioxus_free_icons::{
 
 // use crate::PROFILE_MANAGER;
 
-const APP_ICON: Asset = asset!("/assets/MarcoSparko.png");
+const APP_ICON: Asset = asset!("/assets/app-icon.png");
 
 /// The Navbar component that will be rendered on all pages of our app since every page is under the layout.
 ///
@@ -30,7 +30,7 @@ const APP_ICON: Asset = asset!("/assets/MarcoSparko.png");
 /// A navigation bar with left-aligned items and a right-aligned dropdown.
 /// Designed for Dioxus Desktop (but works for web too).
 pub fn Navbar() -> Element {
-    let mut context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let mut context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let mut upgrade_requested =
         use_context_provider::<Signal<UpgradeRequested>>(|| Signal::new(UpgradeRequested(false)));
     let context = context_signal.read().as_ref().unwrap().clone();
@@ -186,13 +186,13 @@ pub fn Navbar() -> Element {
                                                 Ok(active_profile) => {
 
                                                     // start
-                                                    // let new_context = Arc::new(MarcoSparkoContext {
-                                                    //     args: crate::Args::ms_parse(),
+                                                    // let new_context = Arc::new(AppContext {
+                                                    //     args: crate::Args::parse_all(),
                                                     //     profile: active_profile,
                                                     // });
                                                     // context_signal.set(Some(new_context));
                                                     // end
-                                                    let new_context = MarcoSparkoContext::for_profile(crate::Args::ms_parse(), active_profile);
+                                                    let new_context = AppContext::for_profile(crate::Args::parse_all(), active_profile);
                                                     context_signal.set(Some(new_context));
                                                     //next
                                                     upgrade_requested.set(UpgradeRequested(false));
@@ -253,7 +253,7 @@ pub fn Navbar() -> Element {
                                     move |_| {
                                         menu_open.set(false);
                                         profile_actions_open.set(None);
-                                        let new_context = MarcoSparkoContext::for_profile(crate::Args::ms_parse(), crate::profile::set_active_profile(&name)?);
+                                        let new_context = AppContext::for_profile(crate::Args::parse_all(), crate::profile::set_active_profile(&name)?);
 
                                         context_signal.set(Some(new_context));
                                         upgrade_requested.set(UpgradeRequested(false));

@@ -852,7 +852,7 @@ mod tests {
             "slot": "2026-10-29T16:15:00.000000Z",
             "requested": "2026-10-29T16:15:00.412000Z",
             "received": "2026-10-29T16:15:02.106000Z",
-            "capturedBy": "marco-sparko-capture 0.1.0",
+            "capturedBy": "bruce-smart-home-capture 0.1.0",
             "response": [
                 {"eddi": []},
                 {"harvi": [{"sno": 12345678}]},

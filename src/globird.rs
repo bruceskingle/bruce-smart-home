@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache_browser::CacheBrowser;
 use crate::util::SharedProp;
-use crate::{CacheConfig, InitRequested, MarcoSparkoContext, Module, ModuleFactory, ModuleRegistration, PageInfo};
+use crate::{AppContext, CacheConfig, InitRequested, Module, ModuleFactory, ModuleRegistration, PageInfo};
 
 use client::GlobirdClient;
 use fetch::DaySummary;
@@ -71,7 +71,7 @@ impl std::fmt::Debug for Profile {
     }
 }
 
-/// The session's cookies, in the module's cache file, see MarcoSparkoContext::update_cache, so that the app does not
+/// The session's cookies, in the module's cache file, see AppContext::update_cache, so that the app does not
 /// log in each time it starts, see GlobirdClient::session_token. The field's name has token in it so that it is hidden
 /// in verbose output, see bruce_graphql::redact.
 #[derive(Serialize, Deserialize)]
@@ -89,7 +89,7 @@ pub struct GlobirdContext {
     client: GlobirdClient,
     cache_config: Arc<CacheConfig>,
     /// To save the session when it changes, see save_session.
-    context: Arc<MarcoSparkoContext>,
+    context: Arc<AppContext>,
     /// The bills read from their PDFs, by document ID, or why they could not be, see bill, kept as reading one takes a
     /// while and a bill never changes.
     bills: std::sync::Mutex<std::collections::BTreeMap<i64, Result<bills::Bill, String>>>,
@@ -144,7 +144,7 @@ impl GlobirdModule {
     }
 
     pub fn constructor(
-        context: Arc<MarcoSparkoContext>,
+        context: Arc<AppContext>,
         json_profile: Option<serde_json::Value>,
     ) -> anyhow::Result<Arc<dyn ModuleFactory>> {
         let args = GlobirdArgs::parse_from(context.args.module_args(MODULE_ID).unwrap_or_default());
@@ -159,7 +159,7 @@ impl GlobirdModule {
         if args.globird_password.is_some() {
             profile.password = args.globird_password.clone();
         }
-        let verbose = context.args.marco_sparko_args.verbose;
+        let verbose = context.args.app_args.verbose;
         if verbose {
             println!("GloBird Module Args: {:?}", args);
             println!("GloBird Module Profile: {:?}", profile);
@@ -523,7 +523,7 @@ fn DayRow(summary: DaySummary, bands: Vec<String>, categories: Vec<String>, tari
 }
 
 pub struct GlobirdModuleFactory {
-    context: Arc<MarcoSparkoContext>,
+    context: Arc<AppContext>,
     profile: Profile,
     cache_config: Arc<CacheConfig>,
     verbose: bool,
@@ -532,12 +532,7 @@ pub struct GlobirdModuleFactory {
 impl GlobirdModuleFactory {
     /// Logs in once, which checks the email and password, and saves them in the profile, and the session in the module's
     /// cache file.
-    async fn login(
-        context: Arc<MarcoSparkoContext>,
-        email: String,
-        password: String,
-        verbose: bool,
-    ) -> anyhow::Result<()> {
+    async fn login(context: Arc<AppContext>, email: String, password: String, verbose: bool) -> anyhow::Result<()> {
         let client = GlobirdClient::new(email.clone(), password.clone(), None, verbose)?;
         client.login().await?;
         context.update_cache(

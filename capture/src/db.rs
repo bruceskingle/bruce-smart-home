@@ -280,14 +280,14 @@ impl Feature for StoreFeature {
 
     fn start(
         &mut self,
-        sparko: &mut Esp32Platform,
+        platform: &mut Esp32Platform,
         initializer: &mut Esp32PlatformInitializer,
         config: StoreConfig,
     ) -> anyhow::Result<()> {
-        let device = sparko.device_id().unwrap_or_default();
+        let device = platform.device_id().unwrap_or_default();
         self.db
-            .open(device.clone(), sparko.sd_card(), config.store_site.as_deref());
-        let name = crate::device::captured_by(sparko);
+            .open(device.clone(), platform.sd_card(), config.store_site.as_deref());
+        let name = crate::device::captured_by(platform);
         self.db.put(|store, writer| {
             Ok(Some(device_kinds::device_info(
                 store,
@@ -324,11 +324,11 @@ impl Feature for StoreFeature {
         )?;
 
         let db = self.db.clone();
-        sparko.api_get("/api/store/info", move |request| {
+        platform.api_get("/api/store/info", move |request| {
             bruce_esp_idf::api::respond(request, 200, &db.info())
         })?;
         let db = self.db.clone();
-        sparko.api_get("/api/store/changes", move |request| changes(request, &db))?;
+        platform.api_get("/api/store/changes", move |request| changes(request, &db))?;
         Ok(())
     }
 }
@@ -341,7 +341,7 @@ struct CompactTask {
 }
 
 impl ScheduledTask<Esp32Platform> for CompactTask {
-    fn run(&mut self, _sparko: &mut Esp32Platform) -> anyhow::Result<()> {
+    fn run(&mut self, _platform: &mut Esp32Platform) -> anyhow::Result<()> {
         let Some(store) = self.db.store() else { return Ok(()) };
         if self.running.swap(true, Ordering::SeqCst) {
             return Ok(());

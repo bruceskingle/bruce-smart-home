@@ -69,7 +69,7 @@ not on `main`.
 
 ## Conventions
 
-- **GraphQL nullability.** Do not put `@ms_required_by_default` on new queries in `graphql/octopus/`. Let the
+- **GraphQL nullability.** Do not put `@bruce_required_by_default` on new queries in `graphql/octopus/`. Let the
   generated types follow the schema, so a field the schema allows to be null is an `Option`, and show `None` sensibly,
   e.g. blank, rather than unwrapping it. Octopus does return nulls the older queries assumed it would not.
 - **Tooltips.** Anything with a tooltip (`title`) has the dotted underline cue, and shows its tooltip at once when

@@ -7,14 +7,14 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::{MarcoSparkoContext, private_file};
+use crate::{AppContext, private_file};
 
 const DEFAULT_PROFILE: &str = "default";
 /// The version of the profile's format, and of the data kept for it. A change to either which needs a profile's data
 /// changing too adds a step to upgrade_profile, and makes this the version it is in.
 pub const CURRENT_VERSION: &str = "0.5.0";
 
-/// The last version whose profiles kept their data in Marco Sparko's cache directory, for a profile whose data is
+/// The last version whose profiles kept their data in the old cache directory, for a profile whose data is
 /// still made there, e.g. a redacted copy, see save_redacted_profile, which is upgraded to the store when it is opened.
 const LAST_CACHE_VERSION: &str = "0.4.3";
 
@@ -35,13 +35,13 @@ pub fn profile_names_equal(left: &str, right: &str) -> bool {
 
 /// The profiles in the profile file, with their secrets decrypted, see secrets.rs.
 fn read_profile_file() -> anyhow::Result<ProfileFile> {
-    read_profile_file_at(&MarcoSparkoContext::get_file_path()?)
+    read_profile_file_at(&AppContext::get_file_path()?)
 }
 
 /// The profiles in the profile file, with their secrets decrypted, see secrets.rs, or None if it cannot be opened, e.g.
 /// before the first profile is made.
 pub fn read_profile_file_if_any() -> anyhow::Result<Option<ProfileFile>> {
-    let path = MarcoSparkoContext::get_file_path()?;
+    let path = AppContext::get_file_path()?;
     if fs::File::open(&path).is_err() {
         return Ok(None);
     }
@@ -57,7 +57,7 @@ pub fn read_profile_file_at(path: &Path) -> anyhow::Result<ProfileFile> {
 
 /// Saves the profiles to the profile file, with their secrets encrypted, see secrets.rs, whichever version each is.
 pub fn write_profile_file(profiles: &impl Serialize) -> anyhow::Result<()> {
-    write_profile_file_at(&MarcoSparkoContext::get_file_path()?, profiles)
+    write_profile_file_at(&AppContext::get_file_path()?, profiles)
 }
 
 /// Saves the profiles to the profile file at path, e.g. another data home's, with their secrets encrypted, see
@@ -327,7 +327,7 @@ pub fn save_redacted_profile(source: &Profile, name: &str, as_of: Option<i64>) -
         .collect();
     profiles.push(Profile {
         name: name.to_string(),
-        // Its data is in Marco Sparko's layout, see redact.rs, so it is converted into its store when it is upgraded.
+        // Its data is in the old layout, see redact.rs, so it is converted into its store when it is upgraded.
         version: String::from(LAST_CACHE_VERSION),
         modules,
         // Not the capture devices, whose keys would let anyone with the copy manage them.
@@ -344,7 +344,7 @@ pub fn save_redacted_profile(source: &Profile, name: &str, as_of: Option<i64>) -
     Ok(())
 }
 
-/// The files of a profile, for each plugin a <profile>-<plugin> directory of data, in Marco Sparko's cache directory,
+/// The files of a profile, for each plugin a <profile>-<plugin> directory of data, in the old cache directory,
 /// and a <profile>-<plugin>.json file of tokens, in the tokens directory, see data_home.rs, and its store.
 #[derive(Debug, Default, PartialEq)]
 pub struct ProfileCacheUsage {
@@ -366,8 +366,8 @@ impl ProfileCacheUsage {
 /// which is not one of its data_dirs, as it is named by the site, not the profile, so it is kept when the profile is
 /// renamed.
 pub fn profile_cache_usage(profile_name: &str) -> anyhow::Result<ProfileCacheUsage> {
-    // Its data in Marco Sparko's cache directory, and old copies of its tokens there, see data_home.rs, and its tokens.
-    let mut usage = cache_usage_in(&MarcoSparkoContext::get_cache_dir_path()?, profile_name)?;
+    // Its data in the old cache directory, and old copies of its tokens there, see data_home.rs, and its tokens.
+    let mut usage = cache_usage_in(&AppContext::get_cache_dir_path()?, profile_name)?;
     let tokens = cache_usage_in(&crate::data_home::tokens_dir()?, profile_name)?;
     usage.token_files.extend(tokens.token_files);
     for (module, bytes) in tokens.plugins {

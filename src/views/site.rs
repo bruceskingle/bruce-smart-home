@@ -21,7 +21,7 @@ use crate::power::topology::{Channel, Circuit, Use};
 use crate::profile::Settings as ProfileSettings;
 use crate::util::SharedProp;
 use crate::views::electricity::Found;
-use crate::{MarcoSparkoContext, ModuleRegistrations};
+use crate::{AppContext, ModuleRegistrations};
 
 /// The size of a circuit's box in the diagram, with one channel, and the gaps between them, in the SVG's units. Each
 /// channel is a line of its own, see box_height.
@@ -359,7 +359,7 @@ fn channel_choices(channels: &[Channel], circuit: &Circuit) -> Vec<Channel> {
 /// The site's topology, drawn, and to edit, see the module comment.
 #[component]
 pub fn SitePage() -> Element {
-    let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let registrations = use_context::<ModuleRegistrations>();
     let mut settings = use_context::<Signal<ProfileSettings>>();
     let mut edited = use_signal(|| settings.peek().topology.clone());
@@ -777,7 +777,7 @@ fn ChannelRelations(measured: SharedProp<Measured>) -> Element {
 #[component]
 fn CategoryEditor(edited: Signal<Option<Circuit>>) -> Element {
     let mut settings = use_context::<Signal<ProfileSettings>>();
-    let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let store = use_colour_store();
     let mut new_category = use_signal(String::new);
     let mut error = use_signal(|| None::<String>);

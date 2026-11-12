@@ -37,8 +37,8 @@ pub fn start(panel: Arc<Panel>, initializer: &mut Esp32PlatformInitializer) -> a
 }
 
 impl ScheduledTask<Esp32Platform> for BatteryTask {
-    fn run(&mut self, sparko: &mut Esp32Platform) -> anyhow::Result<()> {
-        let line = match sparko.battery().map(|battery| battery.read()) {
+    fn run(&mut self, platform: &mut Esp32Platform) -> anyhow::Result<()> {
+        let line = match platform.battery().map(|battery| battery.read()) {
             Some(Ok(reading)) => {
                 self.since_logged += 1;
                 if self.since_logged >= LOG_EVERY {

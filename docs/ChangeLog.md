@@ -1,6 +1,6 @@
 # Change Log
 
-What has changed in each release of Marco Sparko, the newest first: the new features, the improvements to existing
+What has changed in each release of Bruce's Smart Home, called Marco Sparko before 0.5.0, the newest first: the new features, the improvements to existing
 ones, and the problems which have been fixed. The releases themselves are on
 [GitHub](https://github.com/bruceskingle/marco-sparko/releases).
 

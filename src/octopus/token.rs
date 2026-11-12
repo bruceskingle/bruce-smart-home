@@ -1,4 +1,4 @@
-use crate::MarcoSparkoContext;
+use crate::AppContext;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -124,7 +124,7 @@ impl OctopusAuthenticator {
 }
 
 pub struct OctopusTokenManager {
-    context: Arc<MarcoSparkoContext>,
+    context: Arc<AppContext>,
     request_manager: Arc<RequestManager>,
     authenticator: Mutex<Option<OctopusAuthenticator>>,
     token: Mutex<Option<OctopusToken>>,
@@ -132,7 +132,7 @@ pub struct OctopusTokenManager {
 
 impl OctopusTokenManager {
     pub fn new(
-        context: Arc<MarcoSparkoContext>,
+        context: Arc<AppContext>,
         request_manager: Arc<RequestManager>,
         authenticator: Option<OctopusAuthenticator>,
     ) -> OctopusTokenManager {
@@ -143,7 +143,7 @@ impl OctopusTokenManager {
                 None
             };
 
-        if context.args.marco_sparko_args.verbose {
+        if context.args.app_args.verbose {
             if token.is_some() {
                 println!("Loaded token from cache");
             } else {
@@ -189,7 +189,7 @@ impl TokenManager for OctopusTokenManager {
             Ok(token)
         } else {
             if let Some(refresh_token) = refresh_token {
-                if self.context.args.marco_sparko_args.verbose {
+                if self.context.args.app_args.verbose {
                     println!("Refreshing Octopus token using refresh token...");
                 }
 
@@ -203,7 +203,7 @@ impl TokenManager for OctopusTokenManager {
 
                 let token = OctopusToken::from(response.obtain_kraken_token_);
 
-                if self.context.args.marco_sparko_args.verbose {
+                if self.context.args.app_args.verbose {
                     println!("Obtained new Octopus token via refresh");
                 }
 
@@ -227,7 +227,7 @@ impl TokenManager for OctopusTokenManager {
                 if let Some(authenticator) = &*locked_authenticator {
                     let input = authenticator.to_obtain_json_web_token_input()?;
 
-                    if self.context.args.marco_sparko_args.verbose {
+                    if self.context.args.app_args.verbose {
                         println!("Obtaining new Octopus token...");
                     }
 

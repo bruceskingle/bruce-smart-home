@@ -20,7 +20,7 @@ fi
 dev="$folder/bruce-smart-home/dev"
 
 if [ "$1" = --path ]; then
-    echo "$dev/marco-sparko-capture-$2.elf"
+    echo "$dev/bruce-smart-home-capture-$2.elf"
     exit
 fi
 mkdir -p "$dev"
@@ -41,6 +41,6 @@ for entry in $ALL; do
     fi
     echo "Building the capture firmware for $board"
     MCU=$mcu cargo build --release --target "$target" --no-default-features --features "$board"
-    cp "target/$target/release/marco-sparko-capture" "$dev/marco-sparko-capture-$board.elf"
+    cp "target/$target/release/bruce-smart-home-capture" "$dev/bruce-smart-home-capture-$board.elf"
 done
 ls -l "$dev"

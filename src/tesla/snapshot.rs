@@ -225,7 +225,7 @@ pub struct Sample {
     pub reserve: Option<f64>,
     pub mode: Option<String>,
     pub grid_status: Option<String>,
-    /// What took the snapshot, e.g. marco-sparko-capture 0.1.0, None if the app did, see capture.rs.
+    /// What took the snapshot, e.g. bruce-smart-home-capture 0.1.0, None if the app did, see capture.rs.
     pub captured_by: Option<String>,
 }
 
@@ -432,7 +432,7 @@ mod tests {
             "slot": "2026-10-29T07:30:00.000000Z",
             "requested": "2026-10-29T07:30:00.201000Z",
             "received": "2026-10-29T07:30:02.950000Z",
-            "capturedBy": "marco-sparko-capture 0.1.0",
+            "capturedBy": "bruce-smart-home-capture 0.1.0",
             "responses": {
                 "meters/aggregates": {"site": {"instant_power": -16.0, "energy_imported": 44128493.36542916,
                     "energy_exported": 13867712.52581578, "last_communication_time": "2026-10-29T07:30:01.015587Z"}},
@@ -453,7 +453,7 @@ mod tests {
         assert_eq!(sample.charge, Some(100.0));
         assert_eq!(sample.grid_status.as_deref(), Some("SystemGridConnected"));
         assert_eq!(sample.reserve, None);
-        assert_eq!(sample.captured_by.as_deref(), Some("marco-sparko-capture 0.1.0"));
+        assert_eq!(sample.captured_by.as_deref(), Some("bruce-smart-home-capture 0.1.0"));
     }
 
     #[test]

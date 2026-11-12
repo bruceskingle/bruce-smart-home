@@ -25,8 +25,8 @@ them, see [Logging in to Octopus](../octopus/initOctopus.md):
 Everything Bruce's Smart Home keeps, in two directories, ```.bruce-smart-home``` and ```.bruce-smart-home-data``` (see [Your Data](cachedData.md)), is kept in your home directory unless you choose another data directory, for example on another drive to keep the credentials separate or to save space. The data directory is the first of these which is set:
 
 1. The command line option ```--home=/path/to/directory```
-2. The environment variable ```BRUCE_SMART_HOME_DIR```, or ```MARCO_SPARKO_HOME```, its name before version 0.5.0
-3. The path in a file in your home directory called ```.bruce-smart-home-dir```, or ```.marco-sparko-home```, its name before version 0.5.0, which contains just the full path of the directory, e.g. ```/Volumes/Secure/smart-home```. A path starting with ```~/``` is in your home directory.
+2. The environment variable ```BRUCE_SMART_HOME_DIR```
+3. The path in a file in your home directory called ```.bruce-smart-home-dir```, which contains just the full path of the directory, e.g. ```/Volumes/Secure/smart-home```. A path starting with ```~/``` is in your home directory.
 4. Your home directory
 
 On macOS, apps started from the Dock or Finder do not see environment variables set in your shell, so use the ```.bruce-smart-home-dir``` file there.

@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 
-use crate::MarcoSparkoContext;
+use crate::AppContext;
 
 /// A modal dialog asking for the name of a copy of a profile, and whether it is offline. OK copies it, see
 /// profile::copy_profile, off the page's thread, as the downloaded data can be large, and reloads the profiles so that
 /// the menu lists the copy, Cancel calls on_close.
 #[component]
 pub fn CopyProfileDialog(name: String, on_close: EventHandler<()>) -> Element {
-    let mut context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let mut context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let mut new_name = use_signal(|| format!("{name}_copy"));
     let mut offline = use_signal(|| true);
     let mut copying = use_signal(|| false);
@@ -36,8 +36,8 @@ pub fn CopyProfileDialog(name: String, on_close: EventHandler<()>) -> Element {
                     .clone();
                 match result.and_then(|_| crate::profile::fetch_active_profile(&Some(active_name))) {
                     Ok(profile) => {
-                        context_signal.set(Some(Arc::new(MarcoSparkoContext {
-                            args: crate::Args::ms_parse(),
+                        context_signal.set(Some(Arc::new(AppContext {
+                            args: crate::Args::parse_all(),
                             profile,
                             store: Default::default(),
                         })));

@@ -59,7 +59,7 @@ mod board {
     }
 
     /// Nothing, as the board has no speaker.
-    pub fn started(_platform: &bruce_esp_idf::Esp32PlatformRunner) -> anyhow::Result<()> {
+    pub fn started(_runner: &bruce_esp_idf::Esp32PlatformRunner) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -90,7 +90,7 @@ mod board {
     }
 
     /// Nothing, as the board has no speaker.
-    pub fn started(_platform: &bruce_esp_idf::Esp32PlatformRunner) -> anyhow::Result<()> {
+    pub fn started(_runner: &bruce_esp_idf::Esp32PlatformRunner) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -117,7 +117,7 @@ mod board {
         _db: &Arc<crate::db::Db>,
     ) -> anyhow::Result<Esp32PlatformBuilder> {
         let panel = panel.clone();
-        Ok(builder.with_boot_button(move |_sparko| {
+        Ok(builder.with_boot_button(move |_platform| {
             Ok(Box::new(move || {
                 panel.show_status();
                 Ok(())
@@ -126,7 +126,7 @@ mod board {
     }
 
     /// Nothing, as its speaker is not driven yet.
-    pub fn started(_platform: &bruce_esp_idf::Esp32PlatformRunner) -> anyhow::Result<()> {
+    pub fn started(_runner: &bruce_esp_idf::Esp32PlatformRunner) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -169,7 +169,7 @@ mod board {
                     })
                     .build()?,
             ))?
-            .with_key_button(move |_sparko| {
+            .with_key_button(move |_platform| {
                 Ok(Box::new(move || {
                     panel.show_status();
                     Ok(())
@@ -182,8 +182,8 @@ mod board {
 
     /// Plays STARTUP_SOUND, at once, while the board joins the network, so in a thread of its own, at the volume set
     /// on the /config page.
-    pub fn started(platform: &Esp32PlatformRunner) -> anyhow::Result<()> {
-        let speaker = platform.sparko_std.speaker();
+    pub fn started(runner: &Esp32PlatformRunner) -> anyhow::Result<()> {
+        let speaker = runner.platform.speaker();
         std::thread::Builder::new().stack_size(8192).spawn(move || {
             if let Err(error) = speaker.play_wav(STARTUP_SOUND) {
                 log::error!("Unable to play the startup sound: {error:#}");
@@ -204,7 +204,7 @@ fn main() -> anyhow::Result<()> {
 
     // The store first, so that it is open when the features start, and their first polls put their records in it.
     let builder = builder.with_feature(Box::new(db::StoreFeature::new(db.clone(), panel.clone())))?;
-    let sparko_esp32 = board::configure(builder, &panel, &db)?
+    let runner = board::configure(builder, &panel, &db)?
         .with_feature(Box::new(tesla::TeslaCapture::new(
             panel.clone(),
             db.clone(),
@@ -218,7 +218,7 @@ fn main() -> anyhow::Result<()> {
         .with_feature(Box::new(octopus::OctopusCapture::new(panel.clone(), db, gateway)))?
         .with_firmware(bruce_esp_idf::firmware!())
         .build()?;
-    board::started(&sparko_esp32)?;
+    board::started(&runner)?;
 
-    sparko_esp32.start()
+    runner.start()
 }

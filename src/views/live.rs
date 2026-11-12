@@ -17,7 +17,7 @@ use crate::components::error_text::ErrorText;
 use crate::power::live::{Live, live};
 use crate::power::topology::{Circuit, Use};
 use crate::profile::Settings as ProfileSettings;
-use crate::{MarcoSparkoContext, ModuleRegistrations};
+use crate::{AppContext, ModuleRegistrations};
 
 /// How often the circuits' power is worked out again, and the capture devices read, as often as they poll the gateway.
 const REFRESH: i64 = 10;
@@ -40,7 +40,7 @@ fn still(watts: f64) -> bool {
 /// The circuits' power, of what the profile's modules have measured, worked out again every REFRESH.
 #[component]
 pub fn LivePage() -> Element {
-    let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let registrations = use_context::<ModuleRegistrations>();
     let settings = use_context::<Signal<ProfileSettings>>();
     let found = use_resource(move || {

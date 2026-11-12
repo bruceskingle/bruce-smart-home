@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 
-use crate::MarcoSparkoContext;
+use crate::AppContext;
 
 /// A modal dialog asking for a profile's new name. OK renames it, see profile::rename_profile, and reloads the
 /// profiles so that the menu lists it by its new name, Cancel calls on_close.
 #[component]
 pub fn RenameProfileDialog(name: String, on_close: EventHandler<()>) -> Element {
-    let mut context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let mut context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let mut new_name = use_signal(|| name.clone());
     let mut error = use_signal(|| None::<String>);
 
@@ -21,8 +21,8 @@ pub fn RenameProfileDialog(name: String, on_close: EventHandler<()>) -> Element 
                 .and_then(|_| crate::profile::fetch_active_profile(&Some(active_name)));
             match result {
                 Ok(profile) => {
-                    context_signal.set(Some(Arc::new(MarcoSparkoContext {
-                        args: crate::Args::ms_parse(),
+                    context_signal.set(Some(Arc::new(AppContext {
+                        args: crate::Args::parse_all(),
                         profile,
                         store: Default::default(),
                     })));

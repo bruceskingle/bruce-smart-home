@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compares Home Assistant's history of an EV charger with what Octopus billed, from Marco Sparko's Octopus cache.
+"""Compares Home Assistant's history of an EV charger with what Octopus billed, from the app's old Octopus cache, in the layout before 0.5.0.
 
 Three questions:
 - Was each half hour billed at the low or the standard rate, and does Home Assistant's off peak sensor agree?
@@ -126,12 +126,12 @@ def integrated_kwh(power, start, end):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--profile", required=True, help="the Marco Sparko profile whose Octopus cache to read")
-    parser.add_argument("--home", default=os.path.expanduser("~"), help="the directory holding .marco-sparko-cache")
+    parser.add_argument("--profile", required=True, help="the profile whose old Octopus cache to read")
+    parser.add_argument("--home", default=os.path.expanduser("~"), help="the data home, holding .bruce-smart-home-data")
     parser.add_argument("history", nargs="+", help="Home Assistant History CSVs")
     args = parser.parse_args()
 
-    cache = os.path.join(args.home, ".marco-sparko-cache", f"{args.profile}-octopus")
+    cache = os.path.join(args.home, ".bruce-smart-home-data", "old-cache", f"{args.profile}-octopus")
     series = read_history(args.history)
     off_peak = entity(series, "off_peak")
     charge_added = entity(series, "charge_added")

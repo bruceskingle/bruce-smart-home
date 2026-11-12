@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 
-use crate::{MarcoSparkoContext, ModuleFactory, ModuleRegistrations, PageInfo};
+use crate::{AppContext, ModuleFactory, ModuleRegistrations, PageInfo};
 
 use super::sidebar::SidebarLayout;
 
@@ -81,23 +81,19 @@ fn ModulePage(module_id: String) -> Element {
 
     use_context_provider::<Signal<Vec<String>>>(move || path_signal);
 
-    let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let opt_context = &*context_signal.read();
     let context = opt_context.as_ref().unwrap();
     let module_registrations = use_context::<ModuleRegistrations>();
 
     let mut call_construct_module_signal = use_signal::<bool>(|| true);
     let mut construct_module_action: Action<
-        (ModuleRegistrations, Arc<MarcoSparkoContext>, String),
+        (ModuleRegistrations, Arc<AppContext>, String),
         Arc<dyn crate::ModuleFactory + Send>,
     > = use_action(
         move |module_registrations: ModuleRegistrations,
-              marco_sparko_context: std::sync::Arc<crate::MarcoSparkoContext>,
-              module_id: String| async move {
-            module_registrations
-                .module_factory(&module_id, &marco_sparko_context)
-                .await
-        },
+              app_context: std::sync::Arc<crate::AppContext>,
+              module_id: String| async move { module_registrations.module_factory(&module_id, &app_context).await },
     );
 
     let mut call_check_ready_module_signal = use_signal::<bool>(|| true);

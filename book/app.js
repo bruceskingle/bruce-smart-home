@@ -1,4 +1,4 @@
-// Offers the app's two themes, see marco-sparko.css: Light, and Dark, which is mdBook's Navy theme restyled.
+// Offers the app's two themes, see app.css: Light, and Dark, which is mdBook's Navy theme restyled.
 (function () {
     for (const name of ["rust", "coal", "ayu"]) {
         const button = document.getElementById("mdbook-theme-" + name);
@@ -13,9 +13,9 @@
 })();
 
 // Opens a picture, e.g. a screenshot, full size in a new tab when it is clicked, as GitHub does, apart from the icons
-// of the app's buttons in the help, see marco-sparko.css.
+// of the app's buttons in the help, see app.css.
 (function () {
-    // mdBook repeats each picture for its zoom, see marco-sparko.css, which is not used.
+    // mdBook repeats each picture for its zoom, see app.css, which is not used.
     for (const image of document.querySelectorAll(".content img:not(.img-wrapper img)")) {
         if (image.closest("a") || image.getAttribute("src").includes("icons/")) {
             continue;

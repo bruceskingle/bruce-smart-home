@@ -1,5 +1,5 @@
 [package]
-name = "marco-sparko-capture"
+name = "bruce-smart-home-capture"
 version = "0.1.0"
 edition = "2024"
 resolver = "2"
@@ -10,7 +10,7 @@ description = "Firmware for an ESP32 Capture Device, which polls what Bruce's Sm
 # cd capture && cargo build --release, see README.md for the Waveshare.
 
 [[bin]]
-name = "marco-sparko-capture"
+name = "bruce-smart-home-capture"
 harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
 
 [dependencies]

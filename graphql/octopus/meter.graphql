@@ -1,4 +1,4 @@
-query accountPropertiesMeters($accountNumber: String!) @ms_required_by_default {
+query accountPropertiesMeters($accountNumber: String!) @bruce_required_by_default {
   account(accountNumber: $accountNumber) {
     properties {
       id
@@ -7,7 +7,7 @@ query accountPropertiesMeters($accountNumber: String!) @ms_required_by_default {
       occupancyPeriods {
         id
         effectiveFrom
-        effectiveTo @ms_optional
+        effectiveTo @bruce_optional
         isOccupier
       }
       coordinates {
@@ -17,7 +17,7 @@ query accountPropertiesMeters($accountNumber: String!) @ms_required_by_default {
       
       electricityMeterPoints {
         id
-        supplyEndDate @ms_optional
+        supplyEndDate @bruce_optional
         mpan
         status
         meters {
@@ -25,7 +25,7 @@ query accountPropertiesMeters($accountNumber: String!) @ms_required_by_default {
           serialNumber
           consumptionUnits
           hasAndAllowsHhReadings
-          importMeter @ms_optional {
+          importMeter @bruce_optional {
             id
             nodeId
             serialNumber
@@ -34,7 +34,7 @@ query accountPropertiesMeters($accountNumber: String!) @ms_required_by_default {
       }
       gasMeterPoints {
         id
-        supplyEndDate @ms_optional
+        supplyEndDate @bruce_optional
         mprn
         status
         meters {
@@ -54,11 +54,11 @@ query accountPropertiesMeters($accountNumber: String!) @ms_required_by_default {
   }
 }
 
-query meterAgreements($meterNodeId: ID!, $validAfter: DateTime) @ms_required_by_default {
+query meterAgreements($meterNodeId: ID!, $validAfter: DateTime) @bruce_required_by_default {
   node(id: $meterNodeId) {
-    ... on ElectricityMeterType @ms_required_by_default {
+    ... on ElectricityMeterType @bruce_required_by_default {
     	nodeId
-      importMeter @ms_optional {
+      importMeter @bruce_optional {
         meterPoint {
           mpan
         }
@@ -68,7 +68,7 @@ query meterAgreements($meterNodeId: ID!, $validAfter: DateTime) @ms_required_by_
         agreements(excludeFuture: false, validAfter: $validAfter, includeInactive: true) {
           id
           validFrom
-          validTo @ms_optional
+          validTo @bruce_optional
           tariff {
             ... on HalfHourlyTariff {
               id
@@ -85,22 +85,22 @@ query meterAgreements($meterNodeId: ID!, $validAfter: DateTime) @ms_required_by_
                 rateType
               }
               description
-              preVatStandingCharge @ms_optional
+              preVatStandingCharge @bruce_optional
               productCode
               tariffCode
             }
-            ... on StandardTariff @ms_required_by_default {
+            ... on StandardTariff @bruce_required_by_default {
               id
               description
               displayName
               fullName
-              preVatStandingCharge @ms_optional
-              preVatUnitRate @ms_optional
-              standingCharge @ms_optional
+              preVatStandingCharge @bruce_optional
+              preVatUnitRate @bruce_optional
+              standingCharge @bruce_optional
               tariffCode
-              unitRate @ms_optional
+              unitRate @bruce_optional
             }
-            ... on DayNightTariff @ms_required_by_default {
+            ... on DayNightTariff @bruce_required_by_default {
               id
               dayRate
               description
@@ -109,11 +109,11 @@ query meterAgreements($meterNodeId: ID!, $validAfter: DateTime) @ms_required_by_
               nightRate
               preVatDayRate
               preVatNightRate
-              preVatStandingCharge @ms_optional
-              standingCharge @ms_optional
+              preVatStandingCharge @bruce_optional
+              standingCharge @bruce_optional
               tariffCode
             }
-            ... on ThreeRateTariff @ms_required_by_default {
+            ... on ThreeRateTariff @bruce_required_by_default {
               id
               dayRate
               description
@@ -124,11 +124,11 @@ query meterAgreements($meterNodeId: ID!, $validAfter: DateTime) @ms_required_by_
               preVatDayRate
               preVatNightRate
               preVatOffPeakRate
-              preVatStandingCharge @ms_optional
-              standingCharge @ms_optional
+              preVatStandingCharge @bruce_optional
+              standingCharge @bruce_optional
               tariffCode
             }
-            ... on FourRateEvTariff @ms_required_by_default {
+            ... on FourRateEvTariff @bruce_required_by_default {
               id
               dayRate
               description
@@ -141,18 +141,18 @@ query meterAgreements($meterNodeId: ID!, $validAfter: DateTime) @ms_required_by_
               preVatNightRate
               preVatEvDeviceOffPeakRate
               preVatEvDevicePeakRate
-              preVatStandingCharge @ms_optional
-              standingCharge @ms_optional
+              preVatStandingCharge @bruce_optional
+              standingCharge @bruce_optional
               tariffCode
             }
-            ... on PrepayTariff @ms_required_by_default {
+            ... on PrepayTariff @bruce_required_by_default {
               id
               displayName
               fullName
-              preVatStandingCharge @ms_optional
+              preVatStandingCharge @bruce_optional
               preVatUnitRate
               productCode
-              standingCharge @ms_optional
+              standingCharge @bruce_optional
               tariffCode
               unitRate
             }
@@ -160,26 +160,26 @@ query meterAgreements($meterNodeId: ID!, $validAfter: DateTime) @ms_required_by_
         }
       }
     }
-    ... on GasMeterType @ms_required_by_default {
+    ... on GasMeterType @bruce_required_by_default {
     	nodeId
       meterPoint {
-        agreements(excludeFuture: false, validAfter: $validAfter) @ms_required_by_default {
+        agreements(excludeFuture: false, validAfter: $validAfter) @bruce_required_by_default {
           id
           validFrom
-          validTo @ms_optional
+          validTo @bruce_optional
           tariff {
             id
             description
             displayName
             fullName
-            preVatStandingCharge @ms_optional
-            preVatUnitRate @ms_optional
-            standingCharge @ms_optional
-            unitRate @ms_optional
-            productCode @ms_optional
-            tags @ms_optional
+            preVatStandingCharge @bruce_optional
+            preVatUnitRate @bruce_optional
+            standingCharge @bruce_optional
+            unitRate @bruce_optional
+            productCode @bruce_optional
+            tags @bruce_optional
             tariffCode
-            unitRateEpgApplied @ms_optional
+            unitRateEpgApplied @bruce_optional
           }
         }
       }
@@ -187,9 +187,9 @@ query meterAgreements($meterNodeId: ID!, $validAfter: DateTime) @ms_required_by_
   }
 }
 
-query electricityAgreementLineItems($agreementId: ID!, $startAt: DateTime!, $first: Int, $timezone: String!, $itemType: LineItemTypeOptions!, $lineItemGrouping: LineItemGroupingOptions!, $after: String) @ms_required_by_default {
-  electricityAgreement(id: $agreementId) @ms_required_by_default {
-    ... on ElectricityAgreementType  @ms_required_by_default{
+query electricityAgreementLineItems($agreementId: ID!, $startAt: DateTime!, $first: Int, $timezone: String!, $itemType: LineItemTypeOptions!, $lineItemGrouping: LineItemGroupingOptions!, $after: String) @bruce_required_by_default {
+  electricityAgreement(id: $agreementId) @bruce_required_by_default {
+    ... on ElectricityAgreementType  @bruce_required_by_default{
       meterPoint {
         mpan
       }
@@ -200,7 +200,7 @@ query electricityAgreementLineItems($agreementId: ID!, $startAt: DateTime!, $fir
   }
 }
 
-fragment lineItems on LineItemConnection @ms_required_by_default {
+fragment lineItems on LineItemConnection @bruce_required_by_default {
   edges {
     node {
       startAt
@@ -219,9 +219,9 @@ fragment lineItems on LineItemConnection @ms_required_by_default {
   }
 }
 
-query gasAgreementLineItems($agreementId: ID!, $startAt: DateTime!, $first: Int, $timezone: String!, $itemType: LineItemTypeOptions!, $lineItemGrouping: LineItemGroupingOptions!, $after: String) @ms_required_by_default {
-  gasAgreement(id: $agreementId) @ms_required_by_default {
-    ... on GasAgreementType  @ms_required_by_default {
+query gasAgreementLineItems($agreementId: ID!, $startAt: DateTime!, $first: Int, $timezone: String!, $itemType: LineItemTypeOptions!, $lineItemGrouping: LineItemGroupingOptions!, $after: String) @bruce_required_by_default {
+  gasAgreement(id: $agreementId) @bruce_required_by_default {
+    ... on GasAgreementType  @bruce_required_by_default {
       meterPoint {
         mprn
       }
@@ -248,8 +248,8 @@ query getCurrentDemand(
     }
   }
 
-query meterConsumption($meterId: ID!, $grouping: ConsumptionGroupings!, $startAt: DateTime!, $first: Int, $timezone: String!, $after: String) @ms_required_by_default {
-  node(id: $meterId) @ms_required_by_default {
+query meterConsumption($meterId: ID!, $grouping: ConsumptionGroupings!, $startAt: DateTime!, $first: Int, $timezone: String!, $after: String) @bruce_required_by_default {
+  node(id: $meterId) @bruce_required_by_default {
     ... on ElectricityMeterType {
       ...meterFields
       importMeter: importMeter {
@@ -262,7 +262,7 @@ query meterConsumption($meterId: ID!, $grouping: ConsumptionGroupings!, $startAt
   }
 }
 
-fragment meterFields on Meter @ms_required_by_default {
+fragment meterFields on Meter @bruce_required_by_default {
   consumptionUnits
   consumption(first: $first, grouping: $grouping, startAt: $startAt, timezone: $timezone, after: $after) {
     ...consumptionFields
@@ -270,7 +270,7 @@ fragment meterFields on Meter @ms_required_by_default {
   serialNumber
 }
 
-fragment consumptionFields on ConsumptionConnection @ms_required_by_default {
+fragment consumptionFields on ConsumptionConnection @bruce_required_by_default {
   edges {
     node {
       value
@@ -361,14 +361,14 @@ query homeAndEvConsumptionBreakdown(
             metaData {
               statistics {
                 costExclTax {
-                  costCurrency @ms_currency
+                  costCurrency @bruce_currency
                   pricePerUnit {
                     amount
                   }
                   estimatedAmount
                 }
                 costInclTax {
-                  costCurrency @ms_currency
+                  costCurrency @bruce_currency
                   pricePerUnit {
                     amount
                   }

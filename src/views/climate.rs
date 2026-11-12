@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use time::OffsetDateTime;
 use time_tz::{OffsetDateTimeExt, PrimitiveDateTimeExt, Tz};
 
-use crate::MarcoSparkoContext;
+use crate::AppContext;
 use crate::climate::{self, DeviceClimate, SERIES, Series};
 use crate::components::date_range_picker::{DateRangePicker, RangeSelection};
 use crate::components::error_text::ErrorText;
@@ -34,7 +34,7 @@ fn timezone() -> &'static Tz {
 
 #[component]
 pub fn ClimatePage() -> Element {
-    let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let profile_name = context_signal
         .read()
         .as_ref()

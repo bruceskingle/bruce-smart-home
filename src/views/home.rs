@@ -1,8 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use crate::{
-    MarcoSparkoContext, ModuleRegistrations, PageInfo, UpgradeRequested, components::app::Route,
-    profile::CURRENT_VERSION,
+    AppContext, ModuleRegistrations, PageInfo, UpgradeRequested, components::app::Route, profile::CURRENT_VERSION,
 };
 
 use super::polling::PollingPage;
@@ -11,14 +10,14 @@ use dioxus::prelude::*;
 
 include!(concat!(env!("OUT_DIR"), "/crate_info.rs"));
 
-const APP_ICON: Asset = asset!("/assets/MarcoSparko.png");
+const APP_ICON: Asset = asset!("/assets/app-icon.png");
 
 /// The Home page component that will be rendered when the current route is `[Route::Home]`
 #[component]
 pub fn Home(// xid: i32,
     // modules_signal: ModuleRegistrations
 ) -> Element {
-    let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let opt_context = &*context_signal.read();
     let context = opt_context.as_ref().unwrap();
     let module_registrations = use_context::<ModuleRegistrations>();
@@ -123,7 +122,7 @@ pub fn Home(// xid: i32,
                 (Err(error), _) => error.to_string(),
             };
 
-            let args = &context.args.marco_sparko_args;
+            let args = &context.args.app_args;
             let debug = if args.debug {
                 rsx! {
                     h2 { "Debug" }
@@ -288,7 +287,7 @@ const HOME_PAGES: [PageInfo; 7] = [
 /// question of whether to upgrade it.
 #[component]
 fn ProfileUpgrade(name: String) -> Element {
-    let mut context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let mut context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let mut upgrade_requested = use_context::<Signal<UpgradeRequested>>();
     let mut error = use_signal(|| None::<String>);
     let mut cancelled = use_signal(|| false);
@@ -314,9 +313,7 @@ fn ProfileUpgrade(name: String) -> Element {
             })
             .await;
             match upgraded {
-                Ok(Ok(profile)) => {
-                    context_signal.set(Some(MarcoSparkoContext::for_profile(crate::Args::ms_parse(), profile)))
-                }
+                Ok(Ok(profile)) => context_signal.set(Some(AppContext::for_profile(crate::Args::parse_all(), profile))),
                 Ok(Err(upgrade_error)) if upgrade_error.is::<bruce_db::progress::Cancelled>() => cancelled.set(true),
                 Ok(Err(upgrade_error)) => error.set(Some(format!("{upgrade_error:#}"))),
                 Err(join_error) => error.set(Some(join_error.to_string())),

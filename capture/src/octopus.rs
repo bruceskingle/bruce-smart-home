@@ -123,7 +123,7 @@ impl Feature for OctopusCapture {
 
     fn start(
         &mut self,
-        sparko: &mut Esp32Platform,
+        platform: &mut Esp32Platform,
         initializer: &mut Esp32PlatformInitializer,
         config: OctopusConfig,
     ) -> anyhow::Result<()> {
@@ -151,7 +151,7 @@ impl Feature for OctopusCapture {
             panel: self.panel.clone(),
             kept: self.kept.clone(),
             slots: Slots::new(&schedule_spec)?,
-            captured_by: captured_by(sparko),
+            captured_by: captured_by(platform),
         };
         // A first poll now, as the app does, so there is something to show without waiting for the first slot.
         poll.poll(None);
@@ -509,7 +509,7 @@ struct PollTask {
 }
 
 impl ScheduledTask<Esp32Platform> for PollTask {
-    fn run(&mut self, _sparko: &mut Esp32Platform) -> anyhow::Result<()> {
+    fn run(&mut self, _platform: &mut Esp32Platform) -> anyhow::Result<()> {
         let slot = self.slots.current()?;
         self.poll(slot);
         Ok(())

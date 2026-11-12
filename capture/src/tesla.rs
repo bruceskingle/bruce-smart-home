@@ -108,7 +108,7 @@ impl Feature for TeslaCapture {
 
     fn start(
         &mut self,
-        sparko: &mut Esp32Platform,
+        platform: &mut Esp32Platform,
         initializer: &mut Esp32PlatformInitializer,
         config: TeslaConfig,
     ) -> anyhow::Result<()> {
@@ -116,7 +116,7 @@ impl Feature for TeslaCapture {
             .tesla_schedule
             .map(|schedule| schedule.pattern.to_string())
             .unwrap_or_else(|| DEFAULT_SCHEDULE.to_string());
-        let store = Arc::new(Mutex::new(Snapshots::new(self.db.clone(), captured_by(sparko))));
+        let store = Arc::new(Mutex::new(Snapshots::new(self.db.clone(), captured_by(platform))));
         let device = Arc::new(Device::new(&schedule_spec));
 
         let mut poll = PollTask {
@@ -138,7 +138,7 @@ impl Feature for TeslaCapture {
         set_panel(&self.panel, &store.lock().unwrap());
 
         // A first poll now, as the app does, so there is something to show without waiting for the first slot.
-        poll.poll(sparko, None);
+        poll.poll(platform, None);
         initializer.add_task(Box::new(poll), &schedule_spec)?;
 
         // For the app, at /api/store/info, see db.rs.
@@ -397,9 +397,9 @@ struct PollTask {
 }
 
 impl ScheduledTask<Esp32Platform> for PollTask {
-    fn run(&mut self, sparko: &mut Esp32Platform) -> anyhow::Result<()> {
+    fn run(&mut self, platform: &mut Esp32Platform) -> anyhow::Result<()> {
         let slot = self.slots.current()?;
-        self.poll(sparko, slot);
+        self.poll(platform, slot);
         Ok(())
     }
 
@@ -410,7 +410,7 @@ impl ScheduledTask<Esp32Platform> for PollTask {
 
 impl PollTask {
     /// Polls the gateway, saving the record, or the error if the gateway could not be reached, for the screen.
-    fn poll(&mut self, sparko: &mut Esp32Platform, slot: Option<DateTime<Utc>>) {
+    fn poll(&mut self, platform: &mut Esp32Platform, slot: Option<DateTime<Utc>>) {
         let requested = Utc::now();
         let result = self.fetch(slot, requested);
         let heap = unsafe { esp_idf_sys::esp_get_free_heap_size() };
@@ -424,7 +424,7 @@ impl PollTask {
             Err(error) => {
                 if error.is::<PasswordRejected>() {
                     self.gateway.password = None;
-                    if let Err(error) = forget_password(sparko) {
+                    if let Err(error) = forget_password(platform) {
                         log::error!("Unable to remove the rejected Tesla password from the config, {error:#}");
                     }
                 }
@@ -496,8 +496,8 @@ impl PollTask {
 }
 
 /// Removes the password from the config, so that it is not tried again after a restart.
-fn forget_password(sparko: &Esp32Platform) -> anyhow::Result<()> {
-    let holder = sparko
+fn forget_password(platform: &Esp32Platform) -> anyhow::Result<()> {
+    let holder = platform
         .config_manager
         .features
         .get(FEATURE_NAME)

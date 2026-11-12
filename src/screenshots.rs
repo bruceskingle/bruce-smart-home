@@ -171,7 +171,7 @@ fn load_profile_data(from: &str) -> anyhow::Result<()> {
 
     // A redacted profile's data is in the old layout, see redact.rs, which is converted into the copy's store below.
     let usual_cache = crate::data_home::old_cache_dir_in(&usual);
-    let cache = crate::MarcoSparkoContext::get_cache_dir_path()?;
+    let cache = crate::AppContext::get_cache_dir_path()?;
     // Only the modules which a redacted profile can have, see redact::is_redactable.
     for module_id in source
         .modules
@@ -185,7 +185,7 @@ fn load_profile_data(from: &str) -> anyhow::Result<()> {
         copy_dir(&usual_cache.join(format!("{from}-{module_id}")), &target)?;
     }
 
-    let path = crate::MarcoSparkoContext::get_file_path()?;
+    let path = crate::AppContext::get_file_path()?;
     let mut profiles: ProfileFile = if path.exists() {
         crate::profile::read_profile_file_at(&path)?
     } else {

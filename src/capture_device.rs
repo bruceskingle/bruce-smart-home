@@ -247,7 +247,7 @@ fn sign(key: &str, method: &str, uri: &str, time: i64) -> anyhow::Result<String>
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect();
-    Ok(format!("Sparko-HMAC-SHA256 {time}:{signature}"))
+    Ok(format!("Bruce-HMAC-SHA256 {time}:{signature}"))
 }
 
 /// The addresses of the devices which have taken a signed request over plain HTTP, see get_query.
@@ -1161,7 +1161,7 @@ mod tests {
         let uri = "/api/capture/tesla/records?since=2026-10-30T06%3A00%3A00Z&limit=500";
         assert_eq!(
             sign(&key, "GET", uri, 1793340000).unwrap(),
-            "Sparko-HMAC-SHA256 1793340000:e639c3cc64688ccbb3ae81570f79f7eab2944a7415544b40a701b9fe298de232"
+            "Bruce-HMAC-SHA256 1793340000:e639c3cc64688ccbb3ae81570f79f7eab2944a7415544b40a701b9fe298de232"
         );
     }
 
@@ -1265,7 +1265,7 @@ pub fn cli_post(args: &crate::Args, device_id: &str, path: &str, body: &str) -> 
 
 /// The active profile's capture device with the ID device_id, for --deviceget and --devicepost.
 fn cli_device(args: &crate::Args, device_id: &str) -> anyhow::Result<DeviceProfile> {
-    let profile = crate::profile::fetch_active_profile(&args.marco_sparko_args.profile)?;
+    let profile = crate::profile::fetch_active_profile(&args.app_args.profile)?;
     profile
         .active_profile
         .settings

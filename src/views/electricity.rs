@@ -32,7 +32,7 @@ use crate::power::{
 };
 use crate::profile::Settings as ProfileSettings;
 use crate::util::SharedProp;
-use crate::{MarcoSparkoContext, ModuleRegistrations};
+use crate::{AppContext, ModuleRegistrations};
 
 /// The most rows in the table.
 const MAX_SHOWN: usize = 9000;
@@ -940,10 +940,7 @@ pub(crate) struct Found {
 
 /// Builds each of the profile's modules, as when its own pages are shown, see views/module.rs, for their electricity
 /// measurements and channels.
-pub(crate) async fn find(
-    context: Arc<MarcoSparkoContext>,
-    registrations: ModuleRegistrations,
-) -> anyhow::Result<Found> {
+pub(crate) async fn find(context: Arc<AppContext>, registrations: ModuleRegistrations) -> anyhow::Result<Found> {
     let mut found = Found {
         sources: Vec::new(),
         measurements: Vec::new(),
@@ -972,7 +969,7 @@ pub(crate) async fn find(
 /// see power.rs. The modules do not know of each other: this puts them together.
 #[component]
 pub fn ElectricityPage() -> Element {
-    let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let registrations = use_context::<ModuleRegistrations>();
     let found = use_resource(move || {
         let context = context_signal.read().clone();

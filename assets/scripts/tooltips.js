@@ -3,10 +3,10 @@
 // it, as does Escape, or scrolling. Not clicks on or in things which do something else when clicked, controls, links,
 // and the like, which main.css does not underline either.
 (() => {
-    if (window.sparkoTooltips) {
+    if (window.bruceTooltips) {
         return;
     }
-    window.sparkoTooltips = true;
+    window.bruceTooltips = true;
     const CLICKABLE = 'button, input, select, textarea, a, option, .link, .export-file-name, .help-resize, .log-resize, th.sortable';
     let popup = null;
     let openedBy = null;

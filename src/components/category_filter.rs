@@ -87,7 +87,7 @@ pub fn use_category_filter() -> Signal<CategoryFilter> {
 /// Where the active profile's colours are saved, see save_colour: its name, and its settings, which the pages share.
 #[derive(Clone, Copy)]
 pub struct ColourStore {
-    context: Option<Signal<Option<std::sync::Arc<crate::MarcoSparkoContext>>>>,
+    context: Option<Signal<Option<std::sync::Arc<crate::AppContext>>>>,
     settings: Option<Signal<crate::profile::Settings>>,
 }
 

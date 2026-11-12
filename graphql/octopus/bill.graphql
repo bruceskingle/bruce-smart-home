@@ -12,7 +12,7 @@ query getBills($accountNumber: String!,
     $before: String, 
     $after: String, 
     $first: Int, 
-    $last: Int) @ms_required_by_default {
+    $last: Int) @bruce_required_by_default {
         account(accountNumber: $accountNumber) {
             bills(
                 includeBillsWithoutPDF: $includeBillsWithoutPDF, 
@@ -40,7 +40,7 @@ query getBills($accountNumber: String!,
                         billType
                         fromDate
                         toDate
-                        issuedDate @ms_optional
+                        issuedDate @bruce_optional
                         ...Statement
                         ...PeriodBasedDocument
                         ...Invoice
@@ -56,7 +56,7 @@ query getStatementTransactions(
     $transactions_before: String, 
     $transactions_after: String, 
     $transactions_first: Int, 
-    $transactions_last: Int) @ms_required_by_default {
+    $transactions_last: Int) @bruce_required_by_default {
         account(accountNumber: $accountNumber) {
             bill(id: $statementId, billType: STATEMENT) {
             ...StatementTransactions
@@ -64,7 +64,7 @@ query getStatementTransactions(
     }
 }
 
-fragment StatementTransactions on StatementType @ms_required_by_default {
+fragment StatementTransactions on StatementType @bruce_required_by_default {
     transactions(before: $transactions_before, after: $transactions_after, first: $transactions_first, last: $transactions_last) {
         pageInfo {
                     startCursor
@@ -89,7 +89,7 @@ fragment StatementTransactions on StatementType @ms_required_by_default {
                 billingDocumentIdentifier
                 isReversed
                 hasStatement
-                note @ms_optional
+                note @bruce_optional
                 ...Charge
             }
         }
@@ -114,7 +114,7 @@ query getBillsAndTransactions($accountNumber: String!,
     $transactions_before: String, 
     $transactions_after: String, 
     $transactions_first: Int, 
-    $transactions_last: Int) @ms_required_by_default {
+    $transactions_last: Int) @bruce_required_by_default {
         account(accountNumber: $accountNumber) {
             bills(
                 includeBillsWithoutPDF: $includeBillsWithoutPDF, 
@@ -153,20 +153,20 @@ query getBillsAndTransactions($accountNumber: String!,
         }
     }
 
-fragment Statement on StatementType @ms_required_by_default {
+fragment Statement on StatementType @bruce_required_by_default {
     closingBalance
     openingBalance
     isExternalBill
-    userId @ms_optional
-    toAddress @ms_optional
+    userId @bruce_optional
+    toAddress @bruce_optional
     paymentDueDate
-    #consumptionStartDate @ms_optional
-    #consumptionEndDate @ms_optional
+    #consumptionStartDate @bruce_optional
+    #consumptionEndDate @bruce_optional
     reversalsAfterClose
     status
     heldStatus {
         isHeld
-        reason @ms_optional
+        reason @bruce_optional
     }
     totalCharges {
         netTotal
@@ -180,8 +180,8 @@ fragment Statement on StatementType @ms_required_by_default {
     }
 }
 
-fragment PeriodBasedDocument on PeriodBasedDocumentType @ms_required_by_default {
-    identifier @ms_optional
+fragment PeriodBasedDocument on PeriodBasedDocumentType @bruce_required_by_default {
+    identifier @bruce_optional
     totalCharges {
         netTotal
         taxTotal
@@ -194,8 +194,8 @@ fragment PeriodBasedDocument on PeriodBasedDocumentType @ms_required_by_default 
     }
 }
 
-fragment Charge on Charge @ms_required_by_default {
-    consumption @ms_optional {
+fragment Charge on Charge @bruce_required_by_default {
+    consumption @bruce_optional {
         startDate
         endDate
         quantity
@@ -206,7 +206,7 @@ fragment Charge on Charge @ms_required_by_default {
     isExport
 }
 
-fragment Invoice on InvoiceType @ms_required_by_default {
+fragment Invoice on InvoiceType @bruce_required_by_default {
     grossAmount
 }
 

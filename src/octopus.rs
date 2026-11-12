@@ -40,7 +40,7 @@ use time_tz::timezones;
 use token::OctopusTokenManager;
 
 use crate::{
-    CacheConfig, InitRequested, MarcoSparkoContext, Module, ModuleFactory, ModuleRegistration, PageInfo,
+    AppContext, CacheConfig, InitRequested, Module, ModuleFactory, ModuleRegistration, PageInfo,
     octopus::token::OctopusAuthenticator,
 };
 use bruce_graphql::TokenManager;
@@ -220,7 +220,7 @@ impl OctopusModule {
     }
 
     pub fn constructor(
-        context: Arc<MarcoSparkoContext>,
+        context: Arc<AppContext>,
         json_profile: Option<serde_json::Value>,
     ) -> anyhow::Result<Arc<dyn ModuleFactory>> {
         let builder = OctopusModule::builder(context, json_profile)?;
@@ -229,7 +229,7 @@ impl OctopusModule {
     }
 
     pub fn builder(
-        context: Arc<MarcoSparkoContext>,
+        context: Arc<AppContext>,
         json_profile: Option<serde_json::Value>,
     ) -> anyhow::Result<OctopusModuleFactoryBuilder> {
         OctopusModuleFactoryBuilder::new(context, json_profile)
@@ -529,7 +529,7 @@ impl Module for OctopusModule {
 }
 
 pub struct OctopusModuleFactory {
-    context: Arc<MarcoSparkoContext>,
+    context: Arc<AppContext>,
     octopus_args: OctopusArgs,
     cache_config: Arc<CacheConfig>,
     token_manager: Arc<OctopusTokenManager>,
@@ -608,7 +608,7 @@ impl OctopusModuleFactory {
     async fn handle_login(
         token_manager: Arc<OctopusTokenManager>,
         profile: Profile,
-        context: Arc<MarcoSparkoContext>,
+        context: Arc<AppContext>,
         values: LoginForm,
         error_signal: &mut Signal<Vec<String>>,
     ) {
@@ -717,7 +717,7 @@ impl ModuleFactory for OctopusModuleFactory {
         let saved_login_error = self.saved_login_error.lock().unwrap().clone();
         let mut errors: Signal<Vec<String>> = use_signal(|| saved_login_error.into_iter().collect());
 
-        let context: Arc<MarcoSparkoContext> = self.context.clone();
+        let context: Arc<AppContext> = self.context.clone();
         let token_manager: Arc<OctopusTokenManager> = self.token_manager.clone();
         let profile: Profile = self.profile.clone();
         rsx! {
@@ -842,7 +842,7 @@ impl ModuleFactory for OctopusModuleFactory {
 }
 
 pub struct OctopusModuleFactoryBuilder {
-    context: Arc<MarcoSparkoContext>,
+    context: Arc<AppContext>,
     octopus_args: OctopusArgs,
     profile: Profile,
     authenticator: Option<OctopusAuthenticator>,
@@ -852,7 +852,7 @@ pub struct OctopusModuleFactoryBuilder {
 
 impl OctopusModuleFactoryBuilder {
     fn new(
-        context: Arc<MarcoSparkoContext>,
+        context: Arc<AppContext>,
         json_profile: Option<serde_json::Value>,
     ) -> anyhow::Result<OctopusModuleFactoryBuilder> {
         let module_args = if let Some(args) = context.args.module_args(MODULE_ID) {
@@ -884,7 +884,7 @@ impl OctopusModuleFactoryBuilder {
             None
         };
 
-        let verbose = context.args.marco_sparko_args.verbose;
+        let verbose = context.args.app_args.verbose;
 
         if verbose {
             println!("Octopus Module Args: {:?}", octopus_args);
@@ -930,7 +930,7 @@ impl OctopusModuleFactoryBuilder {
             format!("https://{}/v1/graphql/", self.profile.api_host)
         };
 
-        let verbose = self.context.args.marco_sparko_args.verbose;
+        let verbose = self.context.args.app_args.verbose;
 
         if verbose {
             println!("Octopus API initialized with URL {}", &url);

@@ -27,10 +27,10 @@ directly:
 - `cargo build --release` for a CYD, and `cargo run --release` flashes the CYD plugged in by USB, and shows its log.
 - For the Waveshare, which is RISC-V: `MCU=esp32c6 cargo build --release --target riscv32imac-esp-espidf
   --no-default-features --features wave-esp32c6-touch-147`, then `bruce-embedded-flash flash --port
-  /dev/cu.usbmodem... target/riscv32imac-esp-espidf/release/marco-sparko-capture`.
+  /dev/cu.usbmodem... target/riscv32imac-esp-espidf/release/bruce-smart-home-capture`.
 - For the RLCD: `MCU=esp32s3 cargo build --release --target xtensa-esp32s3-espidf --no-default-features --features
   wave-esp32s3-rlcd-42`, then `bruce-embedded-flash flash --port /dev/cu.usbmodem...
-  target/xtensa-esp32s3-espidf/release/marco-sparko-capture`.
+  target/xtensa-esp32s3-espidf/release/bruce-smart-home-capture`.
 - For the Guition JC3248W535C, the same with `--features guition-jc3248w535c`.
 - `python3 log.py [port]` shows a device's log without restarting it (needs pyserial). Not `espflash monitor`, which
   restarts it, or with `--no-reset` leaves it stopped in its bootloader. The CYD's port is `/dev/cu.usbserial-*`, its
@@ -38,7 +38,7 @@ directly:
 
 `./build-firmware.sh` builds every board's firmware, or `./build-firmware.sh <board>...` those named, and copies each,
 as soon as it is built, as boards with the same chip build to the same path in `target/`, to the shared firmware
-folder, as `bruce-smart-home/dev/marco-sparko-capture-<board>.elf`, see bruce-embedded-flash's
+folder, as `bruce-smart-home/dev/bruce-smart-home-capture-<board>.elf`, see bruce-embedded-flash's
 `bruce-embedded-firmware`, e.g. `~/Library/Application Support/bruce-embedded-std/firmware/` on macOS, where
 the app's Devices page and bruce-embedded-flash's window find it. `./build-firmware.sh --path <board>` prints where a
 board's goes.

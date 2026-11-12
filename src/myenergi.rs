@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache_browser::CacheBrowser;
 use crate::util::SharedProp;
-use crate::{CacheConfig, InitRequested, MarcoSparkoContext, Module, ModuleFactory, ModuleRegistration, PageInfo};
+use crate::{AppContext, CacheConfig, InitRequested, Module, ModuleFactory, ModuleRegistration, PageInfo};
 
 use client::MyenergiClient;
 use fetch::DaySummary;
@@ -102,7 +102,7 @@ impl MyenergiModule {
     }
 
     pub fn constructor(
-        context: Arc<MarcoSparkoContext>,
+        context: Arc<AppContext>,
         json_profile: Option<serde_json::Value>,
     ) -> anyhow::Result<Arc<dyn ModuleFactory>> {
         let args = MyenergiArgs::parse_from(context.args.module_args(MODULE_ID).unwrap_or_default());
@@ -117,7 +117,7 @@ impl MyenergiModule {
         if args.myenergi_api_key.is_some() {
             profile.api_key = args.myenergi_api_key.clone();
         }
-        let verbose = context.args.marco_sparko_args.verbose;
+        let verbose = context.args.app_args.verbose;
         if verbose {
             println!("myenergi Module Args: {:?}", args);
             println!("myenergi Module Profile: {:?}", profile);
@@ -455,7 +455,7 @@ fn DayRow(summary: DaySummary) -> Element {
 }
 
 pub struct MyenergiModuleFactory {
-    context: Arc<MarcoSparkoContext>,
+    context: Arc<AppContext>,
     profile: Profile,
     cache_config: Arc<CacheConfig>,
     verbose: bool,
@@ -464,12 +464,7 @@ pub struct MyenergiModuleFactory {
 impl MyenergiModuleFactory {
     /// Checks the hub serial and API key by fetching the status, which also finds the server with the hub's data, and
     /// saves them in the profile.
-    async fn login(
-        context: Arc<MarcoSparkoContext>,
-        hub_serial: String,
-        api_key: String,
-        verbose: bool,
-    ) -> anyhow::Result<()> {
+    async fn login(context: Arc<AppContext>, hub_serial: String, api_key: String, verbose: bool) -> anyhow::Result<()> {
         let client = MyenergiClient::new(hub_serial.clone(), api_key.clone(), None, verbose)?;
         client.status().await?;
         let profile = Profile {

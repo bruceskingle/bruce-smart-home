@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 
-use crate::{MarcoSparkoContext, components::app::Route};
+use crate::{AppContext, components::app::Route};
 
 /// A modal dialog asking whether to delete the given profile. OK deletes its tokens, moves its cached data to the trash,
 /// removes it from the profile file and goes to the home page, Cancel calls on_close.
 #[component]
 pub fn DeleteProfileDialog(name: String, on_close: EventHandler<()>) -> Element {
-    let mut context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let mut context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let navigator = use_navigator();
     let mut error = use_signal(|| None::<String>);
 
@@ -22,8 +22,8 @@ pub fn DeleteProfileDialog(name: String, on_close: EventHandler<()>) -> Element 
             match result {
                 Ok(profile) => {
                     // Reload the profile so that the deleted one is no longer listed.
-                    context_signal.set(Some(Arc::new(MarcoSparkoContext {
-                        args: crate::Args::ms_parse(),
+                    context_signal.set(Some(Arc::new(AppContext {
+                        args: crate::Args::parse_all(),
                         profile,
                         store: Default::default(),
                     })));

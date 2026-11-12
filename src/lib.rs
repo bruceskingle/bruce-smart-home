@@ -61,7 +61,7 @@ const NULL: &'static str = "Null";
  */
 #[derive(Parser, Debug, Clone, PartialEq)]
 #[command(version, about, long_about = None)] // Read from `Cargo.toml`
-pub struct MarcoSparkoArgs {
+pub struct AppArgs {
     /// Name of the config profile to use
     #[arg(short, long)]
     profile: Option<String>,
@@ -109,7 +109,7 @@ pub struct MarcoSparkoArgs {
 }
 
 pub struct Args {
-    pub marco_sparko_args: MarcoSparkoArgs,
+    pub app_args: AppArgs,
     pub module_args: HashMap<String, Vec<String>>,
 }
 
@@ -124,7 +124,7 @@ impl Args {
         }
     }
 
-    pub fn ms_parse() -> Self {
+    pub fn parse_all() -> Self {
         let mut main_only_args = Vec::new();
         let mut module_args: HashMap<String, Vec<String>> = HashMap::new();
         let mut module_id: Option<String> = None;
@@ -152,10 +152,10 @@ impl Args {
             }
         }
 
-        let marco_sparko_args = MarcoSparkoArgs::parse_from(main_only_args);
+        let app_args = AppArgs::parse_from(main_only_args);
 
-        if marco_sparko_args.verbose {
-            println!("Main args: {:?}", marco_sparko_args);
+        if app_args.verbose {
+            println!("Main args: {:?}", app_args);
             // Only the names of the module args are shown as their values may be secrets, e.g. -o for an API key, which
             // modules show redacted once they are parsed.
             for (module_id, args) in &module_args {
@@ -168,10 +168,7 @@ impl Args {
             }
         }
 
-        Args {
-            marco_sparko_args,
-            module_args,
-        }
+        Args { app_args, module_args }
     }
 
     pub fn module_args(&self, module_name: &str) -> Option<Vec<String>> {
@@ -179,49 +176,49 @@ impl Args {
     }
 
     /// Whether --fetch was given, to fetch the latest data without a window, see fetch_latest_data.
-    /// The device and the path to GET, with --deviceget, see MarcoSparkoArgs.
+    /// The device and the path to GET, with --deviceget, see AppArgs.
     pub fn capture_get(&self) -> Option<(&str, &str)> {
-        match self.marco_sparko_args.deviceget.as_slice() {
+        match self.app_args.deviceget.as_slice() {
             [device, path] => Some((device.as_str(), path.as_str())),
             _ => None,
         }
     }
 
-    /// The device, the path and the body to POST, with --devicepost, see MarcoSparkoArgs.
+    /// The device, the path and the body to POST, with --devicepost, see AppArgs.
     pub fn capture_post(&self) -> Option<(&str, &str, &str)> {
-        match self.marco_sparko_args.devicepost.as_slice() {
+        match self.app_args.devicepost.as_slice() {
             [device, path, body] => Some((device.as_str(), path.as_str(), body.as_str())),
             _ => None,
         }
     }
 
     pub fn fetch(&self) -> bool {
-        self.marco_sparko_args.fetch
+        self.app_args.fetch
     }
 
     /// The shot list, if --screenshots was given, see screenshots.rs.
     pub fn screenshots(&self) -> Option<PathBuf> {
-        self.marco_sparko_args.screenshots.clone()
+        self.app_args.screenshots.clone()
     }
 
     /// The profile to upgrade, if --upgrade was given, see profile::upgrade_profile.
     pub fn upgrade(&self) -> Option<&str> {
-        self.marco_sparko_args.upgrade.as_deref()
+        self.app_args.upgrade.as_deref()
     }
 
     /// The profile whose secrets to encrypt, if --encryptsecrets was given, see profile::encrypt_secrets.
     pub fn encrypt_secrets(&self) -> Option<&str> {
-        self.marco_sparko_args.encryptsecrets.as_deref()
+        self.app_args.encryptsecrets.as_deref()
     }
 
     /// Whether --redact docs was given, see redact::redact_docs.
     pub fn redact_docs(&self) -> bool {
-        matches!(self.marco_sparko_args.redact.as_slice(), [docs] if docs == "docs")
+        matches!(self.app_args.redact.as_slice(), [docs] if docs == "docs")
     }
 
     /// The profile to redact and the name of the redacted copy, if --redact was given, see redact.rs.
     pub fn redact(&self) -> Option<(&str, &str)> {
-        match self.marco_sparko_args.redact.as_slice() {
+        match self.app_args.redact.as_slice() {
             [from, to] => Some((from, to)),
             _ => None,
         }
@@ -244,9 +241,9 @@ pub fn fetch_latest_data(args: Args) -> bool {
         env!("CARGO_PKG_VERSION"),
         time::OffsetDateTime::now_utc()
     );
-    let verbose = args.marco_sparko_args.verbose;
+    let verbose = args.app_args.verbose;
     let result = runtime.block_on(async move {
-        let context = MarcoSparkoContext::new(args)?;
+        let context = AppContext::new(args)?;
         let registrations = ModuleRegistrations::new(verbose);
         let module_ids: Vec<String> = context.profile.active_profile.modules.keys().cloned().collect();
         let devices = capture_device::adopted_devices(&context.profile.active_profile.name);
@@ -388,7 +385,7 @@ pub trait ModuleFactory: Send {
 }
 
 pub type ModuleFactoryConstructor =
-    dyn Fn(Arc<MarcoSparkoContext>, Option<serde_json::Value>) -> anyhow::Result<Arc<dyn ModuleFactory>>;
+    dyn Fn(Arc<AppContext>, Option<serde_json::Value>) -> anyhow::Result<Arc<dyn ModuleFactory>>;
 
 pub struct ModuleRegistration {
     pub module_id: String,
@@ -452,7 +449,7 @@ impl ModuleRegistrations {
     pub async fn module_factory(
         &self,
         module_id: &str,
-        context: &Arc<MarcoSparkoContext>,
+        context: &Arc<AppContext>,
     ) -> anyhow::Result<Arc<dyn ModuleFactory + Send>> {
         if let Some(module_registration) = self.0.get(module_id) {
             let constructor = module_registration.constructor.as_ref();
@@ -462,7 +459,7 @@ impl ModuleRegistrations {
                 None
             };
 
-            if context.args.marco_sparko_args.verbose {
+            if context.args.app_args.verbose {
                 let mut redacted_profile = profile.clone();
                 if let Some(value) = &mut redacted_profile {
                     bruce_graphql::redact::redact_secrets(value);
@@ -516,7 +513,7 @@ impl ModuleRegistrations {
     }
 }
 
-pub struct MarcoSparkoContext {
+pub struct AppContext {
     pub args: Args,
     pub profile: ActiveProfile,
     /// The profile's site's store, opened the first time it is needed, see store.
@@ -529,31 +526,31 @@ pub struct UpgradeRequested(pub bool);
 #[derive(Clone, Copy, Default)]
 pub struct InitRequested(pub bool);
 
-// impl PartialEq for MarcoSparkoContext {
+// impl PartialEq for AppContext {
 //     fn eq(&self, other: &Self) -> bool {
 //         self.args == other.args && self.profile == other.profile
 //     }
 // }
 
-impl MarcoSparkoContext {
+impl AppContext {
     /// The profile file, see data_home.
     pub fn get_file_path() -> anyhow::Result<PathBuf> {
         data_home::profiles_path()
     }
 
-    /// Marco Sparko's cache directory, from before 0.5.0, holding each profile's modules' data, which is only read, to
+    /// The old cache directory, from before 0.5.0, holding each profile's modules' data, which is only read, to
     /// convert a profile's data into its store, see data_home::old_cache_dir.
     pub fn get_cache_dir_path() -> anyhow::Result<PathBuf> {
         data_home::old_cache_dir()
     }
 
-    pub fn new(args: Args) -> anyhow::Result<Arc<MarcoSparkoContext>> {
-        let profile = crate::profile::fetch_active_profile(&args.marco_sparko_args.profile)?;
+    pub fn new(args: Args) -> anyhow::Result<Arc<AppContext>> {
+        let profile = crate::profile::fetch_active_profile(&args.app_args.profile)?;
         Ok(Self::for_profile(args, profile))
     }
 
     /// The context with the given profile active, starting its log, see logging.rs.
-    pub fn for_profile(args: Args, profile: ActiveProfile) -> Arc<MarcoSparkoContext> {
+    pub fn for_profile(args: Args, profile: ActiveProfile) -> Arc<AppContext> {
         // An offline profile is shown as it was when its data was last fetched.
         clock::set_as_of(profile.active_profile.as_of.filter(|_| profile.active_profile.offline));
         help::start(&profile.active_profile.name, &profile.active_profile.settings.help);
@@ -567,15 +564,15 @@ impl MarcoSparkoContext {
             &profile.active_profile.settings.log,
             process,
         );
-        Arc::new(MarcoSparkoContext {
+        Arc::new(AppContext {
             args,
             profile,
             store: Default::default(),
         })
     }
 
-    // pub fn with_profile(&self, profile_name: &String) -> anyhow::Result<Arc<MarcoSparkoContext>> {
-    //     Ok(Arc::new(MarcoSparkoContext {
+    // pub fn with_profile(&self, profile_name: &String) -> anyhow::Result<Arc<AppContext>> {
+    //     Ok(Arc::new(AppContext {
     //         args: self.args.clone(),
     //         profile: crate::profile::set_active_profile(profile_name)?,
     //    }))
