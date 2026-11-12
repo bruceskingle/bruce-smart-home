@@ -16,30 +16,26 @@ impl<T: ?Sized> PartialEq for SharedProp<T> {
     }
 }
 
-
-
-pub fn as_decimal(value: i32, decimals: usize) -> String{
+pub fn as_decimal(value: i32, decimals: usize) -> String {
     // let f = 10 ^ decimals as u32;
-    let w = if value < 0 { decimals + 2} else {decimals + 1};
+    let w = if value < 0 { decimals + 2 } else { decimals + 1 };
     let mut s = format!("{:0width$}", value, width = w);
 
     let mut l = s.len();
 
     if l <= decimals {
-      while l < decimals{
+        while l < decimals {
+            s.insert(0, '0');
+            l += 1;
+        }
+        s.insert(0, '.');
         s.insert(0, '0');
-        l += 1;
-      }
-      s.insert(0, '.');
-      s.insert(0, '0');
-    }
-    else {
-      s.insert(s.len() - decimals, '.');
+    } else {
+        s.insert(s.len() - decimals, '.');
     }
     // println!("as_decimal({}, {}) = {}", value, decimals, s);
     s
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -47,10 +43,9 @@ mod tests {
 
     #[test]
     fn test_zero_int() {
-        
         assert_eq!(as_decimal(37364, 2), "373.64");
-         assert_eq!(as_decimal(36, 2), "0.36");
-         assert_eq!(as_decimal(-36, 2), "-0.36");
+        assert_eq!(as_decimal(36, 2), "0.36");
+        assert_eq!(as_decimal(-36, 2), "-0.36");
     }
 }
 /// The date and time in the computer's time zone, or UTC if it can not be found, e.g. 2026-10-28 14:32:50

@@ -46,7 +46,6 @@ struct Pair {
     to: String,
 }
 
-
 /// The mapping file: the user's own pairs, which are left as they are, and the generated ones, which are rewritten.
 struct Mapping {
     path: PathBuf,
@@ -67,16 +66,33 @@ impl Mapping {
             None => (format!("{}\n\n", text.trim_end()), ""),
         };
         let pairs = |text: &str| -> anyhow::Result<Vec<Pair>> {
-            text.lines().enumerate()
+            text.lines()
+                .enumerate()
                 .filter(|(_, line)| !line.trim().is_empty() && !line.starts_with('#'))
-                .map(|(index, line)| parse_csv_line(line)
-                    .ok_or_else(|| anyhow!("Line {} of the redaction mapping {} is not a pair of values", index + 1, path.display())))
+                .map(|(index, line)| {
+                    parse_csv_line(line).ok_or_else(|| {
+                        anyhow!(
+                            "Line {} of the redaction mapping {} is not a pair of values",
+                            index + 1,
+                            path.display()
+                        )
+                    })
+                })
                 .collect()
         };
         let own = pairs(&own_text)?;
-        let generated = pairs(generated_text)
-            .map_err(|_| anyhow!("The generated section of the redaction mapping {} has a line which is not a pair of values", path.display()))?;
-        Ok(Mapping { path, own_text, own, generated })
+        let generated = pairs(generated_text).map_err(|_| {
+            anyhow!(
+                "The generated section of the redaction mapping {} has a line which is not a pair of values",
+                path.display()
+            )
+        })?;
+        Ok(Mapping {
+            path,
+            own_text,
+            own,
+            generated,
+        })
     }
 
     fn save(&self) -> anyhow::Result<()> {
@@ -118,7 +134,10 @@ impl Mapping {
             while self.pairs().any(|pair| pair.to == to) || found.values.contains_key(&to) {
                 to = make_up(value, *kind, number, &mut rng);
             }
-            self.generated.push(Pair { from: value.clone(), to });
+            self.generated.push(Pair {
+                from: value.clone(),
+                to,
+            });
             *added.entry(*kind).or_default() += 1;
         }
         added
@@ -130,8 +149,7 @@ impl Mapping {
 fn csv_field(value: &str) -> String {
     if value.contains([',', '"']) || value.starts_with(['#', ' ']) || value.ends_with(' ') {
         format!("\"{}\"", value.replace('"', "\"\""))
-    }
-    else {
+    } else {
         value.to_string()
     }
 }
@@ -147,7 +165,12 @@ fn csv_line(pair: &Pair, width: usize) -> String {
 /// does not push the made up values far to the right.
 fn csv_width(pairs: &[Pair]) -> usize {
     const MAX_ALIGNED: usize = 40;
-    pairs.iter().map(|pair| csv_field(&pair.from).chars().count() + 1).filter(|width| *width <= MAX_ALIGNED).max().unwrap_or(0)
+    pairs
+        .iter()
+        .map(|pair| csv_field(&pair.from).chars().count() + 1)
+        .filter(|width| *width <= MAX_ALIGNED)
+        .max()
+        .unwrap_or(0)
 }
 
 /// The pair on a line of the mapping file, see csv_line, or None if it is not two values. Spaces around a value are
@@ -168,7 +191,7 @@ fn parse_csv_line(line: &str) -> Option<Pair> {
                     '"' if chars.peek() == Some(&'"') => {
                         chars.next();
                         field.push('"');
-                    },
+                    }
                     '"' => break,
                     c => field.push(c),
                 }
@@ -187,8 +210,7 @@ fn parse_csv_line(line: &str) -> Option<Pair> {
             if !rest.trim().is_empty() {
                 return None;
             }
-        }
-        else {
+        } else {
             field.push_str(rest.trim_end());
         }
         fields.push(field);
@@ -221,8 +243,17 @@ enum Kind {
 fn field_kind(field: &str, object: &serde_json::Map<String, Value>) -> Option<Kind> {
     let person = object.contains_key("givenName") || object.contains_key("familyName") || object.contains_key("email");
     match field {
-        "id" | "number" | "accountNumber" | "mpan" | "mprn" | "serialNumber" | "deviceId" | "nodeId" | "propertyId"
-        | "userId" | "billingDocumentIdentifier" => Some(Kind::Id),
+        "id"
+        | "number"
+        | "accountNumber"
+        | "mpan"
+        | "mprn"
+        | "serialNumber"
+        | "deviceId"
+        | "nodeId"
+        | "propertyId"
+        | "userId"
+        | "billingDocumentIdentifier" => Some(Kind::Id),
         "givenName" | "familyName" | "preferredName" | "billingName" | "billingSubName" => Some(Kind::Name),
         "fullName" | "displayName" if person => Some(Kind::Name),
         "address" | "toAddress" => Some(Kind::Address),
@@ -250,7 +281,8 @@ impl Patterns {
         Patterns {
             account: Regex::new(r"\bA-[0-9A-F]{8}\b").unwrap(),
             device: Regex::new(r"\b[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){7}\b").unwrap(),
-            uuid: Regex::new(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b").unwrap(),
+            uuid: Regex::new(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
+                .unwrap(),
             quoted_digits: Regex::new(r#""([0-9]{6,})""#).unwrap(),
             email: Regex::new(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+").unwrap(),
             secrets: vec![
@@ -291,7 +323,9 @@ impl Found {
         {
             return;
         }
-        self.values.entry(value.to_string()).or_insert((kind, place.to_string()));
+        self.values
+            .entry(value.to_string())
+            .or_insert((kind, place.to_string()));
     }
 
     /// The identifying values in a file's name and contents.
@@ -302,7 +336,12 @@ impl Found {
             }
         }
         for source in [name, text] {
-            for found in patterns.account.find_iter(source).chain(patterns.device.find_iter(source)).chain(patterns.uuid.find_iter(source)) {
+            for found in patterns
+                .account
+                .find_iter(source)
+                .chain(patterns.device.find_iter(source))
+                .chain(patterns.uuid.find_iter(source))
+            {
                 self.add(found.as_str(), Kind::Id, "an ID");
             }
             for found in patterns.email.find_iter(source) {
@@ -321,7 +360,7 @@ impl Found {
                         self.scan_json(&value);
                     }
                 }
-            },
+            }
         }
     }
 
@@ -334,9 +373,9 @@ impl Found {
                         None => self.scan_json(value),
                     }
                 }
-            },
+            }
             Value::Array(values) => values.iter().for_each(|value| self.scan_json(value)),
-            _ => {},
+            _ => {}
         }
     }
 
@@ -347,15 +386,16 @@ impl Found {
                 for line in text.lines().map(str::trim) {
                     self.add(line, kind, field);
                 }
-            },
+            }
             Value::String(text) => self.add(text, kind, field),
             Value::Number(number) => self.add(&number.to_string(), kind, field),
             Value::Array(values) => values.iter().for_each(|value| self.add_values(value, kind, field)),
             // The parts of e.g. an address, apart from its country, which does not identify anyone.
-            Value::Object(object) => object.iter()
+            Value::Object(object) => object
+                .iter()
                 .filter(|(key, _)| !key.to_lowercase().contains("country"))
                 .for_each(|(_, value)| self.add_values(value, kind, field)),
-            _ => {},
+            _ => {}
         }
     }
 }
@@ -364,7 +404,10 @@ impl Found {
 /// it is still recognised as what it is, e.g. an account number keeps its A- prefix.
 fn same_shape(value: &str, rng: &mut impl Rng) -> String {
     let (prefix, rest) = value.strip_prefix("A-").map_or(("", value), |rest| ("A-", rest));
-    let hex = rest.chars().filter(|c| c.is_ascii_alphabetic()).all(|c| c.is_ascii_hexdigit());
+    let hex = rest
+        .chars()
+        .filter(|c| c.is_ascii_alphabetic())
+        .all(|c| c.is_ascii_hexdigit());
     let mut made_up = String::from(prefix);
     for (index, c) in rest.chars().enumerate() {
         made_up.push(match c {
@@ -414,7 +457,8 @@ impl Replacer {
         let joins = |c: char| c.is_alphanumeric() || c == '_' || (digits && (c == '.' || c.is_ascii_digit()));
         let mut before = text[..start].chars().rev();
         let escaped = matches!((before.next(), before.next()), (Some('n' | 'r' | 't'), Some('\\')));
-        (escaped || !text[..start].chars().next_back().is_some_and(joins)) && !text[end..].chars().next().is_some_and(joins)
+        (escaped || !text[..start].chars().next_back().is_some_and(joins))
+            && !text[end..].chars().next().is_some_and(joins)
     }
 
     fn replace(&self, text: &str) -> String {
@@ -430,11 +474,9 @@ impl Replacer {
             let has_letters = matched.chars().any(char::is_alphabetic);
             if matched != pair.from && has_letters && matched == matched.to_uppercase() {
                 result.push_str(&pair.to.to_uppercase());
-            }
-            else if matched != pair.from && has_letters && matched == matched.to_lowercase() {
+            } else if matched != pair.from && has_letters && matched == matched.to_lowercase() {
                 result.push_str(&pair.to.to_lowercase());
-            }
-            else {
+            } else {
                 result.push_str(&pair.to);
             }
             last = found.end();
@@ -479,14 +521,16 @@ fn read_tree(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
 /// timestamp.
 fn newest_file_time(cache_dir: &Path, from: &str, module_ids: &[&String]) -> Option<i64> {
     let mut newest = None;
-    let mut dirs: Vec<PathBuf> = module_ids.iter().map(|module_id| cache_dir.join(format!("{from}-{module_id}"))).collect();
+    let mut dirs: Vec<PathBuf> = module_ids
+        .iter()
+        .map(|module_id| cache_dir.join(format!("{from}-{module_id}")))
+        .collect();
     while let Some(dir) = dirs.pop() {
         for entry in fs::read_dir(&dir).ok()?.flatten() {
             let path = entry.path();
             if path.is_dir() {
                 dirs.push(path);
-            }
-            else if let Ok(modified) = entry.metadata().and_then(|metadata| metadata.modified())
+            } else if let Ok(modified) = entry.metadata().and_then(|metadata| metadata.modified())
                 && let Ok(time) = modified.duration_since(std::time::UNIX_EPOCH)
             {
                 newest = newest.max(Some(time.as_secs() as i64));
@@ -498,7 +542,9 @@ fn newest_file_time(cache_dir: &Path, from: &str, module_ids: &[&String]) -> Opt
 
 /// The mapping file, in the real home directory, not the data directory, so that it is not with the data.
 fn mapping_path() -> anyhow::Result<PathBuf> {
-    Ok(std::env::home_dir().ok_or_else(|| anyhow!("Unable to find the home directory"))?.join(MAPPING_FILE))
+    Ok(std::env::home_dir()
+        .ok_or_else(|| anyhow!("Unable to find the home directory"))?
+        .join(MAPPING_FILE))
 }
 
 /// The modules whose data can be redacted. The others are left out of a redacted profile, as what identifies you in
@@ -520,7 +566,9 @@ pub fn redact_profile(from: &str, to: &str) -> anyhow::Result<()> {
         bail!("The new profile must have a different name to the one it is redacted from");
     }
     let profiles: ProfileFile = crate::profile::read_profile_file_at(&MarcoSparkoContext::get_file_path()?)?;
-    let source = profiles.iter().find(|profile| profile_names_equal(&profile.name, from))
+    let source = profiles
+        .iter()
+        .find(|profile| profile_names_equal(&profile.name, from))
         .ok_or_else(|| anyhow!("There is no profile {from}"))?;
     if let Some(existing) = profiles.iter().find(|profile| profile_names_equal(&profile.name, to))
         && !existing.offline
@@ -531,7 +579,11 @@ pub fn redact_profile(from: &str, to: &str) -> anyhow::Result<()> {
     let mut mapping = Mapping::load(mapping_path()?)?;
     let patterns = Patterns::new();
     let cache_dir = MarcoSparkoContext::get_cache_dir_path()?;
-    let module_ids: Vec<&String> = source.modules.keys().filter(|module_id| is_redactable(module_id)).collect();
+    let module_ids: Vec<&String> = source
+        .modules
+        .keys()
+        .filter(|module_id| is_redactable(module_id))
+        .collect();
     for module_id in source.modules.keys().filter(|module_id| !is_redactable(module_id)) {
         println!("Leaving out {module_id}, whose data cannot be redacted yet");
     }
@@ -565,7 +617,14 @@ pub fn redact_profile(from: &str, to: &str) -> anyhow::Result<()> {
         for (name, text) in files {
             let new_name = replacer.replace(name);
             let new_text = replacer.replace(&patterns.remove_secrets(text));
-            problems.extend(check(&replacer, &patterns, &made_up, &format!("{module_id}/{new_name}"), &new_name, &new_text));
+            problems.extend(check(
+                &replacer,
+                &patterns,
+                &made_up,
+                &format!("{module_id}/{new_name}"),
+                &new_name,
+                &new_text,
+            ));
             copies.push((target_dir.join(&new_name), new_text));
             file_count += 1;
         }
@@ -573,7 +632,10 @@ pub fn redact_profile(from: &str, to: &str) -> anyhow::Result<()> {
     if !problems.is_empty() {
         problems.sort();
         problems.dedup();
-        bail!("The redacted copy was not made, as it would still identify you:\n  {}", problems.join("\n  "));
+        bail!(
+            "The redacted copy was not made, as it would still identify you:\n  {}",
+            problems.join("\n  ")
+        );
     }
 
     // Replace any previous redacted copy.
@@ -605,16 +667,26 @@ pub fn redact_profile(from: &str, to: &str) -> anyhow::Result<()> {
 fn report_added(added: &BTreeMap<Kind, usize>, mapping: &Mapping) {
     if added.is_empty() {
         println!("Every identifier was already in {}.", mapping.path.display());
-    }
-    else {
+    } else {
         let added: Vec<String> = added.iter().map(|(kind, count)| format!("{count} {kind:?}")).collect();
-        println!("Added replacements for {} new identifiers to {}.", added.join(", "), mapping.path.display());
+        println!(
+            "Added replacements for {} new identifiers to {}.",
+            added.join(", "),
+            mapping.path.display()
+        );
     }
 }
 
 /// What is wrong with a redacted file, called label in the report, whose name and text are given: an original value
 /// or secret left in it, or an identifier which is not a made up one.
-fn check(replacer: &Replacer, patterns: &Patterns, made_up: &HashSet<String>, label: &str, name: &str, text: &str) -> Vec<String> {
+fn check(
+    replacer: &Replacer,
+    patterns: &Patterns,
+    made_up: &HashSet<String>,
+    label: &str,
+    name: &str,
+    text: &str,
+) -> Vec<String> {
     let mut problems = Vec::new();
     if replacer.finds(name) || replacer.finds(text) {
         problems.push(format!("{label} still has an original value"));
@@ -639,7 +711,9 @@ fn redact_document(text: &str, replacer: &Replacer) -> String {
     let refresh_token = Regex::new("\"[a-zA-Z0-9]{60,70}\"").unwrap();
     let token = Regex::new("\"[^\"]{800,900}\"").unwrap();
     // Line by line, so that a pattern never matches across lines.
-    replacer.replace(text).split_inclusive('\n')
+    replacer
+        .replace(text)
+        .split_inclusive('\n')
         .map(|line| {
             let line = api_key.replace_all(line, DOCS_API_KEY);
             let line = refresh_token.replace_all(&line, DOCS_REFRESH_TOKEN);
@@ -671,14 +745,21 @@ pub fn redact_docs() -> anyhow::Result<()> {
     let mut problems = Vec::new();
     let mut copies = Vec::new();
     for (name, text) in &files {
-        let new_text = if name.ends_with(".md") { redact_document(text, &replacer) } else { text.clone() };
+        let new_text = if name.ends_with(".md") {
+            redact_document(text, &replacer)
+        } else {
+            text.clone()
+        };
         problems.extend(check(&replacer, &patterns, &made_up, name, "", &new_text));
         copies.push((target.join(name), new_text));
     }
     if !problems.is_empty() {
         problems.sort();
         problems.dedup();
-        bail!("The documents were not redacted, as they would still identify you:\n  {}", problems.join("\n  "));
+        bail!(
+            "The documents were not redacted, as they would still identify you:\n  {}",
+            problems.join("\n  ")
+        );
     }
     for (path, text) in &copies {
         if let Some(parent) = path.parent() {
@@ -686,7 +767,12 @@ pub fn redact_docs() -> anyhow::Result<()> {
         }
         fs::write(path, text)?;
     }
-    println!("Redacted {} documents from {} into {}.", copies.len(), source.display(), target.display());
+    println!(
+        "Redacted {} documents from {} into {}.",
+        copies.len(),
+        source.display(),
+        target.display()
+    );
     report_added(&added, &mapping);
     Ok(())
 }
@@ -698,14 +784,33 @@ mod tests {
     #[test]
     fn whole_values_are_replaced_in_any_case() {
         let replacer = Replacer::new(vec![
-            Pair { from: String::from("Cambridgeshire"), to: String::from("Borsetshire") },
-            Pair { from: String::from("Cambridge"), to: String::from("Borchester") },
-            Pair { from: String::from("1234567"), to: String::from("7654321") },
-        ]).unwrap();
-        assert_eq!(replacer.replace("Cambridge, Cambridgeshire, CAMBRIDGE, cambridge"), "Borchester, Borsetshire, BORCHESTER, borchester");
-        assert_eq!(replacer.replace("[\"1234567\",1234567,0.1234567,12345678,A1234567]"), "[\"7654321\",7654321,0.1234567,12345678,A1234567]");
+            Pair {
+                from: String::from("Cambridgeshire"),
+                to: String::from("Borsetshire"),
+            },
+            Pair {
+                from: String::from("Cambridge"),
+                to: String::from("Borchester"),
+            },
+            Pair {
+                from: String::from("1234567"),
+                to: String::from("7654321"),
+            },
+        ])
+        .unwrap();
+        assert_eq!(
+            replacer.replace("Cambridge, Cambridgeshire, CAMBRIDGE, cambridge"),
+            "Borchester, Borsetshire, BORCHESTER, borchester"
+        );
+        assert_eq!(
+            replacer.replace("[\"1234567\",1234567,0.1234567,12345678,A1234567]"),
+            "[\"7654321\",7654321,0.1234567,12345678,A1234567]"
+        );
         // Lines of an address in JSON.
-        assert_eq!(replacer.replace("\"1 Road\\nCambridge\\nCAMBRIDGESHIRE\""), "\"1 Road\\nBorchester\\nBORSETSHIRE\"");
+        assert_eq!(
+            replacer.replace("\"1 Road\\nCambridge\\nCAMBRIDGESHIRE\""),
+            "\"1 Road\\nBorchester\\nBORSETSHIRE\""
+        );
         assert!(replacer.finds("x\\nCambridge"));
         assert!(replacer.finds("x 1234567 y"));
         assert!(!replacer.finds("x 91234567 y"));
@@ -714,16 +819,34 @@ mod tests {
     #[test]
     fn pairs_are_read_back_as_they_were_written() {
         for pair in [
-            Pair { from: String::from("Real"), to: String::from("Made Up") },
-            Pair { from: String::from("1, The Street"), to: String::from("Address 1") },
-            Pair { from: String::from("Say \"hello\""), to: String::from("#1") },
+            Pair {
+                from: String::from("Real"),
+                to: String::from("Made Up"),
+            },
+            Pair {
+                from: String::from("1, The Street"),
+                to: String::from("Address 1"),
+            },
+            Pair {
+                from: String::from("Say \"hello\""),
+                to: String::from("#1"),
+            },
         ] {
             assert_eq!(parse_csv_line(&csv_line(&pair, 20)), Some(pair));
         }
-        let street = Pair { from: String::from("1, The Street"), to: String::from("Address 1") };
+        let street = Pair {
+            from: String::from("1, The Street"),
+            to: String::from("Address 1"),
+        };
         assert_eq!(csv_line(&street, 20), "\"1, The Street\",     Address 1");
         assert_eq!(parse_csv_line("\"1, The Street\" ,   Address 1  "), Some(street));
-        assert_eq!(parse_csv_line("\" padded \",x"), Some(Pair { from: String::from(" padded "), to: String::from("x") }));
+        assert_eq!(
+            parse_csv_line("\" padded \",x"),
+            Some(Pair {
+                from: String::from(" padded "),
+                to: String::from("x")
+            })
+        );
         assert_eq!(parse_csv_line("one value"), None);
         assert_eq!(parse_csv_line("a,b,c"), None);
     }
@@ -733,10 +856,18 @@ mod tests {
         let mut rng = rand::rng();
         let account = same_shape("A-B1C2D34E", &mut rng);
         assert!(account.starts_with("A-") && account.len() == 10, "{account}");
-        assert!(account[2..].chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_lowercase()), "{account}");
+        assert!(
+            account[2..]
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_lowercase()),
+            "{account}"
+        );
         let device = same_shape("01-23-45-67-89-AB-CD-EF", &mut rng);
         assert_eq!(device.matches('-').count(), 7, "{device}");
         let number = same_shape("1012345678901", &mut rng);
-        assert!(number.len() == 13 && number.chars().all(|c| c.is_ascii_digit()) && !number.starts_with('0'), "{number}");
+        assert!(
+            number.len() == 13 && number.chars().all(|c| c.is_ascii_digit()) && !number.starts_with('0'),
+            "{number}"
+        );
     }
 }

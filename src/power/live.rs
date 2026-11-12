@@ -37,22 +37,38 @@ type Reading = (f64, Option<i64>);
 /// e.g. before the first readings.
 pub fn live(topology: &Circuit, measurements: &[Arc<dyn Measurements>]) -> Option<Live> {
     let used = topology.channel_ids();
-    let placed: Vec<&Arc<dyn Measurements>> = measurements.iter()
+    let placed: Vec<&Arc<dyn Measurements>> = measurements
+        .iter()
         .filter(|measurements| measurements.channels().iter().any(|channel| used.contains(channel)))
         .collect();
     let time = placed.iter().filter_map(|measurements| measurements.latest()).max()?;
     let measured = |circuit: &Circuit| -> Option<Reading> {
-        let quiet = |(power, older): Reading| (if circuit.use_ == Use::Solar && power.abs() < SOLAR_NOISE { 0.0 } else { power }, older);
-        circuit.channels.iter().find_map(|channel| {
-            placed.iter().find_map(|measurements| {
-                if let Some(power) = measurements.power(channel, time - WINDOW, time) {
-                    return Some((power, None));
-                }
-                // Not there yet: its own latest.
-                let latest = measurements.latest()?;
-                measurements.power(channel, latest - WINDOW, latest).map(|power| (power, Some(latest)))
+        let quiet = |(power, older): Reading| {
+            (
+                if circuit.use_ == Use::Solar && power.abs() < SOLAR_NOISE {
+                    0.0
+                } else {
+                    power
+                },
+                older,
+            )
+        };
+        circuit
+            .channels
+            .iter()
+            .find_map(|channel| {
+                placed.iter().find_map(|measurements| {
+                    if let Some(power) = measurements.power(channel, time - WINDOW, time) {
+                        return Some((power, None));
+                    }
+                    // Not there yet: its own latest.
+                    let latest = measurements.latest()?;
+                    measurements
+                        .power(channel, latest - WINDOW, latest)
+                        .map(|power| (power, Some(latest)))
+                })
             })
-        }).map(quiet)
+            .map(quiet)
     };
     let (mut power, mut older) = (Vec::new(), Vec::new());
     walk(topology, measured(topology), &measured, &mut power, &mut older);
@@ -66,9 +82,13 @@ fn oldest<'a>(readings: impl IntoIterator<Item = &'a Reading>) -> Option<i64> {
 
 /// Adds circuit's power, own, if it is known, or if it is not, the total of the circuits it feeds, if they are all
 /// known, then theirs, to power and older, see Live.
-fn walk(circuit: &Circuit, own: Option<Reading>, measured: &dyn Fn(&Circuit) -> Option<Reading>, power: &mut Vec<Option<f64>>,
-    older: &mut Vec<Option<i64>>)
-{
+fn walk(
+    circuit: &Circuit,
+    own: Option<Reading>,
+    measured: &dyn Fn(&Circuit) -> Option<Reading>,
+    power: &mut Vec<Option<f64>>,
+    older: &mut Vec<Option<i64>>,
+) {
     let children: Vec<Option<Reading>> = circuit.children.iter().map(measured).collect();
     let unmeasured = children.iter().filter(|child| child.is_none()).count();
     let known: f64 = children.iter().flatten().map(|(power, _)| power).sum();
@@ -79,9 +99,8 @@ fn walk(circuit: &Circuit, own: Option<Reading>, measured: &dyn Fn(&Circuit) -> 
     for (child, child_reading) in circuit.children.iter().zip(children) {
         // The one without a channel has the rest.
         let child_reading = child_reading.or_else(|| {
-            own.filter(|_| unmeasured == 1).map(|(own_power, own_older)| {
-                (own_power - known, [own_older, known_older].into_iter().flatten().min())
-            })
+            own.filter(|_| unmeasured == 1)
+                .map(|(own_power, own_older)| (own_power - known, [own_older, known_older].into_iter().flatten().min()))
         });
         walk(child, child_reading, measured, power, older);
     }
@@ -106,7 +125,11 @@ mod tests {
         let live = live(&beside_the_gateway(), &measurements).unwrap();
         assert_eq!(live.time, DAY + 1820);
         // Grid, Car, Gateway, Battery, Solar, House.
-        let power: Vec<Option<i64>> = live.power.iter().map(|power| power.map(|power| power.round() as i64)).collect();
+        let power: Vec<Option<i64>> = live
+            .power
+            .iter()
+            .map(|power| power.map(|power| power.round() as i64))
+            .collect();
         assert_eq!(power, [None, None, Some(7000), Some(5000), Some(0), Some(2000)]);
         assert!(live.older.iter().all(Option::is_none));
     }
@@ -118,9 +141,16 @@ mod tests {
         for registers in &mut night {
             registers.solar_power = 20.0;
         }
-        let measurements: Vec<Arc<dyn Measurements>> = vec![Arc::new(RegisterMeasurements { name: String::from("Tesla"), registers: night })];
+        let measurements: Vec<Arc<dyn Measurements>> = vec![Arc::new(RegisterMeasurements {
+            name: String::from("Tesla"),
+            registers: night,
+        })];
         let live = live(&beside_the_gateway(), &measurements).unwrap();
-        let power: Vec<Option<i64>> = live.power.iter().map(|power| power.map(|power| power.round() as i64)).collect();
+        let power: Vec<Option<i64>> = live
+            .power
+            .iter()
+            .map(|power| power.map(|power| power.round() as i64))
+            .collect();
         // Gateway, Battery, Solar, House: the house is the gateway's less the batteries', with the solar none.
         assert_eq!(power[2..], [Some(7000), Some(5000), Some(0), Some(2000)]);
     }
@@ -160,16 +190,29 @@ mod tests {
     #[test]
     fn a_channel_behind_the_others_gives_its_latest_and_says_when() {
         let measurements: Vec<Arc<dyn Measurements>> = vec![
-            Arc::new(RegisterMeasurements { name: String::from("Tesla"), registers: registers(DAY - 20, DAY + 1820, 7000.0, 5000.0) }),
-            Arc::new(Lagging { latest: DAY + 1500, watts: 7200.0 }),
+            Arc::new(RegisterMeasurements {
+                name: String::from("Tesla"),
+                registers: registers(DAY - 20, DAY + 1820, 7000.0, 5000.0),
+            }),
+            Arc::new(Lagging {
+                latest: DAY + 1500,
+                watts: 7200.0,
+            }),
         ];
         let mut topology = beside_the_gateway();
         topology.children[0].channels.push(String::from("myenergi:Z1"));
         let live = live(&topology, &measurements).unwrap();
         // The gateway's latest, the newest.
         assert_eq!(live.time, DAY + 1820);
-        let power: Vec<Option<i64>> = live.power.iter().map(|power| power.map(|power| power.round() as i64)).collect();
-        assert_eq!(power, [Some(14200), Some(7200), Some(7000), Some(5000), Some(0), Some(2000)]);
+        let power: Vec<Option<i64>> = live
+            .power
+            .iter()
+            .map(|power| power.map(|power| power.round() as i64))
+            .collect();
+        assert_eq!(
+            power,
+            [Some(14200), Some(7200), Some(7000), Some(5000), Some(0), Some(2000)]
+        );
         // The car, and the grid worked out from it, are of the car's latest; the gateway's are current.
         assert_eq!(live.older, [Some(DAY + 1500), Some(DAY + 1500), None, None, None, None]);
     }

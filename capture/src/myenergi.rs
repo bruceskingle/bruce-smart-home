@@ -10,14 +10,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::anyhow;
-use chrono::{DateTime, Utc};
-use croner::Cron;
-use embedded_svc::http::client::Client;
-use esp_idf_svc::http::Method;
-use esp_idf_svc::http::client::{Configuration, EspHttpConnection};
-use log::{info, warn};
-use md5::{Digest, Md5};
-use serde_json::{Value, json};
 use bruce_embedded_std::config::ConfigSpec;
 use bruce_embedded_std::config::ConfigSpecValue;
 use bruce_embedded_std::config::FeatureConfig;
@@ -26,6 +18,14 @@ use bruce_embedded_std::feature::FeatureDescriptor;
 use bruce_embedded_std::platform::PlatformInitializer;
 use bruce_embedded_std::task::scheduler::ScheduledTask;
 use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
+use chrono::{DateTime, Utc};
+use croner::Cron;
+use embedded_svc::http::client::Client;
+use esp_idf_svc::http::Method;
+use esp_idf_svc::http::client::{Configuration, EspHttpConnection};
+use log::{info, warn};
+use md5::{Digest, Md5};
+use serde_json::{Value, json};
 
 use crate::connections::KeptConnection;
 use crate::db::Db;
@@ -90,7 +90,10 @@ impl Feature for MyenergiCapture {
 
     fn init(&self, initializer: &mut Esp32PlatformInitializer) -> anyhow::Result<FeatureDescriptor> {
         self.panel.start(initializer)?;
-        Ok(FeatureDescriptor { name: FEATURE_NAME.to_string(), config: MyenergiConfig::to_config_spec()? })
+        Ok(FeatureDescriptor {
+            name: FEATURE_NAME.to_string(),
+            config: MyenergiConfig::to_config_spec()?,
+        })
     }
 
     fn start(
@@ -128,7 +131,9 @@ impl Feature for MyenergiCapture {
         initializer.add_task(Box::new(poll), &schedule_spec)?;
 
         // For the app, at /api/store/info, see db.rs.
-        self.db.add_status("myenergi", move |db| device.to_json(db, store.lock().unwrap().last_poll.as_ref()));
+        self.db.add_status("myenergi", move |db| {
+            device.to_json(db, store.lock().unwrap().last_poll.as_ref())
+        });
         Ok(())
     }
 }
@@ -173,7 +178,8 @@ impl Myenergi {
             let mut cnonce = [0u8; 8];
             unsafe { esp_idf_sys::esp_fill_random(cnonce.as_mut_ptr() as *mut _, cnonce.len()) };
             let cnonce: String = cnonce.iter().map(|byte| format!("{byte:02x}")).collect();
-            let authorization = digest_authorization(&challenge, &self.hub, &self.key, "GET", path, self.count, &cnonce);
+            let authorization =
+                digest_authorization(&challenge, &self.hub, &self.key, "GET", path, self.count, &cnonce);
             exchange = send(&mut client, &url, &[("Authorization", &authorization)])?;
         }
         if let Some(asn) = exchange.asn.filter(|asn| !asn.is_empty() && *asn != self.host) {
@@ -208,7 +214,12 @@ fn send(client: &mut Client<EspHttpConnection>, url: &str, headers: &[(&str, &st
     let challenge = response.header("WWW-Authenticate").map(String::from);
     let asn = response.header(ASN_HEADER).map(|asn| asn.trim().to_string());
     let body = read_body(&mut response)?;
-    Ok(Exchange { status, challenge, asn, body })
+    Ok(Exchange {
+        status,
+        challenge,
+        asn,
+        body,
+    })
 }
 
 fn read_body(response: &mut embedded_svc::http::client::Response<&mut EspHttpConnection>) -> anyhow::Result<Vec<u8>> {
@@ -264,25 +275,50 @@ fn parse_challenge(header: &str) -> Option<Challenge> {
         }
         rest = after.trim_start().trim_start_matches(',').trim_start();
     }
-    Some(Challenge { realm: realm?, nonce: nonce?, qop, opaque })
+    Some(Challenge {
+        realm: realm?,
+        nonce: nonce?,
+        qop,
+        opaque,
+    })
 }
 
 fn md5_hex(text: &str) -> String {
-    Md5::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
+    Md5::digest(text.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 /// The Authorization header answering challenge, as bruce-smart-home's src/myenergi/digest.rs.
-fn digest_authorization(challenge: &Challenge, username: &str, password: &str, method: &str, uri: &str, nc: u32, cnonce: &str) -> String {
+fn digest_authorization(
+    challenge: &Challenge,
+    username: &str,
+    password: &str,
+    method: &str,
+    uri: &str,
+    nc: u32,
+    cnonce: &str,
+) -> String {
     let ha1 = md5_hex(&format!("{username}:{}:{password}", challenge.realm));
     let ha2 = md5_hex(&format!("{method}:{uri}"));
     // Only auth is supported, which is all that servers which offer a choice are known to need.
-    let qop = challenge.qop.as_deref().map(|qop| qop.split(',').map(str::trim).find(|qop| *qop == "auth").unwrap_or("auth"));
-    let mut header =
-        format!("Digest username=\"{username}\", realm=\"{}\", nonce=\"{}\", uri=\"{uri}\"", challenge.realm, challenge.nonce);
+    let qop = challenge.qop.as_deref().map(|qop| {
+        qop.split(',')
+            .map(str::trim)
+            .find(|qop| *qop == "auth")
+            .unwrap_or("auth")
+    });
+    let mut header = format!(
+        "Digest username=\"{username}\", realm=\"{}\", nonce=\"{}\", uri=\"{uri}\"",
+        challenge.realm, challenge.nonce
+    );
     match qop {
         Some(qop) => {
             let response = md5_hex(&format!("{ha1}:{}:{nc:08x}:{cnonce}:{qop}:{ha2}", challenge.nonce));
-            header.push_str(&format!(", qop={qop}, nc={nc:08x}, cnonce=\"{cnonce}\", response=\"{response}\""));
+            header.push_str(&format!(
+                ", qop={qop}, nc={nc:08x}, cnonce=\"{cnonce}\", response=\"{response}\""
+            ));
         }
         None => {
             let response = md5_hex(&format!("{ha1}:{}:{ha2}", challenge.nonce));
@@ -402,7 +438,9 @@ impl PollTask {
                     "firmware": FIRMWARE,
                     "response": response,
                 });
-                if !self.db.put(|store, writer| Ok(Some(crate::device_kinds::myenergi_status(store, &record, writer)?)))
+                if !self
+                    .db
+                    .put(|store, writer| Ok(Some(crate::device_kinds::myenergi_status(store, &record, writer)?)))
                     && self.db.problem().is_some()
                 {
                     store.line.0.push_str(", not stored");
@@ -413,7 +451,11 @@ impl PollTask {
             }
             Err(error) => {
                 warn!("myenergi poll failed, {error:#}");
-                store.last_poll = Some(LastPoll::failed(store.last_poll.as_ref(), received, format!("{error:#}")));
+                store.last_poll = Some(LastPoll::failed(
+                    store.last_poll.as_ref(),
+                    received,
+                    format!("{error:#}"),
+                ));
                 store.line = (format!("myenergi: {error:#}"), true);
             }
         }

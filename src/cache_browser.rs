@@ -16,8 +16,7 @@ fn files(dir: &Path) -> Vec<(PathBuf, SystemTime)> {
             let path = entry.path();
             if path.is_dir() {
                 dirs.push(path);
-            }
-            else if let Ok(modified) = entry.metadata().and_then(|metadata| metadata.modified()) {
+            } else if let Ok(modified) = entry.metadata().and_then(|metadata| metadata.modified()) {
                 found.push((path, modified));
             }
         }
@@ -45,7 +44,10 @@ pub fn CacheBrowser(dir: PathBuf, generation: u32) -> Element {
     let _ = generation;
     let mut selected = use_signal(|| None::<PathBuf>);
     let files = files(&dir);
-    let shown = selected.read().clone().or_else(|| files.first().map(|(path, _)| path.clone()));
+    let shown = selected
+        .read()
+        .clone()
+        .or_else(|| files.first().map(|(path, _)| path.clone()));
 
     rsx! {
         div { class: "cache-browser",

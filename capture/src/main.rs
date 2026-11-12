@@ -50,7 +50,11 @@ mod board {
     pub const SCREEN_SCHEDULE: &str = "* * * * * *";
 
     /// The screen's orientation.
-    pub fn configure(builder: Esp32PlatformBuilder, _panel: &Arc<Panel>, _db: &Arc<crate::db::Db>) -> anyhow::Result<Esp32PlatformBuilder> {
+    pub fn configure(
+        builder: Esp32PlatformBuilder,
+        _panel: &Arc<Panel>,
+        _db: &Arc<crate::db::Db>,
+    ) -> anyhow::Result<Esp32PlatformBuilder> {
         builder.with_display_orientation(ORIENTATION)
     }
 
@@ -77,7 +81,11 @@ mod board {
     pub const SCREEN_SCHEDULE: &str = "* * * * * *";
 
     /// The screen's orientation; swipes show the status, see screen.rs.
-    pub fn configure(builder: Esp32PlatformBuilder, _panel: &Arc<Panel>, _db: &Arc<crate::db::Db>) -> anyhow::Result<Esp32PlatformBuilder> {
+    pub fn configure(
+        builder: Esp32PlatformBuilder,
+        _panel: &Arc<Panel>,
+        _db: &Arc<crate::db::Db>,
+    ) -> anyhow::Result<Esp32PlatformBuilder> {
         builder.with_display_orientation(ORIENTATION)
     }
 
@@ -103,7 +111,11 @@ mod board {
     pub const SCREEN_SCHEDULE: &str = "* * * * * *";
 
     /// BOOT shows the status, as KEY does on the RLCD, as a swipe does, see screen.rs.
-    pub fn configure(builder: Esp32PlatformBuilder, panel: &Arc<Panel>, _db: &Arc<crate::db::Db>) -> anyhow::Result<Esp32PlatformBuilder> {
+    pub fn configure(
+        builder: Esp32PlatformBuilder,
+        panel: &Arc<Panel>,
+        _db: &Arc<crate::db::Db>,
+    ) -> anyhow::Result<Esp32PlatformBuilder> {
         let panel = panel.clone();
         Ok(builder.with_boot_button(move |_sparko| {
             Ok(Box::new(move || {
@@ -123,10 +135,10 @@ mod board {
 mod board {
     use std::sync::Arc;
 
-    use embedded_graphics::prelude::{Point, Size};
-    use embedded_graphics::primitives::Rectangle;
     use bruce_esp_idf::features::analog_clock::AnalogClock;
     use bruce_esp_idf::{Esp32PlatformBuilder, Esp32PlatformRunner};
+    use embedded_graphics::prelude::{Point, Size};
+    use embedded_graphics::primitives::Rectangle;
 
     use crate::screen::Panel;
 
@@ -139,7 +151,11 @@ mod board {
 
     /// The clock, the log of the board's temperature and humidity sensor, see climate.rs, and the KEY button, which
     /// shows the status, as a swipe does on the touch screen.
-    pub fn configure(builder: Esp32PlatformBuilder, panel: &Arc<Panel>, db: &Arc<crate::db::Db>) -> anyhow::Result<Esp32PlatformBuilder> {
+    pub fn configure(
+        builder: Esp32PlatformBuilder,
+        panel: &Arc<Panel>,
+        db: &Arc<crate::db::Db>,
+    ) -> anyhow::Result<Esp32PlatformBuilder> {
         let panel = panel.clone();
         Ok(builder
             .with_feature(Box::new(crate::climate::ClimateCapture::new(panel.clone(), db.clone())))?
@@ -189,8 +205,16 @@ fn main() -> anyhow::Result<()> {
     // The store first, so that it is open when the features start, and their first polls put their records in it.
     let builder = builder.with_feature(Box::new(db::StoreFeature::new(db.clone(), panel.clone())))?;
     let sparko_esp32 = board::configure(builder, &panel, &db)?
-        .with_feature(Box::new(tesla::TeslaCapture::new(panel.clone(), db.clone(), gateway.clone())))?
-        .with_feature(Box::new(myenergi::MyenergiCapture::new(panel.clone(), db.clone(), gateway.clone())))?
+        .with_feature(Box::new(tesla::TeslaCapture::new(
+            panel.clone(),
+            db.clone(),
+            gateway.clone(),
+        )))?
+        .with_feature(Box::new(myenergi::MyenergiCapture::new(
+            panel.clone(),
+            db.clone(),
+            gateway.clone(),
+        )))?
         .with_feature(Box::new(octopus::OctopusCapture::new(panel.clone(), db, gateway)))?
         .with_firmware(bruce_esp_idf::firmware!())
         .build()?;

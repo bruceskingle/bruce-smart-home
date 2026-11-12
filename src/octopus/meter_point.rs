@@ -13,7 +13,11 @@ pub struct MeterPointDataSet {
 }
 
 impl MeterPointDataSet {
-    pub async fn new(account_number: &String, config: &Arc<CacheConfig>, request_manager: &impl GraphQLCaller)  -> anyhow::Result<Self> {
+    pub async fn new(
+        account_number: &String,
+        config: &Arc<CacheConfig>,
+        request_manager: &impl GraphQLCaller,
+    ) -> anyhow::Result<Self> {
         // Named for the time of use schemes, which earlier versions did not fetch, so that they are fetched at once.
         let hash_key = format!("{}#MeterPointsWithTimesOfUse", account_number);
         let query_provider = || {
@@ -26,14 +30,14 @@ impl MeterPointDataSet {
             Duration::from_hours(24),
             query_provider,
             config,
-            request_manager
-        ).await?;
+            request_manager,
+        )
+        .await?;
 
         let mut meter_points = Vec::new();
         let account = if let Some(account) = data_set.data.account_ {
             account
-        }
-        else {
+        } else {
             return Err(anyhow!("No account found"));
         };
 
@@ -43,8 +47,6 @@ impl MeterPointDataSet {
             }
         }
 
-        Ok(Self {
-            meter_points,
-        })
+        Ok(Self { meter_points })
     }
 }

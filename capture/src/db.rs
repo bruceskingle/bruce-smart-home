@@ -11,9 +11,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bruce_db::{Cursor, Id, Item, Micros, Part, Store};
-use chrono::{DateTime, Utc};
-use log::{info, warn};
-use serde_json::{Value, json};
 use bruce_embedded_std::config::ConfigSpec;
 use bruce_embedded_std::config::ConfigSpecValue;
 use bruce_embedded_std::config::FeatureConfig;
@@ -22,6 +19,9 @@ use bruce_embedded_std::feature::FeatureDescriptor;
 use bruce_embedded_std::platform::PlatformInitializer;
 use bruce_embedded_std::task::scheduler::ScheduledTask;
 use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
+use chrono::{DateTime, Utc};
+use log::{info, warn};
+use serde_json::{Value, json};
 
 use crate::device_kinds::{self, Writer};
 use crate::screen::Panel;
@@ -73,7 +73,10 @@ struct State {
 
 impl Db {
     pub fn new() -> Arc<Db> {
-        Arc::new(Db { state: Mutex::new(State::default()), statuses: Mutex::new(Vec::new()) })
+        Arc::new(Db {
+            state: Mutex::new(State::default()),
+            statuses: Mutex::new(Vec::new()),
+        })
     }
 
     pub fn store(&self) -> Option<Arc<Store>> {
@@ -143,9 +146,9 @@ impl Db {
             state.problem = Some("No site: the app sets it when it adopts the device".to_string());
             return;
         };
-        let opened = Id::parse(site).or_else(|_| Id::from_hex(site)).and_then(|site| {
-            Store::open(&format!("file://{}", mount_point.join("store").display()), &site)
-        });
+        let opened = Id::parse(site)
+            .or_else(|_| Id::from_hex(site))
+            .and_then(|site| Store::open(&format!("file://{}", mount_point.join("store").display()), &site));
         match opened {
             Ok(store) => {
                 info!("Store {} opened for the site {site}", store.store_id());
@@ -162,20 +165,31 @@ impl Db {
     /// Converts the records a feature kept before the store, in /sd/capture/<feature>/, each line made an item by
     /// make, once: a record of CONVERTED_KIND says it has been, so that a conversion cut short, e.g. by a restart, is
     /// done again, which puts again what was put, changing nothing, see the design. Its progress is on the screen.
-    pub fn convert(&self, panel: &Panel, feature: &str, make: &dyn Fn(&Store, Writer, &Value) -> anyhow::Result<Option<Item>>) {
+    pub fn convert(
+        &self,
+        panel: &Panel,
+        feature: &str,
+        make: &dyn Fn(&Store, Writer, &Value) -> anyhow::Result<Option<Item>>,
+    ) {
         if let Err(error) = self.try_convert(panel, feature, make) {
             warn!("Unable to convert the old {feature} records, {error:#}");
             panel.set(PANEL_ORDER, vec![(format!("Converting {feature}: {error:#}"), true)]);
         }
     }
 
-    fn try_convert(&self, panel: &Panel, feature: &str, make: &dyn Fn(&Store, Writer, &Value) -> anyhow::Result<Option<Item>>)
-        -> anyhow::Result<()> {
+    fn try_convert(
+        &self,
+        panel: &Panel,
+        feature: &str,
+        make: &dyn Fn(&Store, Writer, &Value) -> anyhow::Result<Option<Item>>,
+    ) -> anyhow::Result<()> {
         let (store, device, mount_point) = {
             let state = self.state.lock().unwrap();
             (state.store.clone(), state.device.clone(), state.mount_point.clone())
         };
-        let (Some(store), Some(mount_point)) = (store, mount_point) else { return Ok(()) };
+        let (Some(store), Some(mount_point)) = (store, mount_point) else {
+            return Ok(());
+        };
         let hk = store.hash_key(CONVERTED_KIND, &[Part::Name(device_kinds::device_part(&device))])?;
         if store.get(&hk, feature)?.is_some() {
             return Ok(());
@@ -188,7 +202,8 @@ impl Db {
             let writer = Writer::Device(&device);
             crate::day_files::write_since(&dir, Some(DateTime::<Utc>::UNIX_EPOCH), None, &mut |line| {
                 read += 1;
-                let item = serde_json::from_slice::<Value>(line).map_err(anyhow::Error::from)
+                let item = serde_json::from_slice::<Value>(line)
+                    .map_err(anyhow::Error::from)
                     .and_then(|record| make(&store, writer, &record));
                 match item {
                     Ok(Some(item)) => {
@@ -200,13 +215,20 @@ impl Db {
                     Ok(None) | Err(_) => skipped += 1,
                 }
                 if read % 200 == 0 {
-                    panel.set(PANEL_ORDER, vec![(format!("Converting {feature}: {read} records"), false)]);
+                    panel.set(
+                        PANEL_ORDER,
+                        vec![(format!("Converting {feature}: {read} records"), false)],
+                    );
                 }
                 Ok(())
             })?;
         }
-        store.put(&Item::new(&hk, feature, bruce_db::Version::new(Micros::now(), &device_kinds::device_part(&device)),
-            json!({ "read": read, "stored": stored, "skipped": skipped, "converted": Micros::now().to_text() })))?;
+        store.put(&Item::new(
+            &hk,
+            feature,
+            bruce_db::Version::new(Micros::now(), &device_kinds::device_part(&device)),
+            json!({ "read": read, "stored": stored, "skipped": skipped, "converted": Micros::now().to_text() }),
+        ))?;
         info!("Converted the old {feature} records: {read} read, {stored} stored, {skipped} skipped");
         panel.set(PANEL_ORDER, Vec::new());
         Ok(())
@@ -216,8 +238,10 @@ impl Db {
     fn info(&self) -> Value {
         let store = self.store();
         let statuses = self.statuses.lock().unwrap();
-        let features: serde_json::Map<String, Value> =
-            statuses.iter().map(|(feature, status)| (feature.to_string(), status(self))).collect();
+        let features: serde_json::Map<String, Value> = statuses
+            .iter()
+            .map(|(feature, status)| (feature.to_string(), status(self)))
+            .collect();
         json!({
             "device": self.device(),
             "firmware": crate::device::FIRMWARE,
@@ -248,7 +272,10 @@ impl Feature for StoreFeature {
 
     fn init(&self, initializer: &mut Esp32PlatformInitializer) -> anyhow::Result<FeatureDescriptor> {
         self.panel.start(initializer)?;
-        Ok(FeatureDescriptor { name: FEATURE_NAME.to_string(), config: StoreConfig::to_config_spec()? })
+        Ok(FeatureDescriptor {
+            name: FEATURE_NAME.to_string(),
+            config: StoreConfig::to_config_spec()?,
+        })
     }
 
     fn start(
@@ -258,24 +285,43 @@ impl Feature for StoreFeature {
         config: StoreConfig,
     ) -> anyhow::Result<()> {
         let device = sparko.device_id().unwrap_or_default();
-        self.db.open(device.clone(), sparko.sd_card(), config.store_site.as_deref());
+        self.db
+            .open(device.clone(), sparko.sd_card(), config.store_site.as_deref());
         let name = crate::device::captured_by(sparko);
-        self.db.put(|store, writer| Ok(Some(device_kinds::device_info(store, &device, &name, Micros::now(), writer)?)));
+        self.db.put(|store, writer| {
+            Ok(Some(device_kinds::device_info(
+                store,
+                &device,
+                &name,
+                Micros::now(),
+                writer,
+            )?))
+        });
 
         // The old records of the features which do not need anything from a poll to know their records' keys, in a
         // thread of their own, while the features poll; Octopus's needs its account, see octopus.rs.
         let db = self.db.clone();
         let panel = self.panel.clone();
         std::thread::Builder::new().stack_size(16 * 1024).spawn(move || {
-            db.convert(&panel, "tesla", &|store, writer, record| Ok(Some(device_kinds::tesla_snapshot(store, record, writer)?)));
+            db.convert(&panel, "tesla", &|store, writer, record| {
+                Ok(Some(device_kinds::tesla_snapshot(store, record, writer)?))
+            });
             db.convert(&panel, "myenergi", &|store, writer, record| {
                 Ok(Some(device_kinds::myenergi_status(store, record, writer)?))
             });
             let device = db.device();
-            db.convert(&panel, "climate", &|store, _, record| device_kinds::climate_period(store, &device, record));
+            db.convert(&panel, "climate", &|store, _, record| {
+                device_kinds::climate_period(store, &device, record)
+            });
         })?;
 
-        initializer.add_task(Box::new(CompactTask { db: self.db.clone(), running: Arc::new(AtomicBool::new(false)) }), COMPACT_SCHEDULE)?;
+        initializer.add_task(
+            Box::new(CompactTask {
+                db: self.db.clone(),
+                running: Arc::new(AtomicBool::new(false)),
+            }),
+            COMPACT_SCHEDULE,
+        )?;
 
         let db = self.db.clone();
         sparko.api_get("/api/store/info", move |request| {
@@ -328,7 +374,9 @@ fn changes(
     request: esp_idf_svc::http::server::Request<&mut esp_idf_svc::http::server::EspHttpConnection<'_>>,
     db: &Db,
 ) -> anyhow::Result<()> {
-    let since = parameter(request.uri(), "since").and_then(|value| value.parse().ok()).unwrap_or(0);
+    let since = parameter(request.uri(), "since")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
     let limit = parameter(request.uri(), "limit")
         .and_then(|value| value.parse().ok())
         .unwrap_or(DEFAULT_CHANGES)
@@ -338,7 +386,10 @@ fn changes(
         return bruce_esp_idf::api::respond(request, 503, &json!({ "error": problem }));
     };
     let response = request.into_response(200, None, &[("Content-Type", "application/json")])?;
-    let mut out = Chunks { out: response, buffer: Vec::with_capacity(CHUNK + 512) };
+    let mut out = Chunks {
+        out: response,
+        buffer: Vec::with_capacity(CHUNK + 512),
+    };
     out.write(br#"{"device":"#)?;
     out.write(&serde_json::to_vec(&db.device())?)?;
     out.write(br#","site":"#)?;
@@ -352,12 +403,15 @@ fn changes(
     let (sender, receiver) = std::sync::mpsc::sync_channel::<Vec<u8>>(CHANGES_QUEUE);
     let store = &store;
     let result = std::thread::scope(|scope| -> anyhow::Result<anyhow::Result<Cursor>> {
-        let reader = std::thread::Builder::new().stack_size(16 * 1024).spawn_scoped(scope, move || {
-            store.changes(Cursor(since), limit, None, &mut |change| {
-                sender.send(serde_json::to_vec(&change.to_json()?)?)
-                    .map_err(|_| anyhow::Error::new(SendFailed("the response was given up".to_string())))
-            })
-        });
+        let reader = std::thread::Builder::new()
+            .stack_size(16 * 1024)
+            .spawn_scoped(scope, move || {
+                store.changes(Cursor(since), limit, None, &mut |change| {
+                    sender
+                        .send(serde_json::to_vec(&change.to_json()?)?)
+                        .map_err(|_| anyhow::Error::new(SendFailed("the response was given up".to_string())))
+                })
+            });
         // The response has begun, so a reader which could not be started is given as the response's error.
         let reader = match reader {
             Ok(reader) => reader,
@@ -372,7 +426,9 @@ fn changes(
                 break;
             }
         }
-        let read = reader.join().map_err(|_| anyhow::anyhow!("reading the changes panicked"))?;
+        let read = reader
+            .join()
+            .map_err(|_| anyhow::anyhow!("reading the changes panicked"))?;
         written?;
         Ok(read)
     })?;

@@ -13,7 +13,10 @@ use std::rc::{Rc, Weak};
 use dioxus::desktop::muda::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use dioxus::desktop::tao::event::{Event, WindowEvent};
 use dioxus::desktop::tao::window::WindowId;
-use dioxus::desktop::{Config, DesktopService, LogicalPosition, LogicalSize, WindowBuilder, use_muda_event_handler, use_wry_event_handler, window};
+use dioxus::desktop::{
+    Config, DesktopService, LogicalPosition, LogicalSize, WindowBuilder, use_muda_event_handler, use_wry_event_handler,
+    window,
+};
 use dioxus::prelude::*;
 
 const ARRANGE_ID: &str = "arrange-windows";
@@ -66,7 +69,10 @@ thread_local! {
 
 /// Calls f with the state, unless it is in use, or gone because the app is exiting.
 fn with_state<R>(f: impl FnOnce(&mut State) -> R) -> Option<R> {
-    STATE.try_with(|state| state.try_borrow_mut().ok().map(|mut state| f(&mut state))).ok().flatten()
+    STATE
+        .try_with(|state| state.try_borrow_mut().ok().map(|mut state| f(&mut state)))
+        .ok()
+        .flatten()
 }
 
 /// The app's menu bar, for the main window's Config. It is the same as Dioxus's default, except that the Window menu
@@ -112,8 +118,7 @@ pub fn menu_bar() -> Menu {
             &PredefinedMenuItem::quit(None),
         ]);
         let _ = menu_bar.append_items(&[&app_menu, &edit_menu, &window_menu]);
-    }
-    else {
+    } else {
         // The usual order on Windows and Linux, with Exit in the File menu.
         let file_menu = Submenu::new("File", true);
         let _ = file_menu.append(&PredefinedMenuItem::quit(Some("Exit")));
@@ -156,9 +161,15 @@ fn refresh_menu(state: &mut State) {
     for item in menu.listed.drain(..) {
         let _ = menu.window_menu.remove(&item);
     }
-    menu.listed.push(MenuItem::with_id(SHOW_MAIN_ID, MAIN_TITLE, true, None));
+    menu.listed
+        .push(MenuItem::with_id(SHOW_MAIN_ID, MAIN_TITLE, true, None));
     for child in &state.children {
-        menu.listed.push(MenuItem::with_id(format!("{SHOW_CHILD_PREFIX}{}", child.number), &child.title, true, None));
+        menu.listed.push(MenuItem::with_id(
+            format!("{SHOW_CHILD_PREFIX}{}", child.number),
+            &child.title,
+            true,
+            None,
+        ));
     }
     for item in &menu.listed {
         let _ = menu.window_menu.append(item);
@@ -171,7 +182,12 @@ fn refresh_menu(state: &mut State) {
     let _ = menu.close_menu.remove(&menu.close_separator);
     let _ = menu.close_menu.remove(&menu.close_all);
     for child in &state.children {
-        menu.close_listed.push(MenuItem::with_id(format!("{CLOSE_CHILD_PREFIX}{}", child.number), &child.title, true, None));
+        menu.close_listed.push(MenuItem::with_id(
+            format!("{CLOSE_CHILD_PREFIX}{}", child.number),
+            &child.title,
+            true,
+            None,
+        ));
     }
     for item in &menu.close_listed {
         let _ = menu.close_menu.append(item);
@@ -182,11 +198,15 @@ fn refresh_menu(state: &mut State) {
 
 /// The child windows which are open, all of them or the one numbered number.
 fn child_windows(number: Option<u64>) -> Vec<Rc<DesktopService>> {
-    with_state(|state| state.children.iter()
-        .filter(|child| number.is_none_or(|number| child.number == number))
-        .filter_map(|child| child.window.upgrade())
-        .collect())
-        .unwrap_or_default()
+    with_state(|state| {
+        state
+            .children
+            .iter()
+            .filter(|child| number.is_none_or(|number| child.number == number))
+            .filter_map(|child| child.window.upgrade())
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// Called by the main window's App, to handle the Window menu, and close the other windows when it closes.
@@ -197,23 +217,25 @@ pub fn use_main_window() {
         let id = event.id().0.as_str();
         if id == ARRANGE_ID {
             arrange();
-        }
-        else if id == SHOW_MAIN_ID {
+        } else if id == SHOW_MAIN_ID {
             if let Some(main) = with_state(|state| state.main.upgrade()).flatten() {
                 bring_to_front(&main);
             }
-        }
-        else if id == CLOSE_ALL_ID {
+        } else if id == CLOSE_ALL_ID {
             for child in child_windows(None) {
                 child.close();
             }
-        }
-        else if let Some(number) = id.strip_prefix(SHOW_CHILD_PREFIX).and_then(|number| number.parse::<u64>().ok()) {
+        } else if let Some(number) = id
+            .strip_prefix(SHOW_CHILD_PREFIX)
+            .and_then(|number| number.parse::<u64>().ok())
+        {
             for child in child_windows(Some(number)) {
                 bring_to_front(&child);
             }
-        }
-        else if let Some(number) = id.strip_prefix(CLOSE_CHILD_PREFIX).and_then(|number| number.parse::<u64>().ok()) {
+        } else if let Some(number) = id
+            .strip_prefix(CLOSE_CHILD_PREFIX)
+            .and_then(|number| number.parse::<u64>().ok())
+        {
             for child in child_windows(Some(number)) {
                 child.close();
             }
@@ -221,7 +243,12 @@ pub fn use_main_window() {
     });
 
     use_wry_event_handler(|event, _| {
-        if let Event::WindowEvent { window_id, event: WindowEvent::CloseRequested, .. } = event {
+        if let Event::WindowEvent {
+            window_id,
+            event: WindowEvent::CloseRequested,
+            ..
+        } = event
+        {
             let is_main = with_state(|state| state.main.upgrade().is_some_and(|main| main.window.id() == *window_id));
             if is_main == Some(true) {
                 for child in child_windows(None) {
@@ -269,10 +296,10 @@ fn bring_to_front(window: &DesktopService) {
 fn title_bar_height(window: &dioxus::desktop::tao::window::Window) -> f64 {
     if cfg!(target_os = "macos") {
         crate::window_state::MACOS_TITLE_BAR_HEIGHT as f64
-    }
-    else {
+    } else {
         let scale = window.scale_factor();
-        (window.outer_size().to_logical::<f64>(scale).height - window.inner_size().to_logical::<f64>(scale).height).max(0.0)
+        (window.outer_size().to_logical::<f64>(scale).height - window.inner_size().to_logical::<f64>(scale).height)
+            .max(0.0)
     }
 }
 
@@ -281,7 +308,11 @@ fn title_bar_height(window: &dioxus::desktop::tao::window::Window) -> f64 {
 /// short of the main window's bottom right corner. Each one after that is the same size, a title bar further down and
 /// right, so that they overlap with their title bars showing. They may go past the main window, and off the screen,
 /// which is allowed. The cascade starts again when the windows are arranged, or the last is closed.
-fn cascade(main: &DesktopService, anchor: Option<LogicalPosition<f64>>, state: &mut State) -> Option<(LogicalPosition<f64>, LogicalSize<f64>)> {
+fn cascade(
+    main: &DesktopService,
+    anchor: Option<LogicalPosition<f64>>,
+    state: &mut State,
+) -> Option<(LogicalPosition<f64>, LogicalSize<f64>)> {
     let window = &main.window;
     let scale = window.scale_factor();
     let step = title_bar_height(window);
@@ -289,10 +320,15 @@ fn cascade(main: &DesktopService, anchor: Option<LogicalPosition<f64>>, state: &
     let outer_size = window.outer_size().to_logical::<f64>(scale);
     // Where the main window's content is on the screen, below its title bar, see title_bar_height.
     let (content, content_size) = if cfg!(target_os = "macos") {
-        (LogicalPosition::new(outer.x, outer.y + step), LogicalSize::new(outer_size.width, outer_size.height - step))
-    }
-    else {
-        (window.inner_position().ok()?.to_logical::<f64>(scale), window.inner_size().to_logical::<f64>(scale))
+        (
+            LogicalPosition::new(outer.x, outer.y + step),
+            LogicalSize::new(outer_size.width, outer_size.height - step),
+        )
+    } else {
+        (
+            window.inner_position().ok()?.to_logical::<f64>(scale),
+            window.inner_size().to_logical::<f64>(scale),
+        )
     };
     let first = match anchor {
         Some(anchor) => LogicalPosition::new(content.x + anchor.x, content.y + anchor.y),
@@ -322,15 +358,24 @@ pub fn open(key: &str, title: String, anchor: Option<LogicalPosition<f64>>, make
 
 /// Opens a window as open does, but as wide as width_for_height says for the height cascade gives it, if it is given,
 /// e.g. the width at which a page shown whole down the window also fills it across, see globird/bill_pages.rs.
-pub fn open_shaped(key: &str, title: String, anchor: Option<LogicalPosition<f64>>, width_for_height: Option<fn(f64) -> f64>,
-    make_dom: impl FnOnce() -> VirtualDom)
-{
-    let Some((existing, main, menu_bar)) = with_state(|state| (
-        state.children.iter().find(|child| child.key == key).map(|child| child.window.clone()),
-        state.main.upgrade(),
-        state.menu.as_ref().map(|menu| menu.menu_bar.clone()),
-    ))
-    else {
+pub fn open_shaped(
+    key: &str,
+    title: String,
+    anchor: Option<LogicalPosition<f64>>,
+    width_for_height: Option<fn(f64) -> f64>,
+    make_dom: impl FnOnce() -> VirtualDom,
+) {
+    let Some((existing, main, menu_bar)) = with_state(|state| {
+        (
+            state
+                .children
+                .iter()
+                .find(|child| child.key == key)
+                .map(|child| child.window.clone()),
+            state.main.upgrade(),
+            state.menu.as_ref().map(|menu| menu.menu_bar.clone()),
+        )
+    }) else {
         return;
     };
     if let Some(existing) = existing {
@@ -344,15 +389,17 @@ pub fn open_shaped(key: &str, title: String, anchor: Option<LogicalPosition<f64>
         return;
     };
 
-    let placement = with_state(|state| cascade(&main, anchor, state)).flatten()
+    let placement = with_state(|state| cascade(&main, anchor, state))
+        .flatten()
         .map(|(position, size)| match width_for_height {
-            Some(width_for_height) => (position, LogicalSize::new(width_for_height(size.height).max(MIN_WIDTH), size.height)),
+            Some(width_for_height) => (
+                position,
+                LogicalSize::new(width_for_height(size.height).max(MIN_WIDTH), size.height),
+            ),
             None => (position, size),
         });
     #[allow(unused_mut)]
-    let mut window_builder = WindowBuilder::new()
-        .with_title(&title)
-        .with_resizable(true);
+    let mut window_builder = WindowBuilder::new().with_title(&title).with_resizable(true);
     if let Some((position, size)) = placement {
         window_builder = window_builder.with_inner_size(size).with_position(position);
     }
@@ -380,7 +427,13 @@ pub fn open_shaped(key: &str, title: String, anchor: Option<LogicalPosition<f64>
     let number = with_state(|state| {
         let number = state.next_number;
         state.next_number += 1;
-        state.children.push(Child { number, key: key.to_string(), title, window: Weak::new(), id: None });
+        state.children.push(Child {
+            number,
+            key: key.to_string(),
+            title,
+            window: Weak::new(),
+            id: None,
+        });
         refresh_menu(state);
         number
     });
@@ -405,7 +458,8 @@ fn arrange() {
     let Some(main) = with_state(|state| {
         state.cascade = 0;
         state.main.upgrade()
-    }).flatten() else {
+    })
+    .flatten() else {
         return;
     };
     let children = child_windows(None);
@@ -465,7 +519,10 @@ mod platform {
 
     /// The part of the screen the window is on which is not the task bar, in physical pixels.
     fn work_area(hwnd: HWND) -> Option<RECT> {
-        let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
         // SAFETY: the window handle is valid while the window is, and info is the size it says it is.
         let found = unsafe { GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut info).as_bool() };
         found.then_some(info.rcWork)
@@ -478,12 +535,23 @@ mod platform {
         // SAFETY: the window handle is valid while the window is, and visible is the size it says it is.
         let found = unsafe {
             GetWindowRect(hwnd, &mut frame).is_ok()
-                && DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &mut visible as *mut RECT as *mut _, std::mem::size_of::<RECT>() as u32).is_ok()
+                && DwmGetWindowAttribute(
+                    hwnd,
+                    DWMWA_EXTENDED_FRAME_BOUNDS,
+                    &mut visible as *mut RECT as *mut _,
+                    std::mem::size_of::<RECT>() as u32,
+                )
+                .is_ok()
         };
         if !found {
             return (0, 0, 0, 0);
         }
-        (visible.left - frame.left, visible.top - frame.top, frame.right - visible.right, frame.bottom - visible.bottom)
+        (
+            visible.left - frame.left,
+            visible.top - frame.top,
+            frame.right - visible.right,
+            frame.bottom - visible.bottom,
+        )
     }
 
     pub fn arrange(main: &DesktopService, children: &[std::rc::Rc<DesktopService>]) {
@@ -497,11 +565,22 @@ mod platform {
             let (left, top, right, bottom) = invisible_borders(hwnd);
             let x = area.left + width * index as i32;
             // The last one takes up what is left after rounding.
-            let visible_width = if index as i32 == count - 1 { area.right - x } else { width };
+            let visible_width = if index as i32 == count - 1 {
+                area.right - x
+            } else {
+                width
+            };
             // SAFETY: the window handle is valid while the window is.
             let _ = unsafe {
-                SetWindowPos(hwnd, HWND(0), x - left, area.top - top, visible_width + left + right,
-                    area.bottom - area.top + top + bottom, SWP_NOZORDER | SWP_NOACTIVATE)
+                SetWindowPos(
+                    hwnd,
+                    HWND(0),
+                    x - left,
+                    area.top - top,
+                    visible_width + left + right,
+                    area.bottom - area.top + top + bottom,
+                    SWP_NOZORDER | SWP_NOACTIVATE,
+                )
             };
         }
     }
@@ -524,7 +603,10 @@ mod platform {
             // The position is of the frame, the size of the content inside it.
             let outer = window.outer_size();
             let inner = window.inner_size();
-            window.set_outer_position(PhysicalPosition::new(position.x + (width * index as u32) as i32, position.y));
+            window.set_outer_position(PhysicalPosition::new(
+                position.x + (width * index as u32) as i32,
+                position.y,
+            ));
             window.set_inner_size(PhysicalSize::new(
                 width.saturating_sub(outer.width.saturating_sub(inner.width)),
                 size.height.saturating_sub(outer.height.saturating_sub(inner.height)),

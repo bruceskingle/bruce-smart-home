@@ -119,7 +119,10 @@ pub fn octopus_flex(store: &Store, account: &str, record: &Value, writer: Writer
 
 /// A device's DataSet of a series' periods, e.g. temperature.
 pub fn climate_period_key(store: &Store, device_id: &str, series: &str) -> anyhow::Result<String> {
-    store.hash_key(CLIMATE_PERIOD, &[Part::Name(device_part(device_id)), Part::Name(series.to_string())])
+    store.hash_key(
+        CLIMATE_PERIOD,
+        &[Part::Name(device_part(device_id)), Part::Name(series.to_string())],
+    )
 }
 
 /// A period of a device's temperature, humidity or battery, {"series", "start", "end", "value", "unit", "open",
@@ -139,7 +142,12 @@ pub fn climate_period(store: &Store, device_id: &str, record: &Value) -> anyhow:
     }
     let open = record.get("open").and_then(Value::as_bool).unwrap_or(false);
     let version = Version::new(Micros(if open { end.0 } else { end.0 + 1 }), &device_part(device_id));
-    Ok(Some(Item::new(&climate_period_key(store, device_id, series)?, start, version, record.clone())))
+    Ok(Some(Item::new(
+        &climate_period_key(store, device_id, series)?,
+        start,
+        version,
+        record.clone(),
+    )))
 }
 
 pub fn device_info_key(store: &Store, device_id: &str) -> anyhow::Result<String> {

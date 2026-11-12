@@ -20,7 +20,12 @@
 //! The data home is the home directory unless it has been moved elsewhere, e.g. to keep the credentials on another
 //! drive.
 
-use std::{ffi::OsString, fs, path::{Path, PathBuf}, sync::OnceLock};
+use std::{
+    ffi::OsString,
+    fs,
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 
 use anyhow::anyhow;
 
@@ -63,7 +68,9 @@ pub fn data_home() -> anyhow::Result<PathBuf> {
     let data_home = DATA_HOME
         .get_or_init(|| {
             let option = crate::Args::ms_parse().marco_sparko_args.home;
-            let env = std::env::var_os(HOME_ENV_VAR).filter(|path| !path.is_empty()).or_else(|| std::env::var_os(OLD_HOME_ENV_VAR));
+            let env = std::env::var_os(HOME_ENV_VAR)
+                .filter(|path| !path.is_empty())
+                .or_else(|| std::env::var_os(OLD_HOME_ENV_VAR));
             resolve(option, env, dirs::home_dir()).map_err(|error| error.to_string())
         })
         .clone()
@@ -78,7 +85,9 @@ pub fn data_home() -> anyhow::Result<PathBuf> {
 /// The data directory there would be without the --home option, e.g. where the profiles normally are when another
 /// data directory is used for screenshots, see screenshots.rs.
 pub fn usual_data_home() -> anyhow::Result<PathBuf> {
-    let env = std::env::var_os(HOME_ENV_VAR).filter(|path| !path.is_empty()).or_else(|| std::env::var_os(OLD_HOME_ENV_VAR));
+    let env = std::env::var_os(HOME_ENV_VAR)
+        .filter(|path| !path.is_empty())
+        .or_else(|| std::env::var_os(OLD_HOME_ENV_VAR));
     Ok(resolve(None, env, dirs::home_dir())?.path)
 }
 
@@ -116,15 +125,22 @@ pub fn data_home_source() -> Option<String> {
 
 fn resolve(option: Option<PathBuf>, env: Option<OsString>, home: Option<PathBuf>) -> anyhow::Result<DataHome> {
     if let Some(path) = option {
-        return Ok(DataHome { path: std::path::absolute(path)?, source: Some(String::from("the --home option")) });
+        return Ok(DataHome {
+            path: std::path::absolute(path)?,
+            source: Some(String::from("the --home option")),
+        });
     }
 
     if let Some(path) = env.filter(|path| !path.is_empty()) {
-        return Ok(DataHome { path: std::path::absolute(path)?, source: Some(format!("the {} environment variable", HOME_ENV_VAR)) });
+        return Ok(DataHome {
+            path: std::path::absolute(path)?,
+            source: Some(format!("the {} environment variable", HOME_ENV_VAR)),
+        });
     }
 
     let home = home.ok_or(anyhow!("Unable to locate home directory"))?;
-    let pointer_file = [POINTER_FILE_NAME, OLD_POINTER_FILE_NAME].iter()
+    let pointer_file = [POINTER_FILE_NAME, OLD_POINTER_FILE_NAME]
+        .iter()
         .map(|name| home.join(name))
         .find(|path| path.exists())
         .unwrap_or_else(|| home.join(POINTER_FILE_NAME));
@@ -138,11 +154,21 @@ fn resolve(option: Option<PathBuf>, env: Option<OsString>, home: Option<PathBuf>
                 None => PathBuf::from(line),
             };
             if line.is_empty() || !path.is_absolute() {
-                return Err(anyhow!("{} must contain the full path of the data directory, but it contains \"{}\"", source, line));
+                return Err(anyhow!(
+                    "{} must contain the full path of the data directory, but it contains \"{}\"",
+                    source,
+                    line
+                ));
             }
-            Ok(DataHome { path, source: Some(source) })
+            Ok(DataHome {
+                path,
+                source: Some(source),
+            })
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(DataHome { path: home, source: None }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(DataHome {
+            path: home,
+            source: None,
+        }),
         Err(error) => Err(anyhow!("Unable to read {}: {}", pointer_file.display(), error)),
     }
 }
@@ -152,7 +178,10 @@ fn resolve(option: Option<PathBuf>, env: Option<OsString>, home: Option<PathBuf>
 pub fn settings_dir() -> anyhow::Result<PathBuf> {
     static MIGRATED: OnceLock<Result<(), String>> = OnceLock::new();
     let home = data_home()?;
-    MIGRATED.get_or_init(|| migrate(&home).map_err(|error| format!("{error:#}"))).clone().map_err(|error| anyhow!(error))?;
+    MIGRATED
+        .get_or_init(|| migrate(&home).map_err(|error| format!("{error:#}")))
+        .clone()
+        .map_err(|error| anyhow!(error))?;
     let dir = home.join(SETTINGS_DIR);
     crate::private_file::create_private_dir(&dir)?;
     Ok(dir)
@@ -221,7 +250,10 @@ fn migrate(home: &Path) -> anyhow::Result<()> {
         Ok(())
     };
     // A file of JSON, as encrypt changes it.
-    let copy_encrypted = |from: &Path, to: &Path, encrypt: &dyn Fn(serde_json::Value) -> anyhow::Result<serde_json::Value>| -> anyhow::Result<()> {
+    let copy_encrypted = |from: &Path,
+                          to: &Path,
+                          encrypt: &dyn Fn(serde_json::Value) -> anyhow::Result<serde_json::Value>|
+     -> anyhow::Result<()> {
         let value: serde_json::Value = serde_json::from_slice(&fs::read(from)?)
             .map_err(|error| anyhow!("{} is not JSON: {error}", from.display()))?;
         serde_json::to_writer_pretty(crate::private_file::create_private_file(to)?, &encrypt(value)?)?;
@@ -230,7 +262,9 @@ fn migrate(home: &Path) -> anyhow::Result<()> {
     let mut copied = 0;
     for entry in fs::read_dir(home.join(OLD_CACHE_DIR)).into_iter().flatten().flatten() {
         let path = entry.path();
-        let Some(name) = path.file_name().and_then(|name| name.to_str()).map(str::to_string) else { continue };
+        let Some(name) = path.file_name().and_then(|name| name.to_str()).map(str::to_string) else {
+            continue;
+        };
         if !path.is_file() {
             continue;
         }
@@ -243,11 +277,9 @@ fn migrate(home: &Path) -> anyhow::Result<()> {
             copy_encrypted(&path, &tokens.join(&name), &|value| crate::secrets::seal(&value))?;
             copied += 1;
             continue;
-        }
-        else if name.ends_with(".log") || name.ends_with(".log.old") {
+        } else if name.ends_with(".log") || name.ends_with(".log.old") {
             logs.join(&name)
-        }
-        else {
+        } else {
             continue;
         };
         copy(&path, &target)?;
@@ -258,7 +290,11 @@ fn migrate(home: &Path) -> anyhow::Result<()> {
         crate::secrets::encrypt_secrets(&mut value)?;
         Ok(value)
     })?;
-    crate::log_info!("Copied Marco Sparko's profiles and {copied} other files into {} and {}", settings.display(), data.display());
+    crate::log_info!(
+        "Copied Marco Sparko's profiles and {copied} other files into {} and {}",
+        settings.display(),
+        data.display()
+    );
     Ok(())
 }
 
@@ -267,11 +303,12 @@ fn ensure_dir(path: &Path, source: &str) -> anyhow::Result<()> {
     if !path.is_dir() {
         if path.parent().is_some_and(Path::is_dir) {
             crate::private_file::create_private_dir(path)?;
-        }
-        else {
+        } else {
             return Err(anyhow!(
                 "The data directory {} (set by {}) does not exist. If it is on a drive which is not connected, connect it and restart Marco Sparko.",
-                path.display(), source));
+                path.display(),
+                source
+            ));
         }
     }
 
@@ -279,7 +316,10 @@ fn ensure_dir(path: &Path, source: &str) -> anyhow::Result<()> {
     {
         use std::os::unix::fs::PermissionsExt;
         if fs::metadata(path)?.permissions().mode() & 0o077 != 0 {
-            crate::log_warning!("The data directory {} can be accessed by other users, it should only be accessible by its owner (chmod 700)", path.display());
+            crate::log_warning!(
+                "The data directory {} can be accessed by other users, it should only be accessible by its owner (chmod 700)",
+                path.display()
+            );
         }
     }
     Ok(())
@@ -300,7 +340,9 @@ mod tests {
         let env = home.join("env");
         let pointer = home.join("pointer");
 
-        let path = |option: Option<PathBuf>, env: Option<PathBuf>| resolve(option, env.map(Into::into), Some(home.clone())).map(|data_home| data_home.path);
+        let path = |option: Option<PathBuf>, env: Option<PathBuf>| {
+            resolve(option, env.map(Into::into), Some(home.clone())).map(|data_home| data_home.path)
+        };
 
         assert_eq!(path(None, None).unwrap(), home);
 
@@ -324,9 +366,16 @@ mod tests {
         let home = std::env::temp_dir().join(format!("marco-sparko-migrate-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(home.join(".marco-sparko-cache/n2-octopus")).unwrap();
-        let profiles = r#"[{"name":"n2","modules":{"octopus":{"apiKey":"sk_live_x","billingTimezone":"Europe/London"}}}]"#;
+        let profiles =
+            r#"[{"name":"n2","modules":{"octopus":{"apiKey":"sk_live_x","billingTimezone":"Europe/London"}}}]"#;
         fs::write(home.join(".marco-sparko"), profiles).unwrap();
-        for name in ["window-state.json", "n2.log", "n2.log.old", "n2.log.lock", "n2-octopus/data"] {
+        for name in [
+            "window-state.json",
+            "n2.log",
+            "n2.log.old",
+            "n2.log.lock",
+            "n2-octopus/data",
+        ] {
             fs::write(home.join(".marco-sparko-cache").join(name), name).unwrap();
         }
         fs::write(home.join(".marco-sparko-cache/n2-octopus.json"), r#"{"token":"abc"}"#).unwrap();
@@ -334,7 +383,8 @@ mod tests {
         let settings = home.join(".bruce-smart-home");
         let data = home.join(".bruce-smart-home-data");
         // The secrets are encrypted as they are copied, and decrypt to what they were.
-        let read_json = |path: PathBuf| -> serde_json::Value { serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap() };
+        let read_json =
+            |path: PathBuf| -> serde_json::Value { serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap() };
         let mut copied = read_json(settings.join("profiles.json"));
         let api_key = copied[0]["modules"]["octopus"]["apiKey"].as_str().unwrap().to_string();
         assert!(crate::secrets::is_encrypted(&api_key) && !api_key.contains("sk_live_x"));
@@ -343,12 +393,21 @@ mod tests {
         assert_eq!(copied, serde_json::from_str::<serde_json::Value>(profiles).unwrap());
         let tokens = read_json(settings.join("tokens/n2-octopus.json"));
         assert!(crate::secrets::is_encrypted(tokens.as_str().unwrap()));
-        assert_eq!(crate::secrets::unseal(tokens).unwrap(), serde_json::json!({ "token": "abc" }));
-        assert_eq!(fs::read_to_string(settings.join("window-state.json")).unwrap(), "window-state.json");
+        assert_eq!(
+            crate::secrets::unseal(tokens).unwrap(),
+            serde_json::json!({ "token": "abc" })
+        );
+        assert_eq!(
+            fs::read_to_string(settings.join("window-state.json")).unwrap(),
+            "window-state.json"
+        );
         assert!(data.join("logs/n2.log").exists() && data.join("logs/n2.log.old").exists());
         assert!(!data.join("logs/n2.log.lock").exists());
         assert!(!settings.join("tokens/window-state.json").exists());
-        assert!(home.join(".marco-sparko").exists() && home.join(".marco-sparko-cache/n2-octopus.json").exists(), "left as they were");
+        assert!(
+            home.join(".marco-sparko").exists() && home.join(".marco-sparko-cache/n2-octopus.json").exists(),
+            "left as they were"
+        );
 
         // Once: a profile changed since is not overwritten.
         fs::write(settings.join("profiles.json"), "[changed]").unwrap();

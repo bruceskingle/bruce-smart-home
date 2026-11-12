@@ -39,7 +39,9 @@ pub struct Meter {
 
 fn time_or_none<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<DateTime<Utc>>, D::Error> {
     let text = Option::<String>::deserialize(deserializer)?;
-    Ok(text.and_then(|text| DateTime::parse_from_rfc3339(&text).ok()).map(|time| time.with_timezone(&Utc)))
+    Ok(text
+        .and_then(|text| DateTime::parse_from_rfc3339(&text).ok())
+        .map(|time| time.with_timezone(&Utc)))
 }
 
 /// What the gateway said to one of the ENDPOINTS, reduced to the fields the app uses.
@@ -92,7 +94,9 @@ impl Response {
             }
             "system_status/soe" => {
                 let soe: Soe = serde_json::from_slice(body)?;
-                Response::Soe { percentage: soe.percentage }
+                Response::Soe {
+                    percentage: soe.percentage,
+                }
             }
             "system_status/grid_status" => {
                 let status: GridStatus = serde_json::from_slice(body)?;
@@ -133,11 +137,17 @@ impl Response {
                 serde_json::Value::Object(meters)
             }
             Response::Soe { percentage } => json!({ "percentage": percentage }),
-            Response::GridStatus { grid_status, grid_services_active } => json!({
+            Response::GridStatus {
+                grid_status,
+                grid_services_active,
+            } => json!({
                 "grid_status": grid_status,
                 "grid_services_active": grid_services_active,
             }),
-            Response::Operation { backup_reserve_percent, real_mode } => json!({
+            Response::Operation {
+                backup_reserve_percent,
+                real_mode,
+            } => json!({
                 "backup_reserve_percent": backup_reserve_percent,
                 "real_mode": real_mode,
             }),
@@ -213,12 +223,20 @@ pub struct LastPoll {
 impl LastPoll {
     /// A poll at time which succeeded.
     pub fn succeeded(time: DateTime<Utc>) -> LastPoll {
-        LastPoll { time, error: None, last_success: Some(time) }
+        LastPoll {
+            time,
+            error: None,
+            last_success: Some(time),
+        }
     }
 
     /// A poll at time which failed, after the previous poll, if there was one.
     pub fn failed(previous: Option<&LastPoll>, time: DateTime<Utc>, error: String) -> LastPoll {
-        LastPoll { time, error: Some(error), last_success: previous.and_then(|previous| previous.last_success) }
+        LastPoll {
+            time,
+            error: Some(error),
+            last_success: previous.and_then(|previous| previous.last_success),
+        }
     }
 
     pub fn to_json(&self) -> serde_json::Value {
@@ -242,12 +260,18 @@ pub struct Snapshots {
 
 impl Snapshots {
     pub fn new(db: Arc<Db>, captured_by: String) -> Snapshots {
-        Snapshots { latest: None, last_poll: None, db, captured_by }
+        Snapshots {
+            latest: None,
+            last_poll: None,
+            db,
+            captured_by,
+        }
     }
 
     pub fn add(&mut self, record: Record) {
         let json = record.to_json(&self.captured_by);
-        self.db.put(|store, writer| Ok(Some(crate::device_kinds::tesla_snapshot(store, &json, writer)?)));
+        self.db
+            .put(|store, writer| Ok(Some(crate::device_kinds::tesla_snapshot(store, &json, writer)?)));
         self.last_poll = Some(LastPoll::succeeded(record.received));
         self.latest = Some(record);
     }

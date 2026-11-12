@@ -3,12 +3,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::anyhow;
+use bruce_graphql::types::{Currency, Date, DateTime, ForwardPageOf};
+use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder, ProgressMonitor};
 use dioxus::prelude::*;
 use display_json::DisplayAsJsonPretty;
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
-use bruce_graphql::types::{Currency, Date, DateTime, ForwardPageOf};
-use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder, ProgressMonitor};
 use time_tz::{TimeZone, Tz};
 
 use crate::CacheConfig;
@@ -17,12 +17,18 @@ use crate::data_set::{CancelToken, MonthlyFixedSlotDataSet, SlotSource};
 use crate::octopus::decimal::Decimal;
 use crate::octopus::graphql::{ElectricityFiltersInput, ReadingFrequencyType, UtilityFiltersInput};
 
-use crate::power::combine::MeterReading;
 use super::graphql::meter;
-use crate::components::category_filter::{CategoryFilter, CategoryValues, STANDING_CHARGE_LABEL, order_labels};
-use crate::components::stacked_bar_graph::{BarMenuItem, GraphMode, day_bands, StackedBarGraph, StackedBarPeriod, StackedBarPoint, StackedBarSeries, time_tick_label};
+use super::trend_graph::{
+    CATEGORY_LEGEND_COLOR, TrendGraph, TrendLegendItem, TrendLine, TrendSmoothing, cumulative_by_year, moving_average,
+    range_years, year_positions,
+};
 use crate::components::category_filter::SOLID;
-use super::trend_graph::{CATEGORY_LEGEND_COLOR, TrendGraph, TrendLegendItem, TrendLine, TrendSmoothing, cumulative_by_year, moving_average, range_years, year_positions};
+use crate::components::category_filter::{CategoryFilter, CategoryValues, STANDING_CHARGE_LABEL, order_labels};
+use crate::components::stacked_bar_graph::{
+    BarMenuItem, GraphMode, StackedBarGraph, StackedBarPeriod, StackedBarPoint, StackedBarSeries, day_bands,
+    time_tick_label,
+};
+use crate::power::combine::MeterReading;
 
 /// The readings in a period of a graph added together, e.g. a day.
 struct AggregatedPoint {
@@ -53,9 +59,12 @@ impl AggregatedPoint {
 
 /// The consumption labels used by any of the readings, see order_labels.
 fn ordered_labels<'a>(readings: impl IntoIterator<Item = &'a MeasurementsReading>) -> Vec<String> {
-    order_labels(readings.into_iter().flat_map(|reading| reading.consumption.keys().map(String::as_str)))
+    order_labels(
+        readings
+            .into_iter()
+            .flat_map(|reading| reading.consumption.keys().map(String::as_str)),
+    )
 }
-
 
 /// Measurement readings for a meter over a period, cached in monthly buckets.
 pub struct MeasurementsDataSet {
@@ -66,9 +75,9 @@ pub struct MeasurementsDataSet {
 // /// A smart device whose readings are fetched instead of a meter point's, see SmartDevice.
 // #[derive(Clone, PartialEq, Debug)]
 // pub struct MeasurementsDevice {
-    // pub id: String,
-    // /// Whether the readings are the ones the server models for the device, rather than measured ones.
-    // pub modelled: bool,
+// pub id: String,
+// /// Whether the readings are the ones the server models for the device, rather than measured ones.
+// pub modelled: bool,
 // }
 
 impl MeasurementsDataSet {
@@ -85,16 +94,14 @@ impl MeasurementsDataSet {
         progress: &(impl ProgressMonitor + ?Sized),
         cancel: &CancelToken,
         cache_config: &Arc<CacheConfig>,
-        request_manager: &impl GraphQLCaller)
-        -> anyhow::Result<Self>
-    {
-
+        request_manager: &impl GraphQLCaller,
+    ) -> anyhow::Result<Self> {
         // let hash_key = match &device {
         //     Some(device) => format!("{}#{}#{}#{}#DeviceMeasurements", account_number, mpan, device.id, if device.modelled { "Modelled" } else { "Measured" }),
         //     None => format!("{}#{}#MeasurementsConsumption", account_number, mpan),
         // };
         let hash_key = format!("{}#{}#MeasurementsConsumption", account_number, mpan);
-        let source = MeasurementsConsumptionSource{
+        let source = MeasurementsConsumptionSource {
             account_number: account_number.clone(),
             mpan: mpan.clone(),
             hash_key,
@@ -102,7 +109,7 @@ impl MeasurementsDataSet {
             export,
             // device,
         };
-        
+
         let data = MonthlyFixedSlotDataSet::fetch(
             source,
             tz,
@@ -113,7 +120,8 @@ impl MeasurementsDataSet {
             reload,
             cancel,
             progress,
-        ).await?;
+        )
+        .await?;
 
         Ok(Self { data })
     }
@@ -127,7 +135,9 @@ impl MeasurementsDataSet {
         let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
         let time_format = time::format_description::parse("[hour]:[minute]").unwrap();
 
-        let rows: Vec<_> = self.data.iter()
+        let rows: Vec<_> = self
+            .data
+            .iter()
             .flat_map(|data_set| data_set.data.range(start..))
             .filter(|(key, _)| *key < end)
             .collect();
@@ -138,17 +148,23 @@ impl MeasurementsDataSet {
         let mut items = Vec::new();
         let mut last_date = Date::from_calendar_date(0, time::Month::January, 1)?;
         for (key, item) in rows {
-            let row_class = if item.attributes.cached { "cached"} else {"fetched"};
+            let row_class = if item.attributes.cached { "cached" } else { "fetched" };
             let item_start_date = item.value.start.to_date();
             let (start_date, start_time) = if last_date == item_start_date {
                 ("".to_string(), item.value.start.format(&time_format).unwrap())
             } else {
-                (item.value.start.format(&date_format).unwrap(), item.value.start.format(&time_format).unwrap())
+                (
+                    item.value.start.format(&date_format).unwrap(),
+                    item.value.start.format(&time_format).unwrap(),
+                )
             };
 
             let end_time = item.value.end.format(&time_format).unwrap();
 
-            items.push(item.value.summary_line(&labels, row_class, &start_date, &start_time, &end_time));
+            items.push(
+                item.value
+                    .summary_line(&labels, row_class, &start_date, &start_time, &end_time),
+            );
             last_date = key.to_date();
         }
 
@@ -210,18 +226,30 @@ impl MeasurementsDataSet {
             .map(|reading| MeterReading {
                 start: reading.start.unix_timestamp(),
                 end: reading.end.unix_timestamp(),
-                units: reading.consumption.iter().map(|(label, consumption)| (label.clone(), to_f64(&consumption.units))).collect(),
-                rates: reading.consumption.keys()
+                units: reading
+                    .consumption
+                    .iter()
+                    .map(|(label, consumption)| (label.clone(), to_f64(&consumption.units)))
+                    .collect(),
+                rates: reading
+                    .consumption
+                    .keys()
                     .filter_map(|label| {
                         let rate = label.strip_prefix("Home ").or_else(|| label.strip_prefix("EV "))?;
                         Some((label.clone(), rate.to_string()))
                     })
                     .collect(),
-                uses: reading.consumption.keys()
+                uses: reading
+                    .consumption
+                    .keys()
                     .filter(|label| label.starts_with("EV "))
                     .map(|label| (label.clone(), String::from(crate::power::topology::CAR)))
                     .collect(),
-                costs: reading.consumption.iter().map(|(label, consumption)| (label.clone(), to_f64(&consumption.cost))).collect(),
+                costs: reading
+                    .consumption
+                    .iter()
+                    .map(|(label, consumption)| (label.clone(), to_f64(&consumption.cost)))
+                    .collect(),
                 standing_charge: to_f64(&reading.standing_charge),
             })
             .collect()
@@ -229,7 +257,9 @@ impl MeasurementsDataSet {
 
     /// The currency of the costs of the readings from start to end, None if none has one.
     pub fn currency(&self, start: &DateTime, end: &DateTime) -> Option<Currency> {
-        self.readings(start, end).map(MeasurementsReading::currency).find(|currency| *currency != Currency::NONE)
+        self.readings(start, end)
+            .map(MeasurementsReading::currency)
+            .find(|currency| *currency != Currency::NONE)
     }
 
     /// The categories which can be shown in the graphs for the readings from start to end, the standing charge (for
@@ -245,8 +275,13 @@ impl MeasurementsDataSet {
     }
 
     /// The readings from start to end.
-    fn readings<'a>(&'a self, start: &'a DateTime, end: &'a DateTime) -> impl Iterator<Item = &'a MeasurementsReading> + 'a {
-        self.data.iter()
+    fn readings<'a>(
+        &'a self,
+        start: &'a DateTime,
+        end: &'a DateTime,
+    ) -> impl Iterator<Item = &'a MeasurementsReading> + 'a {
+        self.data
+            .iter()
             .flat_map(move |data_set| data_set.data.range(start..))
             .filter(move |(key, _)| *key < end)
             .map(|(_, item)| &item.value)
@@ -254,18 +289,32 @@ impl MeasurementsDataSet {
 
     /// The value of each category for each point, filtered by the filter for the trend graph if trend.
     /// Power is each point's average, its units over its hours.
-    fn filtered_categories(labels: &[String], points: &[AggregatedPoint], mode: GraphMode, filter: &CategoryFilter, trend: bool) -> Vec<CategoryValues> {
-        let categories = Self::categories_for(labels, mode).into_iter()
+    fn filtered_categories(
+        labels: &[String],
+        points: &[AggregatedPoint],
+        mode: GraphMode,
+        filter: &CategoryFilter,
+        trend: bool,
+    ) -> Vec<CategoryValues> {
+        let categories = Self::categories_for(labels, mode)
+            .into_iter()
             .enumerate()
             .map(|(index, label)| {
                 // In Cost mode the standing charge comes first, before the labels.
-                let label_index = if mode == GraphMode::Cost { index.checked_sub(1) } else { Some(index) };
-                let values = points.iter()
+                let label_index = if mode == GraphMode::Cost {
+                    index.checked_sub(1)
+                } else {
+                    Some(index)
+                };
+                let values = points
+                    .iter()
                     .map(|point| match (mode, label_index) {
                         (GraphMode::Cost, None) => point.standing_charge,
                         (GraphMode::Cost, Some(index)) => point.costs[index],
                         (GraphMode::Energy, Some(index)) => point.units[index],
-                        (GraphMode::Power, Some(index)) => point.units[index] * 3600.0 / (point.end - point.start).max(1) as f64,
+                        (GraphMode::Power, Some(index)) => {
+                            point.units[index] * 3600.0 / (point.end - point.start).max(1) as f64
+                        }
                         (GraphMode::Energy | GraphMode::Power, None) => 0.0,
                     })
                     .collect();
@@ -278,12 +327,14 @@ impl MeasurementsDataSet {
     /// The unit of consumption and the currency of the readings, e.g. kwh and GBP.
     fn graph_units(&self, start: &DateTime, end: &DateTime) -> (String, Currency) {
         let readings: Vec<&MeasurementsReading> = self.readings(start, end).collect();
-        let unit = readings.iter()
+        let unit = readings
+            .iter()
             .map(|reading| reading.unit.as_str())
             .find(|unit| !unit.is_empty())
             .unwrap_or_default()
             .to_string();
-        let currency = readings.iter()
+        let currency = readings
+            .iter()
             .map(|reading| reading.currency())
             .find(|currency| *currency != Currency::NONE)
             .unwrap_or(Currency::NONE);
@@ -292,16 +343,31 @@ impl MeasurementsDataSet {
 
     /// on_drill is called with the start and end of a bar when it is double clicked, and on_zoom with the start and end
     /// of the bars dragged across.
-    pub fn display_graph(&self, start: &DateTime, end: &DateTime, tz: &'static Tz, mode: GraphMode, period: StackedBarPeriod, filter: &CategoryFilter,
-        on_drill: Option<EventHandler<(i64, i64)>>, on_zoom: Option<EventHandler<(i64, i64)>>, menu: Vec<BarMenuItem>) -> Element {
+    pub fn display_graph(
+        &self,
+        start: &DateTime,
+        end: &DateTime,
+        tz: &'static Tz,
+        mode: GraphMode,
+        period: StackedBarPeriod,
+        filter: &CategoryFilter,
+        on_drill: Option<EventHandler<(i64, i64)>>,
+        on_zoom: Option<EventHandler<(i64, i64)>>,
+        menu: Vec<BarMenuItem>,
+    ) -> Element {
         let (labels, aggregated) = self.graph_points(start, end, tz, period);
         let categories = Self::filtered_categories(&labels, &aggregated, mode, filter, false);
         let (unit, currency) = self.graph_units(start, end);
 
-        let series = categories.iter()
-            .map(|category| StackedBarSeries { label: category.label.clone(), color: category.color.clone() })
+        let series = categories
+            .iter()
+            .map(|category| StackedBarSeries {
+                label: category.label.clone(),
+                color: category.color.clone(),
+            })
             .collect();
-        let points = aggregated.into_iter()
+        let points = aggregated
+            .into_iter()
             .enumerate()
             .map(|(index, point)| StackedBarPoint {
                 detail: None,
@@ -317,9 +383,15 @@ impl MeasurementsDataSet {
         // the start of each day, a single day keeps its labels for the hours.
         let x_bands = match (period, points.first(), points.last()) {
             (StackedBarPeriod::Raw | StackedBarPeriod::Rate, Some(first), Some(last))
-                if DateTime::from_unix_timestamp(first.start).map(|time| time.to_timezone(tz).to_date()).ok()
-                    != DateTime::from_unix_timestamp(last.end - 1).map(|time| time.to_timezone(tz).to_date()).ok() =>
-                day_bands(first.start, last.end, tz),
+                if DateTime::from_unix_timestamp(first.start)
+                    .map(|time| time.to_timezone(tz).to_date())
+                    .ok()
+                    != DateTime::from_unix_timestamp(last.end - 1)
+                        .map(|time| time.to_timezone(tz).to_date())
+                        .ok() =>
+            {
+                day_bands(first.start, last.end, tz)
+            }
             _ => Vec::new(),
         };
 
@@ -343,9 +415,21 @@ impl MeasurementsDataSet {
     /// A line graph over one year, with a line for each category (or the total) in each year from start to end.
     /// smoothing other than None is worked out from daily totals, so period is then not used. The page does not offer
     /// Power here, as a cumulative or average of averages would mean little.
-    pub fn display_trend(&self, start: &DateTime, end: &DateTime, tz: &'static Tz, mode: GraphMode, period: StackedBarPeriod,
-        smoothing: TrendSmoothing, filter: &CategoryFilter) -> Element {
-        let period = if smoothing == TrendSmoothing::None { period } else { StackedBarPeriod::Day };
+    pub fn display_trend(
+        &self,
+        start: &DateTime,
+        end: &DateTime,
+        tz: &'static Tz,
+        mode: GraphMode,
+        period: StackedBarPeriod,
+        smoothing: TrendSmoothing,
+        filter: &CategoryFilter,
+    ) -> Element {
+        let period = if smoothing == TrendSmoothing::None {
+            period
+        } else {
+            StackedBarPeriod::Day
+        };
         let (labels, aggregated) = self.graph_points(start, end, tz, period);
         let categories = Self::filtered_categories(&labels, &aggregated, mode, filter, true);
         let (unit, currency) = self.graph_units(start, end);
@@ -359,11 +443,16 @@ impl MeasurementsDataSet {
         // The values to draw for a category, one for each point.
         let line_values = |values: &[f64]| -> Vec<f64> {
             match smoothing {
-                TrendSmoothing::None => aggregated.iter()
+                TrendSmoothing::None => aggregated
+                    .iter()
                     .zip(values)
                     .map(|(point, value)| {
                         // Rate periods have different lengths, so their values are per hour.
-                        let scale = if per_hour { 3600.0 / (point.end - point.start).max(1) as f64 } else { 1.0 };
+                        let scale = if per_hour {
+                            3600.0 / (point.end - point.start).max(1) as f64
+                        } else {
+                            1.0
+                        };
                         value * scale
                     })
                     .collect(),
@@ -385,27 +474,54 @@ impl MeasurementsDataSet {
         let mut lines = Vec::new();
         for (year, color) in years.iter().zip(&year_colors) {
             for category in &categories {
-                let points: Vec<(f64, f64)> = positions.iter()
+                let points: Vec<(f64, f64)> = positions
+                    .iter()
                     .zip(line_values(&category.values))
                     .filter(|((point_year, _), _)| point_year == year)
                     .map(|((_, position), value)| (*position, value))
                     .collect();
                 if !points.is_empty() {
-                    let dash = if single { String::from(SOLID) } else { category.dash.clone() };
-                    let label = if single { year.to_string() } else { format!("{year} {}", category.label) };
-                    lines.push(TrendLine { label, color: color.clone(), dash, points });
+                    let dash = if single {
+                        String::from(SOLID)
+                    } else {
+                        category.dash.clone()
+                    };
+                    let label = if single {
+                        year.to_string()
+                    } else {
+                        format!("{year} {}", category.label)
+                    };
+                    lines.push(TrendLine {
+                        label,
+                        color: color.clone(),
+                        dash,
+                        points,
+                    });
                 }
             }
         }
 
         // The legend shows the line style of each category, unless there is only one, and the colour of each year.
         let shown_years: BTreeSet<i32> = positions.iter().map(|(year, _)| *year).collect();
-        let legend = categories.iter()
+        let legend = categories
+            .iter()
             .filter(|_| !single)
-            .map(|category| TrendLegendItem { label: category.label.clone(), color: String::from(CATEGORY_LEGEND_COLOR), dash: category.dash.clone() })
-            .chain(years.iter().zip(&year_colors)
-                .filter(|(year, _)| shown_years.contains(year))
-                .map(|(year, color)| TrendLegendItem { label: year.to_string(), color: color.clone(), dash: String::from(SOLID) }))
+            .map(|category| TrendLegendItem {
+                label: category.label.clone(),
+                color: String::from(CATEGORY_LEGEND_COLOR),
+                dash: category.dash.clone(),
+            })
+            .chain(
+                years
+                    .iter()
+                    .zip(&year_colors)
+                    .filter(|(year, _)| shown_years.contains(year))
+                    .map(|(year, color)| TrendLegendItem {
+                        label: year.to_string(),
+                        color: color.clone(),
+                        dash: String::from(SOLID),
+                    }),
+            )
             .collect();
 
         rsx! {
@@ -426,13 +542,21 @@ impl MeasurementsDataSet {
     }
 
     /// The readings from start to end aggregated by period, with the labels in the order of their values.
-    fn graph_points(&self, start: &DateTime, end: &DateTime, tz: &'static Tz, period: StackedBarPeriod) -> (Vec<String>, Vec<AggregatedPoint>) {
+    fn graph_points(
+        &self,
+        start: &DateTime,
+        end: &DateTime,
+        tz: &'static Tz,
+        period: StackedBarPeriod,
+    ) -> (Vec<String>, Vec<AggregatedPoint>) {
         let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
         let day_format = time::format_description::parse("[day] [month repr:short]").unwrap();
         let time_format = time::format_description::parse("[hour]:[minute]").unwrap();
         let month_format = time::format_description::parse("[month repr:short] [year]").unwrap();
 
-        let values: Vec<_> = self.data.iter()
+        let values: Vec<_> = self
+            .data
+            .iter()
             .flat_map(|data_set| data_set.data.range(start..))
             .filter(|(key, _)| *key < end)
             .map(|(_, item)| &item.value)
@@ -443,8 +567,7 @@ impl MeasurementsDataSet {
 
         let mut points = Vec::with_capacity(values.len());
         let single_day = matches!(period, StackedBarPeriod::Raw | StackedBarPeriod::Rate)
-            && values.first().map(|value| value.start.to_date())
-                == values.last().map(|value| value.start.to_date());
+            && values.first().map(|value| value.start.to_date()) == values.last().map(|value| value.start.to_date());
         let mut last_date = None;
         let mut last_bucket_start = None;
 
@@ -454,11 +577,20 @@ impl MeasurementsDataSet {
         let mut last_run_date = None;
         let range_label = |from: &DateTime, to: &DateTime| {
             if from.to_date() == to.to_date() || *to == from.to_date().next_day().at_midnight(tz) {
-                format!("{} {}–{}", from.format(&date_format).unwrap(), from.format(&time_format).unwrap(), to.format(&time_format).unwrap())
-            }
-            else {
-                format!("{} {} – {} {}", from.format(&date_format).unwrap(), from.format(&time_format).unwrap(),
-                    to.format(&date_format).unwrap(), to.format(&time_format).unwrap())
+                format!(
+                    "{} {}–{}",
+                    from.format(&date_format).unwrap(),
+                    from.format(&time_format).unwrap(),
+                    to.format(&time_format).unwrap()
+                )
+            } else {
+                format!(
+                    "{} {} – {} {}",
+                    from.format(&date_format).unwrap(),
+                    from.format(&time_format).unwrap(),
+                    to.format(&date_format).unwrap(),
+                    to.format(&time_format).unwrap()
+                )
             }
         };
 
@@ -472,30 +604,22 @@ impl MeasurementsDataSet {
                 }
                 StackedBarPeriod::Week => {
                     let days_since_monday = date.weekday().number_days_from_monday() as i64;
-                    let week_start = time::Date::from_calendar_date(
-                        date.year(),
-                        date.month(),
-                        date.day(),
-                    )
-                    .unwrap()
+                    let week_start = time::Date::from_calendar_date(date.year(), date.month(), date.day()).unwrap()
                         - time::Duration::days(days_since_monday);
-                    let week_start = Date::from_calendar_date(
-                        week_start.year(),
-                        week_start.month(),
-                        week_start.day(),
-                    )
-                    .unwrap();
-                    let week_end = week_start.next_day().next_day().next_day().next_day()
-                        .next_day().next_day().next_day();
+                    let week_start =
+                        Date::from_calendar_date(week_start.year(), week_start.month(), week_start.day()).unwrap();
+                    let week_end = week_start
+                        .next_day()
+                        .next_day()
+                        .next_day()
+                        .next_day()
+                        .next_day()
+                        .next_day()
+                        .next_day();
                     (week_start.at_midnight(tz), week_end.at_midnight(tz))
                 }
                 StackedBarPeriod::Month => {
-                    let month_start = time::Date::from_calendar_date(
-                        date.year(),
-                        date.month(),
-                        1,
-                    )
-                    .unwrap();
+                    let month_start = time::Date::from_calendar_date(date.year(), date.month(), 1).unwrap();
                     let next_month = if date.month() == time::Month::December {
                         time::Date::from_calendar_date(date.year() + 1, time::Month::January, 1)
                     } else {
@@ -506,45 +630,30 @@ impl MeasurementsDataSet {
                         )
                     }
                     .unwrap();
-                    let start_date = Date::from_calendar_date(
-                        month_start.year(),
-                        month_start.month(),
-                        month_start.day(),
-                    )
-                    .unwrap();
-                    let end_date = Date::from_calendar_date(
-                        next_month.year(),
-                        next_month.month(),
-                        next_month.day(),
-                    )
-                    .unwrap();
+                    let start_date =
+                        Date::from_calendar_date(month_start.year(), month_start.month(), month_start.day()).unwrap();
+                    let end_date =
+                        Date::from_calendar_date(next_month.year(), next_month.month(), next_month.day()).unwrap();
                     (start_date.at_midnight(tz), end_date.at_midnight(tz))
                 }
             };
             let (tick_label, tick_rank) = match period {
-                StackedBarPeriod::Raw if single_day => time_tick_label(value.start.unix_timestamp(), value.end.unix_timestamp(), tz),
+                StackedBarPeriod::Raw if single_day => {
+                    time_tick_label(value.start.unix_timestamp(), value.end.unix_timestamp(), tz)
+                }
                 _ => (None, 0),
             };
             let tick_label = match period {
                 StackedBarPeriod::Raw if single_day => tick_label,
-                StackedBarPeriod::Raw => {
-                    (last_date != Some(date)).then(|| date.format(&day_format).unwrap())
-                }
+                StackedBarPeriod::Raw => (last_date != Some(date)).then(|| date.format(&day_format).unwrap()),
                 // Set below when a new run starts.
                 StackedBarPeriod::Rate => None,
-                StackedBarPeriod::Day => {
-                    (last_bucket_start != Some(bucket_start.unix_timestamp()))
-                        .then(|| bucket_start.format(&day_format).unwrap())
-                }
-                StackedBarPeriod::Week => {
-                    (last_bucket_start != Some(bucket_start.unix_timestamp())).then(|| {
-                        format!("Week of {}", bucket_start.format(&day_format).unwrap())
-                    })
-                }
-                StackedBarPeriod::Month => {
-                    (last_bucket_start != Some(bucket_start.unix_timestamp()))
-                        .then(|| bucket_start.format(&month_format).unwrap())
-                }
+                StackedBarPeriod::Day => (last_bucket_start != Some(bucket_start.unix_timestamp()))
+                    .then(|| bucket_start.format(&day_format).unwrap()),
+                StackedBarPeriod::Week => (last_bucket_start != Some(bucket_start.unix_timestamp()))
+                    .then(|| format!("Week of {}", bucket_start.format(&day_format).unwrap())),
+                StackedBarPeriod::Month => (last_bucket_start != Some(bucket_start.unix_timestamp()))
+                    .then(|| bucket_start.format(&month_format).unwrap()),
             };
             let group_label = match period {
                 StackedBarPeriod::Raw => format!(
@@ -568,11 +677,25 @@ impl MeasurementsDataSet {
                 tick_label,
                 tick_rank,
                 period_label: group_label,
-                units: labels.iter()
-                    .map(|label| value.consumption.get(label).and_then(|c| c.units.to_f64()).unwrap_or_default())
+                units: labels
+                    .iter()
+                    .map(|label| {
+                        value
+                            .consumption
+                            .get(label)
+                            .and_then(|c| c.units.to_f64())
+                            .unwrap_or_default()
+                    })
                     .collect(),
-                costs: labels.iter()
-                    .map(|label| value.consumption.get(label).and_then(|c| c.cost.to_f64()).unwrap_or_default())
+                costs: labels
+                    .iter()
+                    .map(|label| {
+                        value
+                            .consumption
+                            .get(label)
+                            .and_then(|c| c.cost.to_f64())
+                            .unwrap_or_default()
+                    })
                     .collect(),
                 standing_charge: value.standing_charge.to_f64().unwrap_or_default(),
             };
@@ -589,19 +712,21 @@ impl MeasurementsDataSet {
                         if let Some(run_start) = &run_start {
                             existing.period_label = range_label(run_start, &value.end);
                         }
-                    },
+                    }
                     _ => {
                         let mut point = point;
                         (point.tick_label, point.tick_rank) = if single_day {
                             time_tick_label(value.start.unix_timestamp(), value.end.unix_timestamp(), tz)
-                        }
-                        else {
-                            ((last_run_date != Some(date)).then(|| date.format(&day_format).unwrap()), 0)
+                        } else {
+                            (
+                                (last_run_date != Some(date)).then(|| date.format(&day_format).unwrap()),
+                                0,
+                            )
                         };
                         run_start = Some(value.start);
                         last_run_date = Some(date);
                         points.push(point);
-                    },
+                    }
                 }
                 last_rates = Some(rates);
             } else if let Some(existing) = points.last_mut() {
@@ -622,7 +747,9 @@ impl MeasurementsDataSet {
 
     /// The readings from start to end, as shown in the table.
     pub fn readings_export(&self, start: &DateTime, end: &DateTime) -> ExportTable {
-        let readings: Vec<&MeasurementsReading> = self.data.iter()
+        let readings: Vec<&MeasurementsReading> = self
+            .data
+            .iter()
             .flat_map(|data_set| data_set.data.range(start..))
             .filter(|(key, _)| *key < end)
             .map(|(_, item)| &item.value)
@@ -638,11 +765,19 @@ impl MeasurementsDataSet {
         columns.extend(labels.iter().map(|label| format!("{label} rate ({cost_unit}/{unit})")));
 
         let decimal = |value: &Decimal| value.to_f64().map(ExportValue::number).unwrap_or(ExportValue::Empty);
-        let rows = readings.iter()
+        let rows = readings
+            .iter()
             .map(|reading| {
                 // The value of a field of each label's consumption, empty if the reading does not have that label.
-                let field = |get: fn(&MeasurementsReadingConsumption) -> &Decimal| labels.iter()
-                    .map(move |label| reading.consumption.get(label).map(|c| decimal(get(c))).unwrap_or(ExportValue::Empty));
+                let field = |get: fn(&MeasurementsReadingConsumption) -> &Decimal| {
+                    labels.iter().map(move |label| {
+                        reading
+                            .consumption
+                            .get(label)
+                            .map(|c| decimal(get(c)))
+                            .unwrap_or(ExportValue::Empty)
+                    })
+                };
 
                 let mut row = vec![ExportValue::time(&reading.start), ExportValue::time(&reading.end)];
                 row.extend(field(|c| &c.cost));
@@ -657,8 +792,16 @@ impl MeasurementsDataSet {
     }
 
     /// The readings from start to end aggregated by period, as shown in the graph.
-    pub fn graph_export(&self, start: &DateTime, end: &DateTime, tz: &'static Tz, period: StackedBarPeriod) -> ExportTable {
-        let readings: Vec<&MeasurementsReading> = self.data.iter()
+    pub fn graph_export(
+        &self,
+        start: &DateTime,
+        end: &DateTime,
+        tz: &'static Tz,
+        period: StackedBarPeriod,
+    ) -> ExportTable {
+        let readings: Vec<&MeasurementsReading> = self
+            .data
+            .iter()
             .flat_map(|data_set| data_set.data.range(start..))
             .filter(|(key, _)| *key < end)
             .map(|(_, item)| &item.value)
@@ -672,9 +815,13 @@ impl MeasurementsDataSet {
         columns.push(format!("Standing charge ({cost_unit})"));
         columns.extend(labels.iter().map(|label| format!("{label} units ({unit})")));
 
-        let rows = points.iter()
+        let rows = points
+            .iter()
             .map(|point| {
-                let mut row = vec![ExportValue::unix_time(point.start, tz), ExportValue::unix_time(point.end, tz)];
+                let mut row = vec![
+                    ExportValue::unix_time(point.start, tz),
+                    ExportValue::unix_time(point.end, tz),
+                ];
                 row.extend(point.costs.iter().map(|cost| ExportValue::number(*cost)));
                 row.push(ExportValue::number(point.standing_charge));
                 row.extend(point.units.iter().map(|units| ExportValue::number(*units)));
@@ -687,12 +834,14 @@ impl MeasurementsDataSet {
 
     /// The units of consumption and of cost for column headings, e.g. ("kwh", "p").
     fn export_units(readings: &[&MeasurementsReading]) -> (String, String) {
-        let unit = readings.iter()
+        let unit = readings
+            .iter()
             .map(|reading| reading.unit.as_str())
             .find(|unit| !unit.is_empty())
             .unwrap_or_default()
             .to_string();
-        let currency = readings.iter()
+        let currency = readings
+            .iter()
             .map(|reading| reading.currency())
             .find(|currency| *currency != Currency::NONE)
             .unwrap_or(Currency::NONE);
@@ -705,7 +854,7 @@ impl MeasurementsDataSet {
 #[derive(Serialize, Deserialize, Debug, DisplayAsJsonPretty, Eq, PartialEq, Clone)]
 pub struct MeasurementsReadingConsumption {
     units: Decimal,
-    cost:  Decimal,
+    cost: Decimal,
     rate: Decimal,
     ccy: bruce_graphql::types::Currency,
     /// Whether the units were worked out from the cost and the rate, rather than given, as in the old format, see
@@ -720,16 +869,12 @@ pub struct MeasurementsReadingConsumption {
 
 impl MeasurementsReadingConsumption {
     fn from(stat: meter::home_and_ev_consumption_breakdown::StatisticOutput) -> Self {
-
-
         let ccy = if let Some(ex_cost) = &stat.cost_excl_tax_ {
             ex_cost.cost_currency_
-        }
-        else {
+        } else {
             if let Some(inc_cost) = &stat.cost_incl_tax_ {
                 inc_cost.cost_currency_
-            }
-            else {
+            } else {
                 bruce_graphql::types::Currency::NONE
             }
         };
@@ -741,20 +886,17 @@ impl MeasurementsReadingConsumption {
             cost = estimated_money.estimated_amount_;
             if let Some(price_per_unit) = estimated_money.price_per_unit_ {
                 rate = price_per_unit.amount_;
-            }
-            else {
+            } else {
                 rate = Decimal::ZERO;
             }
-        }
-        else {
+        } else {
             cost = Decimal::ZERO;
             rate = Decimal::ZERO;
         }
 
         let units = if let Some(units) = stat.value_ {
             units
-        }
-        else {
+        } else {
             Decimal::ZERO
         };
 
@@ -771,23 +913,27 @@ impl MeasurementsReadingConsumption {
     fn from_tou(stat: meter::home_and_ev_consumption_breakdown::StatisticOutput) -> anyhow::Result<Self> {
         let ccy = if let Some(ex_cost) = &stat.cost_excl_tax_ {
             ex_cost.cost_currency_
-        }
-        else {
+        } else {
             if let Some(inc_cost) = &stat.cost_incl_tax_ {
                 inc_cost.cost_currency_
-            }
-            else {
+            } else {
                 bruce_graphql::types::Currency::NONE
             }
         };
 
-        let excl = stat.cost_excl_tax_.as_ref()
+        let excl = stat
+            .cost_excl_tax_
+            .as_ref()
             .ok_or_else(|| anyhow!("TouBucketCost with no costExclTax"))?;
-        let price_excl = excl.price_per_unit_.as_ref()
+        let price_excl = excl
+            .price_per_unit_
+            .as_ref()
             .ok_or_else(|| anyhow!("TouBucketCost with no pricePerUnit"))?
             .amount_;
         let cost_excl = excl.estimated_amount_;
-        let cost_incl = stat.cost_incl_tax_.as_ref()
+        let cost_incl = stat
+            .cost_incl_tax_
+            .as_ref()
             .map(|c| c.estimated_amount_)
             .unwrap_or(cost_excl);
 
@@ -806,13 +952,20 @@ impl MeasurementsReadingConsumption {
             (price_excl * cost_incl / cost_excl).round_dp(4)
         };
 
-        Ok(MeasurementsReadingConsumption { units, cost: cost_incl, rate, ccy, units_derived: true, rate_derived: true })
+        Ok(MeasurementsReadingConsumption {
+            units,
+            cost: cost_incl,
+            rate,
+            ccy,
+            units_derived: true,
+            rate_derived: true,
+        })
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, DisplayAsJsonPretty, Eq, PartialEq, Clone)]
 pub struct MeasurementsReading {
-    start:  DateTime,
+    start: DateTime,
     end: DateTime,
     is_final: bool,
     /// The consumption at each rate, indexed by the label from the API. A BTreeMap so that the serialized form, which
@@ -837,22 +990,28 @@ impl MeasurementsReading {
 
     /// The unit rate for each label, readings with the same rates are grouped by StackedBarPeriod::Rate.
     fn rates(&self) -> BTreeMap<String, Decimal> {
-        self.consumption.iter()
+        self.consumption
+            .iter()
             .map(|(label, consumption)| (label.clone(), consumption.rate))
             .collect()
     }
 
     /// The currency of the costs, a consumption with no cost has no currency so the first real one is used.
     fn currency(&self) -> Currency {
-        self.consumption.values()
+        self.consumption
+            .values()
             .map(|consumption| consumption.ccy)
             .find(|ccy| *ccy != Currency::NONE)
             .unwrap_or(Currency::NONE)
     }
 
     /// Add the consumption for a label, which must appear only once in a reading.
-    fn insert_consumption(consumption: &mut BTreeMap<String, MeasurementsReadingConsumption>, label: String,
-        value: MeasurementsReadingConsumption, start: &DateTime) -> anyhow::Result<()> {
+    fn insert_consumption(
+        consumption: &mut BTreeMap<String, MeasurementsReadingConsumption>,
+        label: String,
+        value: MeasurementsReadingConsumption,
+        start: &DateTime,
+    ) -> anyhow::Result<()> {
         if consumption.contains_key(&label) {
             return Err(anyhow!("Duplicate {} consumption in slot {}", label, start));
         }
@@ -883,8 +1042,15 @@ impl MeasurementsReading {
     }
 
     /// A table row matching summary_headers, labels which this reading does not have are left empty.
-    fn summary_line(&self, labels: &[String], row_class: &str, start_date: &str, start_time: &str, end_time: &str) -> Element {
-        rsx!{
+    fn summary_line(
+        &self,
+        labels: &[String],
+        row_class: &str,
+        start_date: &str,
+        start_time: &str,
+        end_time: &str,
+    ) -> Element {
+        rsx! {
             tr { class: row_class,
                 td { "{start_date}" }
                 td { "{start_time}" }
@@ -909,13 +1075,20 @@ impl MeasurementsReading {
     // For readings of a smart device, which are not used: a device's readings may have no statistics, or ones a meter
     // point's do not, so for a device statistics which are not understood are left out, and a reading without any
     // records its value as the consumption labelled DEVICE_LABEL.
-    fn from(node: meter::home_and_ev_consumption_breakdown::MeasurementInterface, query_time: &DateTime /* , device: bool */) -> anyhow::Result<Self> {
+    fn from(
+        node: meter::home_and_ev_consumption_breakdown::MeasurementInterface,
+        query_time: &DateTime, /* , device: bool */
+    ) -> anyhow::Result<Self> {
         match node {
-            meter::home_and_ev_consumption_breakdown::MeasurementInterface::MeasurementType(abstract_measurement_interface) => {
-
-                Err(anyhow!(format!("Unexpected abstract measurement {:?}", abstract_measurement_interface)))
-            },
-            meter::home_and_ev_consumption_breakdown::MeasurementInterface::IntervalMeasurementType(interval_measurement_type) => {
+            meter::home_and_ev_consumption_breakdown::MeasurementInterface::MeasurementType(
+                abstract_measurement_interface,
+            ) => Err(anyhow!(format!(
+                "Unexpected abstract measurement {:?}",
+                abstract_measurement_interface
+            ))),
+            meter::home_and_ev_consumption_breakdown::MeasurementInterface::IntervalMeasurementType(
+                interval_measurement_type,
+            ) => {
                 let statistics = match interval_measurement_type.measurement_interface_.meta_data_ {
                     Some(meta_data) => Some(meta_data.statistics_),
                     // None if device => Some(Vec::new()),
@@ -934,23 +1107,30 @@ impl MeasurementsReading {
                                 super::graphql::ReadingStatisticTypeEnum::StandingChargeCost => {
                                     if let Some(v) = stat.cost_incl_tax_ {
                                         standing_charge = Some(v.estimated_amount_)
-                                    }
-                                    else {
+                                    } else {
                                         return Err(anyhow!("Null standing charge"));
                                     }
-                                },
+                                }
                                 // Consumption at one rate, labelled with the rate, e.g. "EV Low Rate".
                                 super::graphql::ReadingStatisticTypeEnum::ConsumptionCost => {
-                                    let label = stat.label_.clone()
-                                        .ok_or_else(|| anyhow!("No meta data label"))?;
-                                    Self::insert_consumption(&mut consumption, label, MeasurementsReadingConsumption::from(stat), &interval_measurement_type.start_at_)?;
-                                },
+                                    let label = stat.label_.clone().ok_or_else(|| anyhow!("No meta data label"))?;
+                                    Self::insert_consumption(
+                                        &mut consumption,
+                                        label,
+                                        MeasurementsReadingConsumption::from(stat),
+                                        &interval_measurement_type.start_at_,
+                                    )?;
+                                }
                                 // The old format, whole house consumption in time of use buckets, e.g. "OFF_PEAK".
                                 super::graphql::ReadingStatisticTypeEnum::TouBucketCost => {
-                                    let label = stat.label_.clone()
-                                        .ok_or_else(|| anyhow!("No meta data label"))?;
-                                    Self::insert_consumption(&mut consumption, label, MeasurementsReadingConsumption::from_tou(stat)?, &interval_measurement_type.start_at_)?;
-                                },
+                                    let label = stat.label_.clone().ok_or_else(|| anyhow!("No meta data label"))?;
+                                    Self::insert_consumption(
+                                        &mut consumption,
+                                        label,
+                                        MeasurementsReadingConsumption::from_tou(stat)?,
+                                        &interval_measurement_type.start_at_,
+                                    )?;
+                                }
                                 // The value of what an export meter point exported, which may not have a label. The statistic only
                                 // has the value, the units are those of the measurement and the rate is worked out from them.
                                 super::graphql::ReadingStatisticTypeEnum::GenerationValue => {
@@ -961,48 +1141,54 @@ impl MeasurementsReading {
                                         generation.rate = (generation.cost / measured_value).round_dp(4);
                                     }
                                     generation.rate_derived = true;
-                                    Self::insert_consumption(&mut consumption, label, generation, &interval_measurement_type.start_at_)?;
-                                },
+                                    Self::insert_consumption(
+                                        &mut consumption,
+                                        label,
+                                        generation,
+                                        &interval_measurement_type.start_at_,
+                                    )?;
+                                }
                                 // _ if device => {},
                                 _ => {
-
                                     return Err(anyhow!(format!("Unexpected statistic type {:?}", type_)));
-                                },
+                                }
                             }
-                        }
-                        else {
+                        } else {
                             return Err(anyhow!("No meta type"));
                         }
                     }
 
-                    let standing_charge = if let Some(v) = standing_charge { v } else { Decimal::ZERO };
+                    let standing_charge = if let Some(v) = standing_charge {
+                        v
+                    } else {
+                        Decimal::ZERO
+                    };
 
                     // if device && consumption.is_empty() {
-                        // consumption.insert(String::from(DEVICE_LABEL), MeasurementsReadingConsumption {
-                            // units: measured_value,
-                            // cost: Decimal::ZERO,
-                            // rate: Decimal::ZERO,
-                            // ccy: Currency::NONE,
-                        // });
+                    // consumption.insert(String::from(DEVICE_LABEL), MeasurementsReadingConsumption {
+                    // units: measured_value,
+                    // cost: Decimal::ZERO,
+                    // rate: Decimal::ZERO,
+                    // ccy: Currency::NONE,
+                    // });
                     // }
 
-                    let mut reading = MeasurementsReading{
+                    let mut reading = MeasurementsReading {
                         start: interval_measurement_type.start_at_,
                         end: interval_measurement_type.end_at_,
                         is_final: false,
                         consumption,
                         standing_charge,
-                        unit
+                        unit,
                     };
                     // A reading without statistics is fetched again until it has them, in case the server provides them later.
-                    reading.is_final = !reading.is_partial()
-                        && **query_time - *reading.end > MeasurementsReading::FINAL_DELAY;
+                    reading.is_final =
+                        !reading.is_partial() && **query_time - *reading.end > MeasurementsReading::FINAL_DELAY;
                     Ok(reading)
-                }
-                else {
+                } else {
                     Err(anyhow!(format!("No meta data")))
                 }
-            },
+            }
         }
     }
 }
@@ -1010,7 +1196,7 @@ impl MeasurementsReading {
 pub struct MeasurementsConsumptionSource {
     pub account_number: String,
     pub tz: &'static Tz,
-    pub mpan:String,
+    pub mpan: String,
     pub hash_key: String,
     /// Whether the meter point is an export meter point, whose readings are generation rather than consumption.
     pub export: bool,
@@ -1039,9 +1225,10 @@ impl MeasurementsConsumptionSource {
         //         .with_modelled_sub_meter_readings(device.modelled),
         //     None => electricity_filters,
         // };
-        utility_filters.push(UtilityFiltersInput::builder()
-            .with_electricity_filters(electricity_filters.build()?)
-            .build()?
+        utility_filters.push(
+            UtilityFiltersInput::builder()
+                .with_electricity_filters(electricity_filters.build()?)
+                .build()?,
         );
 
         // modelled_utility_filters.push(UtilityFiltersInput::builder()
@@ -1060,20 +1247,22 @@ impl MeasurementsConsumptionSource {
             .with_timezone(self.tz.name().to_string())
             .with_utility_filters(utility_filters)
             // .with_modelled_utility_filters(modelled_utility_filters)
-            .with_first(1500)
-        )
+            .with_first(1500))
     }
 
-    fn get_measurements(last_response: &meter::home_and_ev_consumption_breakdown::Response) -> anyhow::Result<&ForwardPageOf<meter::home_and_ev_consumption_breakdown::MeasurementInterface>> {
-            Ok(&last_response
-                .account_.as_ref()
-                .ok_or(anyhow!("No account in response"))?
-                .properties_.first().ok_or(anyhow!("No property in response"))?
-                // .electricity_meter_points_.first().ok_or("No meter points in response")?
-                .measurements_
-
-            )
-        }
+    fn get_measurements(
+        last_response: &meter::home_and_ev_consumption_breakdown::Response,
+    ) -> anyhow::Result<&ForwardPageOf<meter::home_and_ev_consumption_breakdown::MeasurementInterface>> {
+        Ok(&last_response
+            .account_
+            .as_ref()
+            .ok_or(anyhow!("No account in response"))?
+            .properties_
+            .first()
+            .ok_or(anyhow!("No property in response"))?
+            // .electricity_meter_points_.first().ok_or("No meter points in response")?
+            .measurements_)
+    }
 }
 
 /// A measurement as the store keeps it, see SlotSource::Stored: as Octopus gave it, with when it was fetched, which
@@ -1102,15 +1291,15 @@ impl SlotSource for MeasurementsConsumptionSource {
     }
 
     fn initial_query(&mut self, start: &DateTime, end: &DateTime) -> anyhow::Result<Self::Query> {
-        Ok(self.query_builder(end)?
-            .with_start_at(start.clone())
-            .build()?
-        )
+        Ok(self.query_builder(end)?.with_start_at(start.clone()).build()?)
     }
 
-    fn continuation_query(&mut self, start: &DateTime, end: &DateTime, last_response: &Self::Response) -> anyhow::Result<Option<Self::Query>> {
-
-
+    fn continuation_query(
+        &mut self,
+        start: &DateTime,
+        end: &DateTime,
+        last_response: &Self::Response,
+    ) -> anyhow::Result<Option<Self::Query>> {
         // fn get_cursor(last_response: &meter::home_and_ev_consumption_breakdown::Response) -> anyhow::Result<Option<String>> {
         //     Ok(last_response
         //         .account_.as_ref()
@@ -1125,33 +1314,47 @@ impl SlotSource for MeasurementsConsumptionSource {
         //     )
         // }
 
-        Ok(if let Some(end_cursor) = Self::get_measurements(&last_response)?
-            .page_info
+        Ok(
+            if let Some(end_cursor) = Self::get_measurements(&last_response)?
+                .page_info
                 .end_cursor
                 .as_ref()
                 .cloned()
-        {
-            Some(self.query_builder(end)?
-                .with_start_at(start.clone())
-                .with_cursor(end_cursor)
-                .build()?)
-        }
-        else {
-            None
-        })
+            {
+                Some(
+                    self.query_builder(end)?
+                        .with_start_at(start.clone())
+                        .with_cursor(end_cursor)
+                        .build()?,
+                )
+            } else {
+                None
+            },
+        )
     }
 
     /// Each measurement as Octopus gave it, with when it was fetched, see StoredMeasurement.
-    fn items(&self, response: Self::Response) -> anyhow::Result<impl IntoIterator<Item = anyhow::Result<Self::Stored>>> {
+    fn items(
+        &self,
+        response: Self::Response,
+    ) -> anyhow::Result<impl IntoIterator<Item = anyhow::Result<Self::Stored>>> {
         let fetched = DateTime::now(self.tz);
         Ok(response
             .account_
             .ok_or(anyhow!("No account in response"))?
-            .properties_.into_iter().next().ok_or(anyhow!("No property in response"))?
+            .properties_
+            .into_iter()
+            .next()
+            .ok_or(anyhow!("No property in response"))?
             .measurements_
             .edges
             .into_iter()
-            .map(move |edge| Ok(StoredMeasurement::Given { node: edge.node, fetched: fetched.clone() })))
+            .map(move |edge| {
+                Ok(StoredMeasurement::Given {
+                    node: edge.node,
+                    fetched: fetched.clone(),
+                })
+            }))
     }
 
     /// The reading, made from the measurement as Octopus gave it each time it is read, so that what was worked out,
@@ -1169,9 +1372,13 @@ impl SlotSource for MeasurementsConsumptionSource {
 
     fn index(&self, value: &Self::Value) -> anyhow::Result<(DateTime, DateTime, bool)> {
         // Readings cached as final before readings without statistics were treated as not final are fetched again.
-        Ok((value.start.clone(), value.end.clone(), value.is_final && !value.is_partial()))
+        Ok((
+            value.start.clone(),
+            value.end.clone(),
+            value.is_final && !value.is_partial(),
+        ))
     }
-    
+
     fn refresh_after(&self) -> Duration {
         Duration::from_hours(24)
     }
@@ -1187,8 +1394,17 @@ mod tests {
 
     #[test]
     fn known_labels_come_first_in_their_usual_order_then_others_alphabetically() {
-        let labels = order_labels(["STANDARD_RATE", "EV Standard Rate", "OFF_PEAK", "Home Low Rate", "EV Standard Rate"]);
-        assert_eq!(labels, ["Home Low Rate", "EV Standard Rate", "OFF_PEAK", "STANDARD_RATE"]);
+        let labels = order_labels([
+            "STANDARD_RATE",
+            "EV Standard Rate",
+            "OFF_PEAK",
+            "Home Low Rate",
+            "EV Standard Rate",
+        ]);
+        assert_eq!(
+            labels,
+            ["Home Low Rate", "EV Standard Rate", "OFF_PEAK", "STANDARD_RATE"]
+        );
     }
 
     #[test]

@@ -36,7 +36,11 @@ pub struct Device {
 impl Device {
     pub fn new(schedule: &str) -> Device {
         let up_time = TimeDelta::microseconds(unsafe { esp_idf_sys::esp_timer_get_time() });
-        Device { boot_time: Utc::now() - up_time, reset_reason: bruce_esp_idf::reset_reason(), schedule: schedule.to_string() }
+        Device {
+            boot_time: Utc::now() - up_time,
+            reset_reason: bruce_esp_idf::reset_reason(),
+            schedule: schedule.to_string(),
+        }
     }
 
     /// The details, with whether the feature's records are kept in the store, db, and how its latest poll went, as the

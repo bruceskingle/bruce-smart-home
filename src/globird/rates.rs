@@ -86,7 +86,11 @@ pub struct DayCheck {
 
 /// The import's or the export's kWh of a day by charge type, for the category, USAGE or SOLAR.
 fn kwh<'a>(day: &'a DaySummary, category: &str) -> &'a BTreeMap<String, f64> {
-    if category == USAGE { &day.import } else { &day.export_by_type }
+    if category == USAGE {
+        &day.import
+    } else {
+        &day.export_by_type
+    }
 }
 
 /// Whether the kWh GloBird charged a category of a day for are the meter's, as they are unless it has moved some
@@ -101,18 +105,24 @@ fn kwh_agree(day: &DaySummary, category: &str) -> bool {
 /// Whether a day can be fitted, for a category: it has all its readings, actual ones, and its cost, of the kWh the
 /// meter measured.
 fn fittable(day: &DaySummary, category: &str) -> bool {
-    day.readings == 288 && !day.estimated && !day.cost_read_missing && day.cost.contains_key(category) && kwh_agree(day, category)
+    day.readings == 288
+        && !day.estimated
+        && !day.cost_read_missing
+        && day.cost.contains_key(category)
+        && kwh_agree(day, category)
 }
 
 /// The x which best solves a x = b, by least squares, None if the rows do not determine it.
 fn least_squares(a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
     let n = a.first()?.len();
     // The normal equations, aᵀa x = aᵀb, solved by Gaussian elimination with partial pivoting.
-    let mut m: Vec<Vec<f64>> = (0..n).map(|i| {
-        let mut row: Vec<f64> = (0..n).map(|j| a.iter().map(|r| r[i] * r[j]).sum()).collect();
-        row.push(a.iter().zip(b).map(|(r, y)| r[i] * y).sum());
-        row
-    }).collect();
+    let mut m: Vec<Vec<f64>> = (0..n)
+        .map(|i| {
+            let mut row: Vec<f64> = (0..n).map(|j| a.iter().map(|r| r[i] * r[j]).sum()).collect();
+            row.push(a.iter().zip(b).map(|(r, y)| r[i] * y).sum());
+            row
+        })
+        .collect();
     for column in 0..n {
         let pivot = (column..n).max_by(|&x, &y| m[x][column].abs().total_cmp(&m[y][column].abs()))?;
         if m[pivot][column].abs() < 1e-9 {
@@ -140,19 +150,38 @@ fn fit(days: &[&DaySummary], category: &str) -> Vec<Rate> {
             *totals.entry(charge_type.as_str()).or_default() += kwh;
         }
     }
-    let known: Vec<&str> = totals.iter().filter(|(_, total)| total.abs() >= MIN_KWH).map(|(charge_type, _)| *charge_type).collect();
+    let known: Vec<&str> = totals
+        .iter()
+        .filter(|(_, total)| total.abs() >= MIN_KWH)
+        .map(|(charge_type, _)| *charge_type)
+        .collect();
     let rates = if fitted.len() >= known.len() + MIN_EXTRA_DAYS {
-        let a: Vec<Vec<f64>> = fitted.iter().map(|day| known.iter().map(|charge_type| kwh(day, category).get(*charge_type).copied().unwrap_or_default()).collect()).collect();
+        let a: Vec<Vec<f64>> = fitted
+            .iter()
+            .map(|day| {
+                known
+                    .iter()
+                    .map(|charge_type| kwh(day, category).get(*charge_type).copied().unwrap_or_default())
+                    .collect()
+            })
+            .collect();
         let b: Vec<f64> = fitted.iter().map(|day| day.cost[category]).collect();
         least_squares(&a, &b)
-    }
-    else {
+    } else {
         None
     };
-    totals.keys().map(|charge_type| Rate {
-        charge_type: charge_type.to_string(),
-        rate: rates.as_ref().and_then(|rates| known.iter().position(|known| known == charge_type).map(|index| rates[index])),
-    }).collect()
+    totals
+        .keys()
+        .map(|charge_type| Rate {
+            charge_type: charge_type.to_string(),
+            rate: rates.as_ref().and_then(|rates| {
+                known
+                    .iter()
+                    .position(|known| known == charge_type)
+                    .map(|index| rates[index])
+            }),
+        })
+        .collect()
 }
 
 /// The most common daily charge of days, None if none has one.
@@ -163,7 +192,10 @@ fn daily(days: &[&DaySummary]) -> Option<f64> {
             *counts.entry((supply * 100_000.0).round() as i64).or_default() += 1;
         }
     }
-    counts.into_iter().max_by_key(|(_, count)| *count).map(|(supply, _)| supply as f64 / 100_000.0)
+    counts
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map(|(supply, _)| supply as f64 / 100_000.0)
 }
 
 /// The tariff of a run of days, in date order.
@@ -184,12 +216,25 @@ fn tariff(days: &[&DaySummary]) -> Option<Tariff> {
 pub fn check(day: &DaySummary, tariff: &Tariff) -> Vec<DayCheck> {
     let mut checks = Vec::new();
     for category in [USAGE, SOLAR] {
-        let Some(charged) = day.cost.get(category).copied() else { continue };
-        let Some(expected) = tariff.cost(day, category) else { continue };
+        let Some(charged) = day.cost.get(category).copied() else {
+            continue;
+        };
+        let Some(expected) = tariff.cost(day, category) else {
+            continue;
+        };
         if (charged - expected).abs() > TOLERANCE {
             let meter: f64 = kwh(day, category).values().sum();
-            let kwh = day.quantity.get(category).filter(|_| !kwh_agree(day, category)).map(|quantity| (*quantity, meter));
-            checks.push(DayCheck { category: category.to_string(), charged, expected, kwh });
+            let kwh = day
+                .quantity
+                .get(category)
+                .filter(|_| !kwh_agree(day, category))
+                .map(|quantity| (*quantity, meter));
+            checks.push(DayCheck {
+                category: category.to_string(),
+                charged,
+                expected,
+                kwh,
+            });
         }
     }
     checks
@@ -215,9 +260,13 @@ fn split(days: &[&DaySummary]) -> Vec<Tariff> {
     let mut best: Option<(usize, usize)> = None;
     for at in 1..days.len() {
         let (before, after) = days.split_at(at);
-        let (Some(first), Some(second)) = (tariff(before), tariff(after)) else { continue };
+        let (Some(first), Some(second)) = (tariff(before), tariff(after)) else {
+            continue;
+        };
         // Each half must have its rates worked out, from enough days.
-        let rated = |tariff: &Tariff| tariff.usage.iter().all(|rate| rate.rate.is_some()) && tariff.days >= tariff.usage.len() + MIN_EXTRA_DAYS;
+        let rated = |tariff: &Tariff| {
+            tariff.usage.iter().all(|rate| rate.rate.is_some()) && tariff.days >= tariff.usage.len() + MIN_EXTRA_DAYS
+        };
         if !rated(&first) || !rated(&second) {
             continue;
         }
@@ -246,7 +295,9 @@ pub fn tariffs(days: &[DaySummary]) -> Vec<Tariff> {
 
 /// The tariff of a day, from tariffs.
 pub fn tariff_of<'a>(tariffs: &'a [Tariff], date: Date) -> Option<&'a Tariff> {
-    tariffs.iter().find(|tariff| tariff.first <= date && date <= tariff.last)
+    tariffs
+        .iter()
+        .find(|tariff| tariff.first <= date && date <= tariff.last)
 }
 
 #[cfg(test)]
@@ -279,14 +330,28 @@ mod tests {
 
     /// Days from first, with kWh which vary from day to day, as a household's do.
     fn days(first: Date, count: i64, rates: (f64, f64, f64), supply: f64) -> Vec<DaySummary> {
-        (0..count).map(|index| {
-            let wobble = ((index * 7919) % 13) as f64;
-            day(first + time::Duration::days(index), 0.5 + wobble * 0.4, 20.0 + wobble * 1.7 + (index % 3) as f64, 2.0 + (index % 5) as f64, rates, supply)
-        }).collect()
+        (0..count)
+            .map(|index| {
+                let wobble = ((index * 7919) % 13) as f64;
+                day(
+                    first + time::Duration::days(index),
+                    0.5 + wobble * 0.4,
+                    20.0 + wobble * 1.7 + (index % 3) as f64,
+                    2.0 + (index % 5) as f64,
+                    rates,
+                    supply,
+                )
+            })
+            .collect()
     }
 
     fn rate(rates: &[Rate], charge_type: &str) -> f64 {
-        rates.iter().find(|rate| rate.charge_type == charge_type).unwrap().rate.unwrap()
+        rates
+            .iter()
+            .find(|rate| rate.charge_type == charge_type)
+            .unwrap()
+            .rate
+            .unwrap()
     }
 
     #[test]
@@ -296,8 +361,16 @@ mod tests {
         assert_eq!(tariffs.len(), 1);
         let tariff = &tariffs[0];
         assert!((rate(&tariff.usage, PEAK) - 0.3718).abs() < 0.002, "{:?}", tariff.usage);
-        assert!((rate(&tariff.usage, OFFPEAK) - 0.198).abs() < 0.0005, "{:?}", tariff.usage);
-        assert!((rate(&tariff.feed_in, FEED_IN) + 0.03).abs() < 0.0005, "{:?}", tariff.feed_in);
+        assert!(
+            (rate(&tariff.usage, OFFPEAK) - 0.198).abs() < 0.0005,
+            "{:?}",
+            tariff.usage
+        );
+        assert!(
+            (rate(&tariff.feed_in, FEED_IN) + 0.03).abs() < 0.0005,
+            "{:?}",
+            tariff.feed_in
+        );
         assert_eq!(tariff.daily, Some(1.309));
         assert!(days.iter().all(|day| check(day, tariff).is_empty()));
     }
@@ -323,10 +396,18 @@ mod tests {
     #[test]
     fn a_change_of_rates_starts_a_new_run() {
         let mut all = days(time::macros::date!(2026 - 06 - 01), 30, (0.35, 0.19, 0.04), 1.25);
-        all.extend(days(time::macros::date!(2026 - 07 - 01), 30, (0.3718, 0.198, 0.03), 1.309));
+        all.extend(days(
+            time::macros::date!(2026 - 07 - 01),
+            30,
+            (0.3718, 0.198, 0.03),
+            1.309,
+        ));
         let tariffs = tariffs(&all);
         assert_eq!(tariffs.len(), 2, "{tariffs:?}");
-        assert_eq!((tariffs[0].last, tariffs[1].first), (time::macros::date!(2026 - 06 - 30), time::macros::date!(2026 - 07 - 01)));
+        assert_eq!(
+            (tariffs[0].last, tariffs[1].first),
+            (time::macros::date!(2026 - 06 - 30), time::macros::date!(2026 - 07 - 01))
+        );
         assert!((rate(&tariffs[0].usage, OFFPEAK) - 0.19).abs() < 0.0005);
         assert!((rate(&tariffs[1].usage, OFFPEAK) - 0.198).abs() < 0.0005);
         assert_eq!((tariffs[0].daily, tariffs[1].daily), (Some(1.25), Some(1.309)));
@@ -338,11 +419,17 @@ mod tests {
         for day in &mut days {
             let offpeak = day.import[OFFPEAK];
             day.import.insert(PEAK.to_string(), 0.01);
-            day.cost.insert(USAGE.to_string(), ((0.01 * 0.3718 + offpeak * 0.198) * 100.0).round() / 100.0);
+            day.cost.insert(
+                USAGE.to_string(),
+                ((0.01 * 0.3718 + offpeak * 0.198) * 100.0).round() / 100.0,
+            );
             day.quantity.insert(USAGE.to_string(), 0.01 + offpeak);
         }
         let tariff = &tariffs(&days)[0];
-        assert_eq!(tariff.usage.iter().find(|rate| rate.charge_type == PEAK).unwrap().rate, None);
+        assert_eq!(
+            tariff.usage.iter().find(|rate| rate.charge_type == PEAK).unwrap().rate,
+            None
+        );
         assert!((rate(&tariff.usage, OFFPEAK) - 0.198).abs() < 0.001);
     }
 }

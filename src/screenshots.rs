@@ -143,8 +143,12 @@ enum Step {
 pub fn prepare_data_directory(fresh: &Path) -> anyhow::Result<()> {
     let data_home = crate::data_home::data_home()?;
     if data_home != std::path::absolute(fresh)? || data_home == crate::data_home::usual_data_home()? {
-        bail!("The shot list starts with a fresh data directory {}, which deletes its profiles and data, so give it with \
-            --home, it is not the data directory in use, {}", fresh.display(), data_home.display());
+        bail!(
+            "The shot list starts with a fresh data directory {}, which deletes its profiles and data, so give it with \
+            --home, it is not the data directory in use, {}",
+            fresh.display(),
+            data_home.display()
+        );
     }
     crate::data_home::clear(&data_home)?;
     println!("Cleared the data directory {}", data_home.display());
@@ -157,8 +161,11 @@ fn load_profile_data(from: &str) -> anyhow::Result<()> {
     use crate::profile::{Profile, ProfileFile, profile_names_equal};
 
     let usual = crate::data_home::usual_data_home()?;
-    let usual_profiles: ProfileFile = crate::profile::read_profile_file_at(&crate::data_home::profiles_path_in(&usual))?;
-    let source = usual_profiles.iter().find(|profile| profile_names_equal(&profile.name, from))
+    let usual_profiles: ProfileFile =
+        crate::profile::read_profile_file_at(&crate::data_home::profiles_path_in(&usual))?;
+    let source = usual_profiles
+        .iter()
+        .find(|profile| profile_names_equal(&profile.name, from))
         .ok_or_else(|| anyhow!("there is no profile {from} in {}", usual.display()))?;
     let active = crate::profile::fetch_active_profile(&None)?.active_profile.name;
 
@@ -166,7 +173,11 @@ fn load_profile_data(from: &str) -> anyhow::Result<()> {
     let usual_cache = crate::data_home::old_cache_dir_in(&usual);
     let cache = crate::MarcoSparkoContext::get_cache_dir_path()?;
     // Only the modules which a redacted profile can have, see redact::is_redactable.
-    for module_id in source.modules.keys().filter(|module_id| crate::redact::is_redactable(module_id)) {
+    for module_id in source
+        .modules
+        .keys()
+        .filter(|module_id| crate::redact::is_redactable(module_id))
+    {
         let target = cache.join(format!("{active}-{module_id}"));
         if target.exists() {
             std::fs::remove_dir_all(&target)?;
@@ -175,9 +186,15 @@ fn load_profile_data(from: &str) -> anyhow::Result<()> {
     }
 
     let path = crate::MarcoSparkoContext::get_file_path()?;
-    let mut profiles: ProfileFile = if path.exists() { crate::profile::read_profile_file_at(&path)? } else { Vec::new() };
+    let mut profiles: ProfileFile = if path.exists() {
+        crate::profile::read_profile_file_at(&path)?
+    } else {
+        Vec::new()
+    };
     profiles.retain(|profile| !profile_names_equal(&profile.name, &active));
-    let modules = source.modules.iter()
+    let modules = source
+        .modules
+        .iter()
         .filter(|(module_id, _)| crate::redact::is_redactable(module_id))
         .map(|(module_id, module)| {
             let mut module = module.clone();
@@ -187,19 +204,24 @@ fn load_profile_data(from: &str) -> anyhow::Result<()> {
             (module_id.clone(), module)
         })
         .collect();
-    profiles.insert(0, Profile {
-        name: active,
-        version: source.version.clone(),
-        modules,
-        settings: source.settings.clone(),
-        offline: true,
-        as_of: source.as_of,
-        // A site of its own, in this data home, into which its data is converted, as it is in the old layout.
-        site: None,
-    });
+    profiles.insert(
+        0,
+        Profile {
+            name: active,
+            version: source.version.clone(),
+            modules,
+            settings: source.settings.clone(),
+            offline: true,
+            as_of: source.as_of,
+            // A site of its own, in this data home, into which its data is converted, as it is in the old layout.
+            site: None,
+        },
+    );
     crate::profile::write_profile_file_at(&path, &profiles)?;
     let active = profiles[0].name.clone();
-    if crate::profile::ProfileVersionState::from(&profiles[0].version)? == crate::profile::ProfileVersionState::OlderThanCurrent {
+    if crate::profile::ProfileVersionState::from(&profiles[0].version)?
+        == crate::profile::ProfileVersionState::OlderThanCurrent
+    {
         crate::profile::upgrade_profile(&active, &mut bruce_db::progress::Silent)?;
     }
     Ok(())
@@ -211,8 +233,7 @@ fn copy_dir(from: &Path, to: &Path) -> anyhow::Result<()> {
         let entry = entry?;
         if entry.file_type()?.is_dir() {
             copy_dir(&entry.path(), &to.join(entry.file_name()))?;
-        }
-        else {
+        } else {
             std::fs::copy(entry.path(), to.join(entry.file_name()))?;
         }
     }
@@ -221,7 +242,8 @@ fn copy_dir(from: &Path, to: &Path) -> anyhow::Result<()> {
 
 /// Reads the shot list, for its window size, before the window opens.
 pub fn read_shot_file(path: &Path) -> anyhow::Result<ShotFile> {
-    let text = std::fs::read_to_string(path).map_err(|error| anyhow!("Unable to read the shot list {}: {error}", path.display()))?;
+    let text = std::fs::read_to_string(path)
+        .map_err(|error| anyhow!("Unable to read the shot list {}: {error}", path.display()))?;
     serde_json::from_str(&text).map_err(|error| anyhow!("The shot list {} is not valid: {error}", path.display()))
 }
 
@@ -240,11 +262,11 @@ pub fn use_screenshots(path: Option<PathBuf>) {
                 Ok(count) => {
                     println!("Took {count} screenshots from {}", path.display());
                     0
-                },
+                }
                 Err(error) => {
                     eprintln!("Screenshots failed: {error:#}");
                     1
-                },
+                }
             };
             std::process::exit(status);
         }
@@ -256,14 +278,17 @@ async fn take_all(path: &Path) -> anyhow::Result<usize> {
     check_permission()?;
     keep_display_awake();
     let main = dioxus::desktop::window();
-    main.window.set_inner_size(LogicalSize::new(shot_file.window.width, shot_file.window.height));
+    main.window
+        .set_inner_size(LogicalSize::new(shot_file.window.width, shot_file.window.height));
     // The app is ready once it shows its navigation bar, and has had time to draw it in front.
     wait_for_selector(".nav", WAIT_FOR_LIMIT).await?;
     to_front(&main.window);
     tokio::time::sleep(Duration::from_secs(2)).await;
     let help_was_shown = crate::help::is_shown();
     // The profile the app started with, to go back to after the shots which create profiles.
-    let started_with = crate::profile::fetch_active_profile(&None).map(|profile| profile.active_profile.name).ok();
+    let started_with = crate::profile::fetch_active_profile(&None)
+        .map(|profile| profile.active_profile.name)
+        .ok();
     remove_new_profiles(&shot_file.new_profiles, started_with.as_deref());
     let mut taken = 0;
     for (index, shot) in shot_file.shots.iter().enumerate() {
@@ -300,8 +325,14 @@ fn remove_new_profiles(new_profiles: &[String], started_with: Option<&str>) {
         eprintln!("Unable to make {started_with} the active profile again: {error:#}");
         return;
     }
-    let existing = crate::profile::fetch_active_profile(&None).map(|profile| profile.all_profiles).unwrap_or_default();
-    for profile in new_profiles.iter().filter(|profile| existing.iter().any(|name| crate::profile::profile_names_equal(name, profile))) {
+    let existing = crate::profile::fetch_active_profile(&None)
+        .map(|profile| profile.all_profiles)
+        .unwrap_or_default();
+    for profile in new_profiles.iter().filter(|profile| {
+        existing
+            .iter()
+            .any(|name| crate::profile::profile_names_equal(name, profile))
+    }) {
         match crate::profile::delete_profile(profile, started_with) {
             Ok(()) => println!("Deleted the profile {profile} the shots created"),
             Err(error) => eprintln!("Unable to delete the profile {profile} the shots created: {error:#}"),
@@ -312,8 +343,11 @@ fn remove_new_profiles(new_profiles: &[String], started_with: Option<&str>) {
 async fn take(shot: &Shot, main: &DesktopService) -> anyhow::Result<()> {
     crate::help::show_for_now(shot.help);
     // Closes anything the last shot left open, e.g. the date picker or the new profile's name.
-    let _ = document::eval("const element = document.activeElement || document.body;
-        element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));").await;
+    let _ = document::eval(
+        "const element = document.activeElement || document.body;
+        element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));",
+    )
+    .await;
     click("Home").await?;
     tokio::time::sleep(SETTLE).await;
     for step in &shot.steps {
@@ -391,7 +425,7 @@ async fn picture(shot: &Shot, main: &DesktopService) -> anyhow::Result<()> {
             to_front(&main.window);
             tokio::time::sleep(SETTLE).await;
             capture(&main.window, Path::new(&shot.file))
-        },
+        }
         ShotWindow::Newest => {
             let child = crate::components::child_windows::newest()
                 .ok_or_else(|| anyhow!("there is no window opened from the main one"))?;
@@ -399,7 +433,7 @@ async fn picture(shot: &Shot, main: &DesktopService) -> anyhow::Result<()> {
             to_front(&child.window);
             tokio::time::sleep(SETTLE).await;
             capture(&child.window, Path::new(&shot.file))
-        },
+        }
     }
 }
 
@@ -441,9 +475,16 @@ impl Alone {
     }
 
     #[cfg(target_os = "macos")]
-    fn ns_windows<'a>(windows: (*mut std::ffi::c_void, *mut std::ffi::c_void)) -> (&'a objc2_app_kit::NSWindow, &'a objc2_app_kit::NSWindow) {
+    fn ns_windows<'a>(
+        windows: (*mut std::ffi::c_void, *mut std::ffi::c_void),
+    ) -> (&'a objc2_app_kit::NSWindow, &'a objc2_app_kit::NSWindow) {
         // SAFETY: tao's windows are NSWindows, which live as long as the windows, longer than an Alone.
-        unsafe { (&*(windows.0 as *const objc2_app_kit::NSWindow), &*(windows.1 as *const objc2_app_kit::NSWindow)) }
+        unsafe {
+            (
+                &*(windows.0 as *const objc2_app_kit::NSWindow),
+                &*(windows.1 as *const objc2_app_kit::NSWindow),
+            )
+        }
     }
 }
 
@@ -485,8 +526,9 @@ const CLICK_LIMIT: Duration = Duration::from_secs(15);
 
 /// Clicks on the innermost visible element whose text is text, once there is one, see run.
 async fn click(text: &str) -> anyhow::Result<()> {
-    run(&format!(
-        "const want = {};
+    run(
+        &format!(
+            "const want = {};
          const matches = (element) => element.offsetParent !== null && (element.innerText || '').trim() === want;
          const element = [...document.querySelectorAll('body *')]
              .filter(matches)
@@ -494,16 +536,29 @@ async fn click(text: &str) -> anyhow::Result<()> {
          if (!element) {{ return false; }}
          element.click();
          return true;",
-        json(text),
-    ), &format!("there is nothing to click on with the text {text:?}")).await
+            json(text),
+        ),
+        &format!("there is nothing to click on with the text {text:?}"),
+    )
+    .await
 }
 
 async fn wait_for_text(text: &str, limit: Duration) -> anyhow::Result<()> {
-    wait_until(&format!("return document.body.innerText.includes({});", json(text)), limit, &format!("the text {text:?} did not appear")).await
+    wait_until(
+        &format!("return document.body.innerText.includes({});", json(text)),
+        limit,
+        &format!("the text {text:?} did not appear"),
+    )
+    .await
 }
 
 async fn wait_for_selector(selector: &str, limit: Duration) -> anyhow::Result<()> {
-    wait_until(&format!("return document.querySelector({}) !== null;", json(selector)), limit, &format!("{selector} did not appear")).await
+    wait_until(
+        &format!("return document.querySelector({}) !== null;", json(selector)),
+        limit,
+        &format!("{selector} did not appear"),
+    )
+    .await
 }
 
 async fn wait_until(script: &str, limit: Duration, problem: &str) -> anyhow::Result<()> {
@@ -525,7 +580,9 @@ fn keep_display_awake() {
         .args(["-d", "-i", "-w", &std::process::id().to_string()])
         .spawn()
     {
-        eprintln!("Unable to keep the display awake, the screen must not lock while the screenshots are taken: {error}");
+        eprintln!(
+            "Unable to keep the display awake, the screen must not lock while the screenshots are taken: {error}"
+        );
     }
 }
 
@@ -545,9 +602,11 @@ fn check_permission() -> anyhow::Result<()> {
     if unsafe { CGPreflightScreenCaptureAccess() } || unsafe { CGRequestScreenCaptureAccess() } {
         return Ok(());
     }
-    bail!("macOS has not given the Screen Recording permission, which is needed to take the pictures. Turn it on for \
+    bail!(
+        "macOS has not given the Screen Recording permission, which is needed to take the pictures. Turn it on for \
         what started the app, e.g. Visual Studio Code or Terminal, in System Settings, Privacy & Security, Screen & System \
-        Audio Recording, adding it with + if it is not listed, then quit and restart it and try again")
+        Audio Recording, adding it with + if it is not listed, then quit and restart it and try again"
+    )
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -572,7 +631,9 @@ fn capture(window: &dioxus::desktop::tao::window::Window, path: &Path) -> anyhow
         .arg(path)
         .status()?;
     if !status.success() || !path.exists() {
-        bail!("screencapture failed, it needs the Screen Recording permission, in System Settings, Privacy & Security, for what started the app");
+        bail!(
+            "screencapture failed, it needs the Screen Recording permission, in System Settings, Privacy & Security, for what started the app"
+        );
     }
     Ok(())
 }

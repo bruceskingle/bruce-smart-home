@@ -126,7 +126,11 @@ pub fn next_slot(now: OffsetDateTime, interval: Duration) -> OffsetDateTime {
 }
 
 /// Builds the module, if it is logged in.
-async fn build(registrations: &ModuleRegistrations, context: &Arc<MarcoSparkoContext>, module_id: &str) -> anyhow::Result<Option<Box<dyn Module + Send>>> {
+async fn build(
+    registrations: &ModuleRegistrations,
+    context: &Arc<MarcoSparkoContext>,
+    module_id: &str,
+) -> anyhow::Result<Option<Box<dyn Module + Send>>> {
     let factory = registrations.module_factory(module_id, context).await?;
     if !factory.is_ready().await? {
         return Ok(None);
@@ -157,7 +161,7 @@ pub fn Poller(context: crate::util::SharedProp<MarcoSparkoContext>) -> Element {
                 Err(error) => {
                     crate::log_error!("Unable to start the polling log, {error:#}");
                     return;
-                },
+                }
             };
             log.record(serde_json::json!({ "event": "start", "version": env!("CARGO_PKG_VERSION"), "pid": std::process::id() }));
             *RUNNING.lock().unwrap() = Some((id, log.clone()));
@@ -171,10 +175,16 @@ pub fn Poller(context: crate::util::SharedProp<MarcoSparkoContext>) -> Element {
                         Some(interval) => {
                             modules.push((module_id.clone(), module));
                             (PollState::Waiting, Some(interval))
-                        },
-                        None => (PollState::NotPolled("It has nothing which needs polling".to_string()), None),
+                        }
+                        None => (
+                            PollState::NotPolled("It has nothing which needs polling".to_string()),
+                            None,
+                        ),
                     },
-                    Ok(None) => (PollState::NotPolled("It is not logged in, open it to log in".to_string()), None),
+                    Ok(None) => (
+                        PollState::NotPolled("It is not logged in, open it to log in".to_string()),
+                        None,
+                    ),
                     Err(error) => (PollState::NotPolled(format!("Unable to start it, {error:#}")), None),
                 };
                 if let Some(status) = statuses.write().get_mut(&module_id) {
@@ -193,7 +203,10 @@ pub fn Poller(context: crate::util::SharedProp<MarcoSparkoContext>) -> Element {
                 status.state = PollState::Waiting;
                 status.interval = reader.poll_interval();
                 statuses.write().insert(crate::climate::MODULE_ID.to_string(), status);
-                modules.push((crate::climate::MODULE_ID.to_string(), Box::new(reader) as Box<dyn Module + Send>));
+                modules.push((
+                    crate::climate::MODULE_ID.to_string(),
+                    Box::new(reader) as Box<dyn Module + Send>,
+                ));
             }
 
             // The polls under way, each finishing on its own, so that a Poll Now of another module, or its next slot,
@@ -210,8 +223,11 @@ pub fn Poller(context: crate::util::SharedProp<MarcoSparkoContext>) -> Element {
                 let now = crate::clock::now_utc();
                 for (module_id, module) in &modules {
                     let mut statuses = statuses.write();
-                    let Some(status) = statuses.get_mut(module_id) else { continue };
-                    let scheduled = status.state == PollState::Waiting && status.next_time.is_none_or(|next| next <= now);
+                    let Some(status) = statuses.get_mut(module_id) else {
+                        continue;
+                    };
+                    let scheduled =
+                        status.state == PollState::Waiting && status.next_time.is_none_or(|next| next <= now);
                     if !(scheduled || status.poll_now) {
                         continue;
                     }
@@ -223,7 +239,15 @@ pub fn Poller(context: crate::util::SharedProp<MarcoSparkoContext>) -> Element {
                     in_flight.push(async move {
                         let requested = crate::clock::now_utc();
                         let result = module.poll(slot).await;
-                        (module_id, module, slot, was_paused, result, requested, crate::clock::now_utc())
+                        (
+                            module_id,
+                            module,
+                            slot,
+                            was_paused,
+                            result,
+                            requested,
+                            crate::clock::now_utc(),
+                        )
                     });
                 }
 
@@ -234,7 +258,10 @@ pub fn Poller(context: crate::util::SharedProp<MarcoSparkoContext>) -> Element {
                 let (module_id, module, slot, was_paused, result, requested, received) = finished;
                 let now = crate::clock::now_utc();
                 let result = result.map_err(|error| format!("{error:#}"));
-                let rfc3339 = |time: OffsetDateTime| time.format(&time::format_description::well_known::Rfc3339).unwrap_or_default();
+                let rfc3339 = |time: OffsetDateTime| {
+                    time.format(&time::format_description::well_known::Rfc3339)
+                        .unwrap_or_default()
+                };
                 log.record(serde_json::json!({
                     "event": "poll",
                     "module": module_id,
@@ -253,21 +280,20 @@ pub fn Poller(context: crate::util::SharedProp<MarcoSparkoContext>) -> Element {
                     status.last_time = Some(now);
                     if result.is_ok() {
                         status.failures_in_a_row = 0;
-                    }
-                    else {
+                    } else {
                         status.failures += 1;
                         status.failures_in_a_row += 1;
                     }
                     status.last_result = Some(result);
-                    status.next_time = module.next_poll(now).or_else(|| status.interval.map(|interval| next_slot(now, interval)));
+                    status.next_time = module
+                        .next_poll(now)
+                        .or_else(|| status.interval.map(|interval| next_slot(now, interval)));
                     status.state = if was_paused {
                         PollState::Paused
-                    }
-                    else if status.failures_in_a_row >= MAX_FAILURES {
+                    } else if status.failures_in_a_row >= MAX_FAILURES {
                         crate::log_warning!("Paused polling {module_id} after {MAX_FAILURES} failures in a row");
                         PollState::Paused
-                    }
-                    else {
+                    } else {
                         PollState::Waiting
                     };
                 }
@@ -296,8 +322,8 @@ pub fn set_paused(mut statuses: PollStatuses, module_id: &str, paused: bool) {
             (PollState::Paused, false) => {
                 status.state = PollState::Waiting;
                 status.failures_in_a_row = 0;
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 }
@@ -320,9 +346,18 @@ mod tests {
     #[test]
     fn polls_are_on_the_next_multiple_of_the_interval() {
         let five_minutes = Duration::from_secs(5 * 60);
-        assert_eq!(next_slot(datetime!(2026-10-28 10:03:12 UTC), five_minutes), datetime!(2026-10-28 10:05:00 UTC));
+        assert_eq!(
+            next_slot(datetime!(2026-10-28 10:03:12 UTC), five_minutes),
+            datetime!(2026-10-28 10:05:00 UTC)
+        );
         // Not the same time again when it is exactly on one.
-        assert_eq!(next_slot(datetime!(2026-10-28 10:05:00 UTC), five_minutes), datetime!(2026-10-28 10:10:00 UTC));
-        assert_eq!(next_slot(datetime!(2026-10-28 23:58:59 UTC), five_minutes), datetime!(2026-10-29 00:00:00 UTC));
+        assert_eq!(
+            next_slot(datetime!(2026-10-28 10:05:00 UTC), five_minutes),
+            datetime!(2026-10-28 10:10:00 UTC)
+        );
+        assert_eq!(
+            next_slot(datetime!(2026-10-28 23:58:59 UTC), five_minutes),
+            datetime!(2026-10-29 00:00:00 UTC)
+        );
     }
 }

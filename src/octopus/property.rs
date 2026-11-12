@@ -1,7 +1,7 @@
+use bruce_graphql::types::Date;
 use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, icons::ld_icons::LdExternalLink};
 use indexmap::IndexMap;
-use bruce_graphql::types::Date;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,7 +10,6 @@ use crate::data_set::SingleRecordDataSet;
 use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder};
 
 use super::graphql::meter;
-
 
 /*
         #[derive(Serialize, Deserialize, Debug, DisplayAsJsonPretty)]
@@ -37,8 +36,7 @@ use super::graphql::meter;
 fn gui_opt_date(date: &Option<Date>) -> String {
     if let Some(date) = date {
         date.to_string()
-    }
-    else {
+    } else {
         "".to_string()
     }
 }
@@ -46,8 +44,8 @@ fn gui_opt_date(date: &Option<Date>) -> String {
 pub type Property = meter::account_properties_meters::PropertyType;
 
 impl Property {
-    pub fn gui_summary_header() -> Element{
-        rsx!{
+    pub fn gui_summary_header() -> Element {
+        rsx! {
             tr { class: "header",
                 th { "ID" }
                 th { "Address" }
@@ -58,9 +56,9 @@ impl Property {
         }
     }
 
-
     fn format_period(period: &meter::account_properties_meters::OccupancyPeriodType) -> String {
-        format!("{}-{}",
+        format!(
+            "{}-{}",
             period.effective_from_,
             if let Some(effective_to) = &period.effective_to_ {
                 effective_to.to_string()
@@ -83,7 +81,7 @@ impl Property {
         let mut additional_periods = Vec::new();
         for period_data in it {
             let period_str = Self::format_period(period_data);
-            additional_periods.push(rsx!{
+            additional_periods.push(rsx! {
                 tr {
                     td { colspan: 4, "" }
                     td { "{period_str}" }
@@ -92,9 +90,12 @@ impl Property {
         }
 
         let coordinates = format!("{:.3} {:.3}", self.coordinates_.latitude_, self.coordinates_.longitude_);
-        let map_url = format!("https://www.google.com/maps/search/?api=1&query={},{}", self.coordinates_.latitude_, self.coordinates_.longitude_);
-        
-        rsx!{
+        let map_url = format!(
+            "https://www.google.com/maps/search/?api=1&query={},{}",
+            self.coordinates_.latitude_, self.coordinates_.longitude_
+        );
+
+        rsx! {
             tr {
                 td {
                     div {
@@ -134,8 +135,6 @@ impl Property {
         }
     }
 
-
-
     pub fn gui_display(&self) -> Element {
         let mut it = self.occupancy_periods_.iter();
         let period = if let Some(period_data) = it.next() {
@@ -147,7 +146,7 @@ impl Property {
         let mut additional_periods = Vec::new();
         for period_data in it {
             let period_str = Self::format_period(period_data);
-            additional_periods.push(rsx!{
+            additional_periods.push(rsx! {
                 tr {
                     td { "" }
                     td { "{period_str}" }
@@ -181,9 +180,17 @@ impl Property {
                 meter_rows.push(rsx! { tr { {point_cells.take()} td { colspan: 5 } } });
             }
             for (index, meter) in meter_point.meters_.iter().enumerate() {
-                let direction = if meter.import_meter_.is_none() { "Import" } else { "Export" };
+                let direction = if meter.import_meter_.is_none() {
+                    "Import"
+                } else {
+                    "Export"
+                };
                 // Only the first row of the meter point has its details.
-                let point_cells = if index == 0 { point_cells.take() } else { Some(rsx! { td { colspan: 5 } }) };
+                let point_cells = if index == 0 {
+                    point_cells.take()
+                } else {
+                    Some(rsx! { td { colspan: 5 } })
+                };
                 meter_rows.push(rsx! {
                     tr {
                         {point_cells}
@@ -209,7 +216,11 @@ impl Property {
             }
             for (index, meter) in meter_point.meters_.iter().enumerate() {
                 // Only the first row of the meter point has its details.
-                let point_cells = if index == 0 { point_cells.take() } else { Some(rsx! { td { colspan: 5 } }) };
+                let point_cells = if index == 0 {
+                    point_cells.take()
+                } else {
+                    Some(rsx! { td { colspan: 5 } })
+                };
                 meter_rows.push(rsx! {
                     tr {
                         {point_cells}
@@ -224,9 +235,12 @@ impl Property {
         }
 
         let coordinates = format!("{:.3} {:.3}", self.coordinates_.latitude_, self.coordinates_.longitude_);
-        let map_url = format!("https://www.google.com/maps/search/?api=1&query={},{}", self.coordinates_.latitude_, self.coordinates_.longitude_);
-        
-        rsx!{
+        let map_url = format!(
+            "https://www.google.com/maps/search/?api=1&query={},{}",
+            self.coordinates_.latitude_, self.coordinates_.longitude_
+        );
+
+        rsx! {
             h1 { "Property Details" }
             table { class: "display",
                 tr {
@@ -294,7 +308,11 @@ pub struct PropertyDataSet {
 }
 
 impl PropertyDataSet {
-    pub async fn new(account_number: &String, config: &Arc<CacheConfig>, request_manager: &impl GraphQLCaller)  -> anyhow::Result<Self> {
+    pub async fn new(
+        account_number: &String,
+        config: &Arc<CacheConfig>,
+        request_manager: &impl GraphQLCaller,
+    ) -> anyhow::Result<Self> {
         let hash_key = format!("{}#Properties", account_number);
         let query_provider = || {
             meter::account_properties_meters::Query::builder()
@@ -306,8 +324,9 @@ impl PropertyDataSet {
             Duration::from_hours(20 * 24), // 30 days
             query_provider,
             config,
-            request_manager
-        ).await?;
+            request_manager,
+        )
+        .await?;
 
         let mut meter_node_ids: Vec<String> = Vec::new();
         let mut property_map = IndexMap::new();
@@ -338,23 +357,41 @@ impl PropertyDataSet {
 /// Home Mini, links to the readings it provides of the electricity meter (ESME) on its network.
 pub fn smart_device_network_table(properties: &[&meter::account_properties_meters::PropertyType]) -> Element {
     let several_properties = properties.len() > 1;
-    let several_networks = properties.iter().any(|property| property.smart_device_networks_.len() > 1);
-    let device_type = |device: &meter::account_properties_meters::SmartMeterDeviceType| device.type_.to_string().trim_matches('"').to_string();
-    let devices: Vec<(String, usize, String, String, &'static str, Option<String>)> = properties.iter()
-        .flat_map(|property| property.smart_device_networks_.iter()
-            .enumerate()
-            .flat_map(move |(network, devices)| {
-                let esme = devices.smart_devices_.iter()
-                    .find(|device| device_type(device) == "ESME")
-                    .map(|device| device.device_id_.clone());
-                devices.smart_devices_.iter().map(move |device| {
-                    let device_type = device_type(device);
-                    let description = device_type_description(&device_type);
-                    // Only a consumer access device links to the readings.
-                    let readings_of = if device_type == "CAD" { esme.clone() } else { None };
-                    (property.address_.clone(), network + 1, device.device_id_.clone(), device_type, description, readings_of)
+    let several_networks = properties
+        .iter()
+        .any(|property| property.smart_device_networks_.len() > 1);
+    let device_type = |device: &meter::account_properties_meters::SmartMeterDeviceType| {
+        device.type_.to_string().trim_matches('"').to_string()
+    };
+    let devices: Vec<(String, usize, String, String, &'static str, Option<String>)> = properties
+        .iter()
+        .flat_map(|property| {
+            property
+                .smart_device_networks_
+                .iter()
+                .enumerate()
+                .flat_map(move |(network, devices)| {
+                    let esme = devices
+                        .smart_devices_
+                        .iter()
+                        .find(|device| device_type(device) == "ESME")
+                        .map(|device| device.device_id_.clone());
+                    devices.smart_devices_.iter().map(move |device| {
+                        let device_type = device_type(device);
+                        let description = device_type_description(&device_type);
+                        // Only a consumer access device links to the readings.
+                        let readings_of = if device_type == "CAD" { esme.clone() } else { None };
+                        (
+                            property.address_.clone(),
+                            network + 1,
+                            device.device_id_.clone(),
+                            device_type,
+                            description,
+                            readings_of,
+                        )
+                    })
                 })
-            }))
+        })
         .collect();
 
     if devices.is_empty() {

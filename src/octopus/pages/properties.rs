@@ -4,8 +4,8 @@ use anyhow::anyhow;
 use dioxus::prelude::*;
 
 use crate::octopus::context::OctopusContext;
-use crate::octopus::property::{Property, PropertyDataSet};
 use crate::octopus::graphql;
+use crate::octopus::property::{Property, PropertyDataSet};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct PropertiesPageProps {
@@ -31,7 +31,6 @@ pub fn PropertiesPage(props: PropertiesPageProps) -> Element {
         },
         Some(Err(error)) => Err(anyhow!("Failed to load properties: {error:#}"))?,
         Some(Ok(property_list)) => {
-
             // Are we looking at one bill?
             if let Some(property_id) = props.path.first() {
                 if let Some(property) = property_list.property_map.get(property_id) {
@@ -41,14 +40,12 @@ pub fn PropertiesPage(props: PropertiesPageProps) -> Element {
                             property: property.clone(),
                         }
                     }
-                }
-                else {
+                } else {
                     rsx! {
                         div { "No such property {property_id}" }
                     }
                 }
-            }
-            else {
+            } else {
                 rsx! {
                     table {
                         {Property::gui_summary_header()?}
@@ -58,7 +55,7 @@ pub fn PropertiesPage(props: PropertiesPageProps) -> Element {
                     }
                 }
             }
-        },
+        }
     }
 }
 
@@ -75,7 +72,6 @@ impl PartialEq for PropertyDetailProps {
 
 #[component]
 fn PropertyDetail(props: PropertyDetailProps) -> Element {
-
     rsx! {
         {props.property.gui_display()?}
     }

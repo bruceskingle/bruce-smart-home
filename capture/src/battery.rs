@@ -3,10 +3,10 @@
 
 use std::sync::Arc;
 
-use log::{info, warn};
 use bruce_embedded_std::platform::PlatformInitializer;
 use bruce_embedded_std::task::scheduler::ScheduledTask;
 use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer};
+use log::{info, warn};
 
 use crate::screen::Panel;
 
@@ -27,7 +27,13 @@ struct BatteryTask {
 
 /// Shows the battery on the screen from now on.
 pub fn start(panel: Arc<Panel>, initializer: &mut Esp32PlatformInitializer) -> anyhow::Result<()> {
-    initializer.add_task(Box::new(BatteryTask { panel, since_logged: LOG_EVERY }), SCHEDULE)
+    initializer.add_task(
+        Box::new(BatteryTask {
+            panel,
+            since_logged: LOG_EVERY,
+        }),
+        SCHEDULE,
+    )
 }
 
 impl ScheduledTask<Esp32Platform> for BatteryTask {
@@ -40,11 +46,11 @@ impl ScheduledTask<Esp32Platform> for BatteryTask {
                     info!("Battery {:.2} V, {}%", reading.volts, reading.percent);
                 }
                 (format!("Battery {:.2} V  {}%", reading.volts, reading.percent), false)
-            },
+            }
             Some(Err(error)) => {
                 warn!("Unable to read the battery, {error:#}");
                 (format!("Battery: {error:#}"), true)
-            },
+            }
             None => (String::from("Battery: not readable"), true),
         };
         self.panel.set(PANEL_ORDER, vec![line]);

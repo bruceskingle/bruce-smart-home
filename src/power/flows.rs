@@ -58,9 +58,16 @@ pub struct GridReading {
 
 /// The flows of each period of period which grid has readings in, in time order: each reading's, if it is no longer
 /// than a half hour, as the readings are of the period then, otherwise their total over each period.
-pub fn flows(topology: &Circuit, measurements: &[Arc<dyn Measurements>], grid: &[GridReading], period: Period, tz: &'static Tz) -> Vec<FlowPoint> {
+pub fn flows(
+    topology: &Circuit,
+    measurements: &[Arc<dyn Measurements>],
+    grid: &[GridReading],
+    period: Period,
+    tz: &'static Tz,
+) -> Vec<FlowPoint> {
     let used = topology.channel_ids();
-    let placed: Vec<&Arc<dyn Measurements>> = measurements.iter()
+    let placed: Vec<&Arc<dyn Measurements>> = measurements
+        .iter()
         .filter(|measurements| measurements.channels().iter().any(|channel| used.contains(channel)))
         .collect();
     let mut periods: BTreeMap<i64, FlowPoint> = BTreeMap::new();
@@ -68,10 +75,15 @@ pub fn flows(topology: &Circuit, measurements: &[Arc<dyn Measurements>], grid: &
         // Measured all through the half hour it is in, as the measurements say of half hours.
         let half_hour = reading.start - reading.start.rem_euclid(HALF_HOUR);
         let complete = !placed.is_empty() && placed.iter().all(|measurements| measurements.complete(half_hour));
-        let point = complete.then(|| reading_flows(topology, &placed, reading)).flatten()
+        let point = complete
+            .then(|| reading_flows(topology, &placed, reading))
+            .flatten()
             .unwrap_or_else(|| FlowPoint {
                 sources: BTreeMap::from([(String::from(GRID), reading.import)]),
-                uses: BTreeMap::from([(String::from(NOT_MEASURED), reading.import), (String::from(super::EXPORT_LABEL), reading.export)]),
+                uses: BTreeMap::from([
+                    (String::from(NOT_MEASURED), reading.import),
+                    (String::from(super::EXPORT_LABEL), reading.export),
+                ]),
                 ..FlowPoint::default()
             });
         let (start, end) = if period > Period::HalfHour {
@@ -79,7 +91,14 @@ pub fn flows(topology: &Circuit, measurements: &[Arc<dyn Measurements>], grid: &
         } else {
             (reading.start, reading.end)
         };
-        periods.entry(start).or_insert_with(|| FlowPoint { start, end, ..FlowPoint::default() }).add(&point);
+        periods
+            .entry(start)
+            .or_insert_with(|| FlowPoint {
+                start,
+                end,
+                ..FlowPoint::default()
+            })
+            .add(&point);
     }
     periods.into_values().collect()
 }
@@ -87,24 +106,39 @@ pub fn flows(topology: &Circuit, measurements: &[Arc<dyn Measurements>], grid: &
 /// What a circuit's first channel which has the span measured of it from start to end, None if none has.
 fn measured(circuit: &Circuit, measurements: &[&Arc<dyn Measurements>], start: i64, end: i64) -> Option<Flow> {
     circuit.channels.iter().find_map(|channel| {
-        measurements.iter().find_map(|measurements| measurements.energy(channel, start, end))
+        measurements
+            .iter()
+            .find_map(|measurements| measurements.energy(channel, start, end))
     })
 }
 
 /// A reading's flows, see the module comment, None if the topology can not place them, e.g. two of a circuit's
 /// circuits are without a channel.
-fn reading_flows(topology: &Circuit, measurements: &[&Arc<dyn Measurements>], reading: &GridReading) -> Option<FlowPoint> {
+fn reading_flows(
+    topology: &Circuit,
+    measurements: &[&Arc<dyn Measurements>],
+    reading: &GridReading,
+) -> Option<FlowPoint> {
     let mut point = FlowPoint::default();
     point.sources.insert(String::from(GRID), reading.import);
     point.uses.insert(String::from(super::EXPORT_LABEL), reading.export);
-    let root = Flow { import: reading.import, export: reading.export };
+    let root = Flow {
+        import: reading.import,
+        export: reading.export,
+    };
     walk(topology, root, measurements, (reading.start, reading.end), &mut point)?;
     Some(point)
 }
 
 /// Adds what circuit, whose energy is flow, gave and took to point, and that of the circuits it feeds, see
 /// reading_flows, over span, its start and end.
-fn walk(circuit: &Circuit, flow: Flow, measurements: &[&Arc<dyn Measurements>], span: (i64, i64), point: &mut FlowPoint) -> Option<()> {
+fn walk(
+    circuit: &Circuit,
+    flow: Flow,
+    measurements: &[&Arc<dyn Measurements>],
+    span: (i64, i64),
+    point: &mut FlowPoint,
+) -> Option<()> {
     let net = flow.import - flow.export;
     if circuit.children.is_empty() {
         let add = |map: &mut BTreeMap<String, f64>, label: &str, kwh: f64| {
@@ -116,7 +150,7 @@ fn walk(circuit: &Circuit, flow: Flow, measurements: &[&Arc<dyn Measurements>], 
             Use::Battery => {
                 add(&mut point.sources, BATTERY, flow.export);
                 add(&mut point.uses, BATTERY, flow.import);
-            },
+            }
             Use::Solar => add(&mut point.sources, SOLAR, -net),
             Use::Load(category) => add(&mut point.uses, label_prefix(category), net),
             // A board which feeds nothing, or the grid alone, whose energy went on something not known.
@@ -124,7 +158,11 @@ fn walk(circuit: &Circuit, flow: Flow, measurements: &[&Arc<dyn Measurements>], 
         }
         return Some(());
     }
-    let children: Vec<Option<Flow>> = circuit.children.iter().map(|child| measured(child, measurements, span.0, span.1)).collect();
+    let children: Vec<Option<Flow>> = circuit
+        .children
+        .iter()
+        .map(|child| measured(child, measurements, span.0, span.1))
+        .collect();
     if children.iter().filter(|child| child.is_none()).count() > 1 {
         return None;
     }
@@ -133,7 +171,10 @@ fn walk(circuit: &Circuit, flow: Flow, measurements: &[&Arc<dyn Measurements>], 
         // The rest, whose import and export are not known apart, only its net.
         let child_flow = child_flow.unwrap_or_else(|| {
             let rest = net - measured_net;
-            Flow { import: rest.max(0.0), export: (-rest).max(0.0) }
+            Flow {
+                import: rest.max(0.0),
+                export: (-rest).max(0.0),
+            }
         });
         walk(child, child_flow, measurements, span, point)?;
     }
@@ -155,25 +196,61 @@ mod tests {
             name: String::from("Tesla"),
             registers: registers(DAY - 20, DAY + 1820, 7000.0, 5000.0),
         })];
-        let reading = |start: i64, end: i64, import: f64, export: f64| GridReading { start, end, import, export };
-        let grid = [reading(DAY, DAY + HALF_HOUR, 7.0, 0.0), reading(DAY + HALF_HOUR, DAY + 2 * HALF_HOUR, 1.0, 0.2)];
-        let points = flows(&beside_the_gateway(), &measurements, &grid, Period::HalfHour, time_tz::timezones::db::UTC);
+        let reading = |start: i64, end: i64, import: f64, export: f64| GridReading {
+            start,
+            end,
+            import,
+            export,
+        };
+        let grid = [
+            reading(DAY, DAY + HALF_HOUR, 7.0, 0.0),
+            reading(DAY + HALF_HOUR, DAY + 2 * HALF_HOUR, 1.0, 0.2),
+        ];
+        let points = flows(
+            &beside_the_gateway(),
+            &measurements,
+            &grid,
+            Period::HalfHour,
+            time_tz::timezones::db::UTC,
+        );
         assert_eq!(points.len(), 2);
-        let near = |map: &BTreeMap<String, f64>, label: &str, kwh: f64| (map.get(label).copied().unwrap_or_default() - kwh).abs() < 1e-6;
+        let near = |map: &BTreeMap<String, f64>, label: &str, kwh: f64| {
+            (map.get(label).copied().unwrap_or_default() - kwh).abs() < 1e-6
+        };
         let first = &points[0];
         assert!(near(&first.sources, GRID, 7.0), "{first:?}");
-        assert!(near(&first.uses, "EV", 3.5) && near(&first.uses, BATTERY, 2.5) && near(&first.uses, "Home", 1.0), "{first:?}");
+        assert!(
+            near(&first.uses, "EV", 3.5) && near(&first.uses, BATTERY, 2.5) && near(&first.uses, "Home", 1.0),
+            "{first:?}"
+        );
         // The registers stop, so the second is not measured: the grid's import, as not measured, and its export.
         let second = &points[1];
-        assert!(near(&second.uses, NOT_MEASURED, 1.0) && near(&second.uses, crate::power::EXPORT_LABEL, 0.2), "{second:?}");
+        assert!(
+            near(&second.uses, NOT_MEASURED, 1.0) && near(&second.uses, crate::power::EXPORT_LABEL, 0.2),
+            "{second:?}"
+        );
         // A day adds them up.
-        let days = flows(&beside_the_gateway(), &measurements, &grid, Period::Day, time_tz::timezones::db::UTC);
+        let days = flows(
+            &beside_the_gateway(),
+            &measurements,
+            &grid,
+            Period::Day,
+            time_tz::timezones::db::UTC,
+        );
         assert_eq!(days.len(), 1);
         assert!(near(&days[0].sources, GRID, 8.0), "{days:?}");
         // A minute of it, from the gateway's registers over the minute.
-        let minute = flows(&beside_the_gateway(), &measurements, &[reading(DAY + 600, DAY + 660, 14.0 / 60.0, 0.0)], Period::Minute,
-            time_tz::timezones::db::UTC);
+        let minute = flows(
+            &beside_the_gateway(),
+            &measurements,
+            &[reading(DAY + 600, DAY + 660, 14.0 / 60.0, 0.0)],
+            Period::Minute,
+            time_tz::timezones::db::UTC,
+        );
         assert_eq!((minute[0].start, minute[0].end), (DAY + 600, DAY + 660));
-        assert!(near(&minute[0].uses, "EV", 7.0 / 60.0) && near(&minute[0].uses, "Home", 2.0 / 60.0), "{minute:?}");
+        assert!(
+            near(&minute[0].uses, "EV", 7.0 / 60.0) && near(&minute[0].uses, "Home", 2.0 / 60.0),
+            "{minute:?}"
+        );
     }
 }

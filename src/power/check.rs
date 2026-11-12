@@ -24,19 +24,41 @@ pub struct Series {
 impl Series {
     /// The half hours from start to end, with the grid readings' net import of each, grid, by the half hour's start,
     /// as grid_name, and each channel of measurements'.
-    pub fn new(start: i64, end: i64, grid: &BTreeMap<i64, f64>, grid_name: &str, measurements: &[Arc<dyn Measurements>]) -> Series {
+    pub fn new(
+        start: i64,
+        end: i64,
+        grid: &BTreeMap<i64, f64>,
+        grid_name: &str,
+        measurements: &[Arc<dyn Measurements>],
+    ) -> Series {
         let first = start.div_euclid(HALF_HOUR) * HALF_HOUR;
-        let half_hours: Vec<i64> = (first..end).step_by(HALF_HOUR as usize).filter(|half_hour| half_hour + HALF_HOUR <= end).collect();
+        let half_hours: Vec<i64> = (first..end)
+            .step_by(HALF_HOUR as usize)
+            .filter(|half_hour| half_hour + HALF_HOUR <= end)
+            .collect();
         let mut values = BTreeMap::new();
         if !grid.is_empty() {
-            values.insert(grid_name.to_string(), half_hours.iter().map(|half_hour| grid.get(half_hour).copied()).collect());
+            values.insert(
+                grid_name.to_string(),
+                half_hours
+                    .iter()
+                    .map(|half_hour| grid.get(half_hour).copied())
+                    .collect(),
+            );
         }
         for measurements in measurements {
-            let complete: Vec<bool> = half_hours.iter().map(|half_hour| measurements.complete(*half_hour)).collect();
+            let complete: Vec<bool> = half_hours
+                .iter()
+                .map(|half_hour| measurements.complete(*half_hour))
+                .collect();
             for channel in measurements.channels() {
-                let channel_values: Vec<Option<f64>> = half_hours.iter().zip(&complete)
+                let channel_values: Vec<Option<f64>> = half_hours
+                    .iter()
+                    .zip(&complete)
                     .map(|(half_hour, complete)| {
-                        let flow = measurements.energy(&channel, *half_hour, half_hour + HALF_HOUR).filter(|_| *complete)?;
+                        let flow = measurements
+                            .energy(&channel, *half_hour, half_hour + HALF_HOUR)
+                            .filter(|_| *complete)?;
                         Some(flow.import - flow.export)
                     })
                     .collect();
@@ -45,12 +67,18 @@ impl Series {
                 }
             }
         }
-        Series { half_hours, values, grid_name: grid_name.to_string() }
+        Series {
+            half_hours,
+            values,
+            grid_name: grid_name.to_string(),
+        }
     }
 
     /// The series of a circuit: its first channel which has one, or the grid readings', if it is the grid's.
     fn of(&self, circuit: &Circuit, top: bool) -> Option<(&str, &[Option<f64>])> {
-        circuit.channels.iter()
+        circuit
+            .channels
+            .iter()
             .find_map(|channel| self.values.get_key_value(channel))
             .or_else(|| top.then(|| self.values.get_key_value(&self.grid_name)).flatten())
             .map(|(name, values)| (name.as_str(), values.as_slice()))
@@ -59,9 +87,18 @@ impl Series {
     /// Each half hour's start, and its values of the series, where every one of them has a value.
     fn common<'a>(&'a self, series: &[&'a [Option<f64>]]) -> impl Iterator<Item = (i64, Vec<f64>)> + 'a {
         let series = series.to_vec();
-        self.half_hours.iter().enumerate().filter_map(move |(index, half_hour)| {
-            Some((*half_hour, series.iter().map(|values| values[index]).collect::<Option<Vec<f64>>>()?))
-        })
+        self.half_hours
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, half_hour)| {
+                Some((
+                    *half_hour,
+                    series
+                        .iter()
+                        .map(|values| values[index])
+                        .collect::<Option<Vec<f64>>>()?,
+                ))
+            })
     }
 }
 
@@ -139,33 +176,84 @@ pub fn checks(topology: &Circuit, series: &Series) -> Vec<Check> {
 
 fn add_checks(circuit: &Circuit, top: bool, series: &Series, checks: &mut Vec<Check>) {
     // Each pair of channels on it, the first against each other.
-    let measured: Vec<(&String, &Vec<Option<f64>>)> = circuit.channels.iter().filter_map(|channel| series.values.get_key_value(channel)).collect();
+    let measured: Vec<(&String, &Vec<Option<f64>>)> = circuit
+        .channels
+        .iter()
+        .filter_map(|channel| series.values.get_key_value(channel))
+        .collect();
     let first = series.of(circuit, top);
     if let Some((first_name, first_values)) = first {
         for (name, values) in measured.iter().filter(|(name, _)| name.as_str() != first_name) {
-            let pairs = series.common(&[first_values, values]).map(|(half_hour, values)| (half_hour, values[0], values[1])).collect();
-            checks.push(Check::new(CheckKind::Agrees, format!("{} is measured by {first_name} and {name}", circuit.name),
-                first_name.to_string(), name.to_string(), pairs));
+            let pairs = series
+                .common(&[first_values, values])
+                .map(|(half_hour, values)| (half_hour, values[0], values[1]))
+                .collect();
+            checks.push(Check::new(
+                CheckKind::Agrees,
+                format!("{} is measured by {first_name} and {name}", circuit.name),
+                first_name.to_string(),
+                name.to_string(),
+                pairs,
+            ));
         }
     }
     if let (Some((parent_name, parent_values)), false) = (first, circuit.children.is_empty()) {
-        let children: Vec<(&Circuit, Option<(&str, &[Option<f64>])>)> = circuit.children.iter().map(|child| (child, series.of(child, false))).collect();
-        let unmeasured: Vec<&Circuit> = children.iter().filter(|(_, series)| series.is_none()).map(|(child, _)| *child).collect();
-        let measured: Vec<(&Circuit, &str, &[Option<f64>])> = children.iter()
+        let children: Vec<(&Circuit, Option<(&str, &[Option<f64>])>)> = circuit
+            .children
+            .iter()
+            .map(|child| (child, series.of(child, false)))
+            .collect();
+        let unmeasured: Vec<&Circuit> = children
+            .iter()
+            .filter(|(_, series)| series.is_none())
+            .map(|(child, _)| *child)
+            .collect();
+        let measured: Vec<(&Circuit, &str, &[Option<f64>])> = children
+            .iter()
             .filter_map(|(child, series)| series.map(|(name, values)| (*child, name, values)))
             .collect();
         let mut all = vec![parent_values];
         all.extend(measured.iter().map(|(_, _, values)| *values));
-        let pairs: Vec<(i64, f64, f64)> = series.common(&all).map(|(half_hour, values)| (half_hour, values[0], values[1..].iter().sum())).collect();
-        let names = |circuits: &[&Circuit]| circuits.iter().map(|circuit| circuit.name.as_str()).collect::<Vec<_>>().join(", ");
-        let measured_names = measured.iter().map(|(_, name, _)| *name).collect::<Vec<_>>().join(" + ");
+        let pairs: Vec<(i64, f64, f64)> = series
+            .common(&all)
+            .map(|(half_hour, values)| (half_hour, values[0], values[1..].iter().sum()))
+            .collect();
+        let names = |circuits: &[&Circuit]| {
+            circuits
+                .iter()
+                .map(|circuit| circuit.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let measured_names = measured
+            .iter()
+            .map(|(_, name, _)| *name)
+            .collect::<Vec<_>>()
+            .join(" + ");
         match unmeasured.as_slice() {
-            [] => checks.push(Check::new(CheckKind::AddsUp,
-                format!("{} feeds {}", circuit.name, names(&measured.iter().map(|(child, _, _)| *child).collect::<Vec<_>>())),
-                parent_name.to_string(), measured_names, pairs)),
-            [rest] => checks.push(Check::new(CheckKind::Rest, format!("{}, the rest of {}", rest.name, circuit.name),
-                parent_name.to_string(), if measured_names.is_empty() { String::from("nothing") } else { measured_names }, pairs)),
-            _ => {},
+            [] => checks.push(Check::new(
+                CheckKind::AddsUp,
+                format!(
+                    "{} feeds {}",
+                    circuit.name,
+                    names(&measured.iter().map(|(child, _, _)| *child).collect::<Vec<_>>())
+                ),
+                parent_name.to_string(),
+                measured_names,
+                pairs,
+            )),
+            [rest] => checks.push(Check::new(
+                CheckKind::Rest,
+                format!("{}, the rest of {}", rest.name, circuit.name),
+                parent_name.to_string(),
+                if measured_names.is_empty() {
+                    String::from("nothing")
+                } else {
+                    measured_names
+                },
+                pairs,
+            )),
+            _ => {}
         }
     }
     for child in &circuit.children {
@@ -196,14 +284,23 @@ pub fn verdict(checks: &[Check]) -> Verdict {
     if checks.iter().all(|check| check.half_hours == 0) {
         return Verdict::NothingToCheck;
     }
-    let wrong: Vec<usize> = checks.iter().enumerate()
-        .filter(|(_, check)| check.half_hours > 0 && match check.kind {
-            CheckKind::Rest => check.negative as f64 > check.half_hours as f64 * RIGHT_NEGATIVE,
-            _ => check.mismatch.is_none_or(|mismatch| mismatch > RIGHT),
+    let wrong: Vec<usize> = checks
+        .iter()
+        .enumerate()
+        .filter(|(_, check)| {
+            check.half_hours > 0
+                && match check.kind {
+                    CheckKind::Rest => check.negative as f64 > check.half_hours as f64 * RIGHT_NEGATIVE,
+                    _ => check.mismatch.is_none_or(|mismatch| mismatch > RIGHT),
+                }
         })
         .map(|(index, _)| index)
         .collect();
-    if wrong.is_empty() { Verdict::LooksRight } else { Verdict::Wrong(wrong) }
+    if wrong.is_empty() {
+        Verdict::LooksRight
+    } else {
+        Verdict::Wrong(wrong)
+    }
 }
 
 /// A topology from what the measurements say, see relations, None if they say nothing of the grid: channels which are
@@ -212,7 +309,12 @@ pub fn verdict(checks: &[Check]) -> Verdict {
 /// circuits are not all of a sum also feeds the rest, and one which is the house's, e.g. a gateway's load, which it
 /// works out from its other meters, is the rest itself. The names and uses of current's circuits are kept for the
 /// same channels, and others' are from what the channels usually measure, see Channel::use_.
-pub fn propose(current: &Circuit, series: &Series, relations: &[Relation], channels: &[super::topology::Channel]) -> Option<Circuit> {
+pub fn propose(
+    current: &Circuit,
+    series: &Series,
+    relations: &[Relation],
+    channels: &[super::topology::Channel],
+) -> Option<Circuit> {
     use super::topology::Use;
     let names: Vec<&str> = series.values.keys().map(String::as_str).collect();
     // The first of each group of channels which are the same, see relations.
@@ -225,12 +327,22 @@ pub fn propose(current: &Circuit, series: &Series, relations: &[Relation], chann
     }
     let root = *group.get(series.grid_name.as_str())?;
     let firsts: Vec<&str> = names.iter().copied().filter(|name| group[name] == *name).collect();
-    let magnitude = |name: &str| series.values[name].iter().flatten().map(|value| value.abs()).sum::<f64>();
+    let magnitude = |name: &str| {
+        series.values[name]
+            .iter()
+            .flatten()
+            .map(|value| value.abs())
+            .sum::<f64>()
+    };
     // What feeds each, the smallest sum it is part of, and the sums.
     let mut parent: BTreeMap<&str, &str> = BTreeMap::new();
-    let mut sums: Vec<(&str, BTreeSet<&str>)> = relations.iter()
+    let mut sums: Vec<(&str, BTreeSet<&str>)> = relations
+        .iter()
         .filter_map(|relation| match relation {
-            Relation::Sum { a, parts, .. } => Some((group[a.as_str()], parts.iter().map(|part| group[part.as_str()]).collect())),
+            Relation::Sum { a, parts, .. } => Some((
+                group[a.as_str()],
+                parts.iter().map(|part| group[part.as_str()]).collect(),
+            )),
             _ => None,
         })
         .collect();
@@ -258,31 +370,61 @@ pub fn propose(current: &Circuit, series: &Series, relations: &[Relation], chann
     }
     // Whether a circuit's are just those of one of its sums, so that it needs no rest.
     let exact = |name: &str| -> bool {
-        let fed: BTreeSet<&str> = parent.iter().filter(|(_, feeder)| **feeder == name).map(|(fed, _)| *fed).collect();
+        let fed: BTreeSet<&str> = parent
+            .iter()
+            .filter(|(_, feeder)| **feeder == name)
+            .map(|(fed, _)| *fed)
+            .collect();
         sums.iter().any(|(a, parts)| *a == name && *parts == fed)
     };
-    let use_of = |id: &str| channels.iter().find(|channel| channel.id == id).map(|channel| channel.use_.clone());
+    let use_of = |id: &str| {
+        channels
+            .iter()
+            .find(|channel| channel.id == id)
+            .map(|channel| channel.use_.clone())
+    };
     let current_of = |members: &[&str]| -> Option<Circuit> {
         fn find<'a>(circuit: &'a Circuit, members: &[&str]) -> Option<&'a Circuit> {
-            if circuit.channels.iter().any(|channel| members.contains(&channel.as_str())) {
+            if circuit
+                .channels
+                .iter()
+                .any(|channel| members.contains(&channel.as_str()))
+            {
                 return Some(circuit);
             }
             circuit.children.iter().find_map(|child| find(child, members))
         }
         find(current, members).cloned()
     };
-    fn build(name: &str, top: bool, group: &BTreeMap<&str, &str>, parent: &BTreeMap<&str, &str>, exact: &dyn Fn(&str) -> bool,
-        use_of: &dyn Fn(&str) -> Option<Use>, current_of: &dyn Fn(&[&str]) -> Option<Circuit>) -> Circuit
-    {
-        let mut members: Vec<&str> = group.iter().filter(|(_, first)| **first == name).map(|(member, _)| *member).collect();
+    fn build(
+        name: &str,
+        top: bool,
+        group: &BTreeMap<&str, &str>,
+        parent: &BTreeMap<&str, &str>,
+        exact: &dyn Fn(&str) -> bool,
+        use_of: &dyn Fn(&str) -> Option<Use>,
+        current_of: &dyn Fn(&[&str]) -> Option<Circuit>,
+    ) -> Circuit {
+        let mut members: Vec<&str> = group
+            .iter()
+            .filter(|(_, first)| **first == name)
+            .map(|(member, _)| *member)
+            .collect();
         // Not the grid's circuit, for one fed from it, e.g. where the current topology has a clamp at the grid
         // connection which the data says is not.
         let current = current_of(&members).filter(|current| top || current.use_ != Use::Grid);
         // In the order the current topology has them, as the first is the one used.
         if let Some(current) = &current {
-            members.sort_by_key(|member| current.channels.iter().position(|channel| channel == member).unwrap_or(usize::MAX));
+            members.sort_by_key(|member| {
+                current
+                    .channels
+                    .iter()
+                    .position(|channel| channel == member)
+                    .unwrap_or(usize::MAX)
+            });
         }
-        let mut children: Vec<Circuit> = parent.iter()
+        let mut children: Vec<Circuit> = parent
+            .iter()
             .filter(|(_, feeder)| **feeder == name)
             .map(|(fed, _)| build(fed, false, group, parent, exact, use_of, current_of))
             .collect();
@@ -291,7 +433,11 @@ pub fn propose(current: &Circuit, series: &Series, relations: &[Relation], chann
         } else if !children.is_empty() {
             Use::Board
         } else {
-            current.as_ref().map(|current| current.use_.clone()).or_else(|| members.iter().find_map(|member| use_of(member))).unwrap_or_default()
+            current
+                .as_ref()
+                .map(|current| current.use_.clone())
+                .or_else(|| members.iter().find_map(|member| use_of(member)))
+                .unwrap_or_default()
         };
         // A clamp which would be the grid's, inside the site, e.g. a zappi's grid clamp moved beside a gateway's, is a
         // board's, which feeds the rest.
@@ -301,12 +447,24 @@ pub fn propose(current: &Circuit, series: &Series, relations: &[Relation], chann
         if current.is_none() {
             members.sort_by_key(|member| use_of(member).as_ref() != Some(&use_));
         }
-        if (if children.is_empty() { use_ == Use::Board } else { !exact(name) }) && children.iter().all(|child| !child.channels.is_empty()) {
-            children.push(Circuit { name: String::from(super::topology::UNKNOWN), use_: Use::unknown(), channels: Vec::new(), children: Vec::new() });
+        if (if children.is_empty() {
+            use_ == Use::Board
+        } else {
+            !exact(name)
+        }) && children.iter().all(|child| !child.channels.is_empty())
+        {
+            children.push(Circuit {
+                name: String::from(super::topology::UNKNOWN),
+                use_: Use::unknown(),
+                channels: Vec::new(),
+                children: Vec::new(),
+            });
         }
         // The house's channel in a sum is the rest of what feeds it.
         if exact(name) {
-            let houses: Vec<usize> = children.iter().enumerate()
+            let houses: Vec<usize> = children
+                .iter()
+                .enumerate()
                 .filter(|(_, child)| child.use_ == Use::house() && child.children.is_empty())
                 .map(|(index, _)| index)
                 .collect();
@@ -314,11 +472,19 @@ pub fn propose(current: &Circuit, series: &Series, relations: &[Relation], chann
                 children[*house].channels.clear();
             }
         }
-        let name = current.as_ref().map(|current| current.name.clone()).unwrap_or_else(|| match &use_ {
-            Use::Board => String::from("Board"),
-            other => other.label().to_string(),
-        });
-        Circuit { name, use_, channels: members.iter().map(|member| member.to_string()).collect(), children }
+        let name = current
+            .as_ref()
+            .map(|current| current.name.clone())
+            .unwrap_or_else(|| match &use_ {
+                Use::Board => String::from("Board"),
+                other => other.label().to_string(),
+            });
+        Circuit {
+            name,
+            use_,
+            channels: members.iter().map(|member| member.to_string()).collect(),
+            children,
+        }
     }
     Some(build(root, true, &group, &parent, &exact, &use_of, &current_of))
 }
@@ -339,11 +505,26 @@ const MOST_PARTS: usize = 4;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Relation {
     /// Both measure the same circuit, e.g. two clamps beside each other.
-    Same { a: String, b: String, mismatch: f64, half_hours: usize },
+    Same {
+        a: String,
+        b: String,
+        mismatch: f64,
+        half_hours: usize,
+    },
     /// b measures what a does, the other way round, e.g. a clamp put on backwards.
-    Reversed { a: String, b: String, mismatch: f64, half_hours: usize },
+    Reversed {
+        a: String,
+        b: String,
+        mismatch: f64,
+        half_hours: usize,
+    },
     /// a's net import is the sum of the parts', as a circuit feeding them would be.
-    Sum { a: String, parts: Vec<String>, mismatch: f64, half_hours: usize },
+    Sum {
+        a: String,
+        parts: Vec<String>,
+        mismatch: f64,
+        half_hours: usize,
+    },
 }
 
 /// How far a is from the sum of parts, each times its sign, over the half hours which have them all, None if there
@@ -359,11 +540,22 @@ fn mismatch(series: &Series, a: &str, parts: &[(&str, f64)]) -> Option<(f64, usi
     }
     let magnitude: f64 = rows.iter().map(|row| row[0].abs()).sum();
     // Each part must matter, or a sum with a part of nothing would be found as well as a without it.
-    if magnitude < LEAST || (1..all.len()).any(|index| rows.iter().map(|row| row[index].abs()).sum::<f64>() < magnitude * SAME) {
+    if magnitude < LEAST
+        || (1..all.len()).any(|index| rows.iter().map(|row| row[index].abs()).sum::<f64>() < magnitude * SAME)
+    {
         return None;
     }
-    let difference: f64 = rows.iter()
-        .map(|row| (row[0] - parts.iter().zip(&row[1..]).map(|((_, sign), value)| sign * value).sum::<f64>()).abs())
+    let difference: f64 = rows
+        .iter()
+        .map(|row| {
+            (row[0]
+                - parts
+                    .iter()
+                    .zip(&row[1..])
+                    .map(|((_, sign), value)| sign * value)
+                    .sum::<f64>())
+            .abs()
+        })
         .sum();
     Some((difference / magnitude, rows.len()))
 }
@@ -378,19 +570,37 @@ pub fn relations(series: &Series) -> Vec<Relation> {
     let mut same_as: BTreeMap<&str, &str> = BTreeMap::new();
     for (index, a) in names.iter().enumerate() {
         for b in &names[index + 1..] {
-            if let Some((mismatch, half_hours)) = mismatch(series, a, &[(b, 1.0)]).filter(|(mismatch, _)| *mismatch <= SAME) {
-                relations.push(Relation::Same { a: a.to_string(), b: b.to_string(), mismatch, half_hours });
+            if let Some((mismatch, half_hours)) =
+                mismatch(series, a, &[(b, 1.0)]).filter(|(mismatch, _)| *mismatch <= SAME)
+            {
+                relations.push(Relation::Same {
+                    a: a.to_string(),
+                    b: b.to_string(),
+                    mismatch,
+                    half_hours,
+                });
                 let first = same_as.get(a).copied().unwrap_or(a);
                 same_as.entry(b).or_insert(first);
-            } else if let Some((mismatch, half_hours)) = mismatch(series, a, &[(b, -1.0)]).filter(|(mismatch, _)| *mismatch <= SAME) {
-                relations.push(Relation::Reversed { a: a.to_string(), b: b.to_string(), mismatch, half_hours });
+            } else if let Some((mismatch, half_hours)) =
+                mismatch(series, a, &[(b, -1.0)]).filter(|(mismatch, _)| *mismatch <= SAME)
+            {
+                relations.push(Relation::Reversed {
+                    a: a.to_string(),
+                    b: b.to_string(),
+                    mismatch,
+                    half_hours,
+                });
                 // Nor in sums, where it would be the other way round, e.g. the car's the grid's and the reversed one's.
                 let first = same_as.get(a).copied().unwrap_or(a);
                 same_as.entry(b).or_insert(first);
             }
         }
     }
-    let firsts: Vec<&str> = names.iter().copied().filter(|name| !same_as.contains_key(name)).collect();
+    let firsts: Vec<&str> = names
+        .iter()
+        .copied()
+        .filter(|name| !same_as.contains_key(name))
+        .collect();
     for a in &firsts {
         let others: Vec<&str> = firsts.iter().copied().filter(|other| other != a).collect();
         let mut found: Vec<BTreeSet<&str>> = Vec::new();
@@ -401,8 +611,15 @@ pub fn relations(series: &Series) -> Vec<Relation> {
                     continue;
                 }
                 let signed: Vec<(&str, f64)> = parts.iter().map(|part| (*part, 1.0)).collect();
-                if let Some((mismatch, half_hours)) = mismatch(series, a, &signed).filter(|(mismatch, _)| *mismatch <= SAME) {
-                    relations.push(Relation::Sum { a: a.to_string(), parts: parts.iter().map(|part| part.to_string()).collect(), mismatch, half_hours });
+                if let Some((mismatch, half_hours)) =
+                    mismatch(series, a, &signed).filter(|(mismatch, _)| *mismatch <= SAME)
+                {
+                    relations.push(Relation::Sum {
+                        a: a.to_string(),
+                        parts: parts.iter().map(|part| part.to_string()).collect(),
+                        mismatch,
+                        half_hours,
+                    });
                     found.push(set);
                 }
             }
@@ -410,24 +627,31 @@ pub fn relations(series: &Series) -> Vec<Relation> {
     }
     // Not a sum which is another's with a part replaced by that part's own sum, e.g. the grid's as the car's, the
     // batteries', the solar panels' and the load's, where it is the car's and the gateway's, and the gateway's those.
-    let sums: Vec<(String, BTreeSet<String>)> = relations.iter()
+    let sums: Vec<(String, BTreeSet<String>)> = relations
+        .iter()
         .filter_map(|relation| match relation {
             Relation::Sum { a, parts, .. } => Some((a.clone(), parts.iter().cloned().collect())),
             _ => None,
         })
         .collect();
-    let expanded = |a: &str, parts: &BTreeSet<String>| sums.iter().any(|(other_a, other_parts)| {
-        other_a == a && other_parts.iter().any(|part| {
-            sums.iter().any(|(sum_a, sum_parts)| {
-                sum_a == part && {
-                    let mut replaced: BTreeSet<String> = other_parts.iter().filter(|other| *other != part).cloned().collect();
-                    replaced.extend(sum_parts.iter().cloned());
-                    replaced == *parts
-                }
-            })
+    let expanded = |a: &str, parts: &BTreeSet<String>| {
+        sums.iter().any(|(other_a, other_parts)| {
+            other_a == a
+                && other_parts.iter().any(|part| {
+                    sums.iter().any(|(sum_a, sum_parts)| {
+                        sum_a == part && {
+                            let mut replaced: BTreeSet<String> =
+                                other_parts.iter().filter(|other| *other != part).cloned().collect();
+                            replaced.extend(sum_parts.iter().cloned());
+                            replaced == *parts
+                        }
+                    })
+                })
         })
-    });
-    relations.retain(|relation| !matches!(relation, Relation::Sum { a, parts, .. } if expanded(a, &parts.iter().cloned().collect())));
+    };
+    relations.retain(
+        |relation| !matches!(relation, Relation::Sum { a, parts, .. } if expanded(a, &parts.iter().cloned().collect())),
+    );
     relations
 }
 
@@ -436,13 +660,16 @@ fn combinations<'a>(items: &[&'a str], size: usize) -> Vec<Vec<&'a str>> {
     if size == 0 {
         return vec![Vec::new()];
     }
-    (0..items.len()).flat_map(|index| {
-        combinations(&items[index + 1..], size - 1).into_iter().map(move |mut rest| {
-            rest.insert(0, items[index]);
-            rest
+    (0..items.len())
+        .flat_map(|index| {
+            combinations(&items[index + 1..], size - 1)
+                .into_iter()
+                .map(move |mut rest| {
+                    rest.insert(0, items[index]);
+                    rest
+                })
         })
-    })
-    .collect()
+        .collect()
 }
 
 #[cfg(test)]
@@ -467,22 +694,45 @@ mod tests {
             (String::from("myenergi:Z1:grid"), some(&site)),
             (String::from("tesla:site"), some(&site)),
         ]);
-        Series { half_hours, values, grid_name: String::from("octopus:electricity") }
+        Series {
+            half_hours,
+            values,
+            grid_name: String::from("octopus:electricity"),
+        }
     }
 
     fn circuit(name: &str, use_: Use, channels: &[&str], children: Vec<Circuit>) -> Circuit {
-        Circuit { name: name.to_string(), use_, channels: channels.iter().map(|channel| channel.to_string()).collect(), children }
+        Circuit {
+            name: name.to_string(),
+            use_,
+            channels: channels.iter().map(|channel| channel.to_string()).collect(),
+            children,
+        }
     }
 
     #[test]
     fn the_first_households_topology_adds_up_and_its_two_clamps_agree() {
-        let topology = circuit("Grid", Use::Grid, &["octopus:electricity"], vec![
-            circuit("Car", Use::car(), &["myenergi:Z1"], vec![]),
-            circuit("Gateway", Use::Board, &["tesla:site", "myenergi:Z1:grid"], vec![circuit("House", Use::house(), &[], vec![])]),
-        ]);
+        let topology = circuit(
+            "Grid",
+            Use::Grid,
+            &["octopus:electricity"],
+            vec![
+                circuit("Car", Use::car(), &["myenergi:Z1"], vec![]),
+                circuit(
+                    "Gateway",
+                    Use::Board,
+                    &["tesla:site", "myenergi:Z1:grid"],
+                    vec![circuit("House", Use::house(), &[], vec![])],
+                ),
+            ],
+        );
         let checks = checks(&topology, &series());
         let kinds: Vec<CheckKind> = checks.iter().map(|check| check.kind).collect();
-        assert_eq!(kinds, [CheckKind::AddsUp, CheckKind::Agrees, CheckKind::Rest], "{checks:#?}");
+        assert_eq!(
+            kinds,
+            [CheckKind::AddsUp, CheckKind::Agrees, CheckKind::Rest],
+            "{checks:#?}"
+        );
         assert!(checks[0].mismatch.unwrap() < 1e-9 && checks[0].half_hours == 48);
         assert_eq!(checks[0].title, "Grid feeds Car, Gateway");
         assert!(checks[1].mismatch.unwrap() < 1e-9);
@@ -493,16 +743,24 @@ mod tests {
     fn with_the_car_put_behind_the_gateway_the_checks_say_so() {
         // As installers fit it, which this house is not: the grid is then the gateway's, and the car is more than the
         // rest of the gateway's.
-        let topology = circuit("Grid", Use::Grid, &["octopus:electricity", "tesla:site"], vec![
-            circuit("Car", Use::car(), &["myenergi:Z1"], vec![]),
-            circuit("House", Use::house(), &[], vec![]),
-        ]);
+        let topology = circuit(
+            "Grid",
+            Use::Grid,
+            &["octopus:electricity", "tesla:site"],
+            vec![
+                circuit("Car", Use::car(), &["myenergi:Z1"], vec![]),
+                circuit("House", Use::house(), &[], vec![]),
+            ],
+        );
         let checks = checks(&topology, &series());
         let agrees = checks.iter().find(|check| check.kind == CheckKind::Agrees).unwrap();
         assert!(agrees.mismatch.unwrap() > 0.3, "{agrees:?}");
         let mut topology = topology;
         topology.channels = vec![String::from("tesla:site")];
-        let rest = checks_of(&topology).into_iter().find(|check| check.kind == CheckKind::Rest).unwrap();
+        let rest = checks_of(&topology)
+            .into_iter()
+            .find(|check| check.kind == CheckKind::Rest)
+            .unwrap();
         assert_eq!(rest.negative, 8, "the car's 8 half hours of charging");
         assert_eq!(rest.worst.len(), WORST);
     }
@@ -515,13 +773,21 @@ mod tests {
     fn the_data_says_which_clamps_are_the_same_and_what_adds_up() {
         let mut series = series();
         // A clamp on backwards.
-        let reversed: Vec<Option<f64>> = series.values["tesla:site"].iter().map(|value| value.map(|value| -value)).collect();
+        let reversed: Vec<Option<f64>> = series.values["tesla:site"]
+            .iter()
+            .map(|value| value.map(|value| -value))
+            .collect();
         series.values.insert(String::from("other:backwards"), reversed);
         let relations = relations(&series);
-        let same = |a: &str, b: &str| relations.iter().any(|relation| matches!(relation, Relation::Same { a: x, b: y, .. } if x == a && y == b));
+        let same = |a: &str, b: &str| {
+            relations
+                .iter()
+                .any(|relation| matches!(relation, Relation::Same { a: x, b: y, .. } if x == a && y == b))
+        };
         assert!(same("myenergi:Z1:grid", "tesla:site"), "{relations:#?}");
         assert!(relations.iter().any(|relation| matches!(relation, Relation::Reversed { a, b, .. } if a == "myenergi:Z1:grid" && b == "other:backwards")));
-        let sums: Vec<(&str, Vec<&str>)> = relations.iter()
+        let sums: Vec<(&str, Vec<&str>)> = relations
+            .iter()
             .filter_map(|relation| match relation {
                 Relation::Sum { a, parts, .. } => Some((a.as_str(), parts.iter().map(String::as_str).collect())),
                 _ => None,
@@ -533,25 +799,59 @@ mod tests {
     #[test]
     fn the_right_topology_looks_right_and_a_wrong_one_gets_one_which_fits() {
         let series = series();
-        let right = circuit("Grid", Use::Grid, &["octopus:electricity"], vec![
-            circuit("Car", Use::car(), &["myenergi:Z1"], vec![]),
-            circuit("Gateway", Use::Board, &["tesla:site", "myenergi:Z1:grid"], vec![circuit("House", Use::house(), &[], vec![])]),
-        ]);
+        let right = circuit(
+            "Grid",
+            Use::Grid,
+            &["octopus:electricity"],
+            vec![
+                circuit("Car", Use::car(), &["myenergi:Z1"], vec![]),
+                circuit(
+                    "Gateway",
+                    Use::Board,
+                    &["tesla:site", "myenergi:Z1:grid"],
+                    vec![circuit("House", Use::house(), &[], vec![])],
+                ),
+            ],
+        );
         assert_eq!(verdict(&checks(&right, &series)), Verdict::LooksRight);
         // As installers fit it, which this house is not.
-        let wrong = circuit("Grid", Use::Grid, &["octopus:electricity", "tesla:site", "myenergi:Z1:grid"], vec![
-            circuit("Car", Use::car(), &["myenergi:Z1"], vec![]),
-            circuit("House", Use::house(), &[], vec![]),
-        ]);
+        let wrong = circuit(
+            "Grid",
+            Use::Grid,
+            &["octopus:electricity", "tesla:site", "myenergi:Z1:grid"],
+            vec![
+                circuit("Car", Use::car(), &["myenergi:Z1"], vec![]),
+                circuit("House", Use::house(), &[], vec![]),
+            ],
+        );
         assert!(matches!(verdict(&checks(&wrong, &series)), Verdict::Wrong(_)));
-        let channels: Vec<Channel> = [("octopus:electricity", Use::Grid), ("myenergi:Z1", Use::car()), ("myenergi:Z1:grid", Use::Grid), ("tesla:site", Use::Board)]
-            .map(|(id, use_)| Channel { id: id.to_string(), description: String::new(), use_ })
-            .to_vec();
+        let channels: Vec<Channel> = [
+            ("octopus:electricity", Use::Grid),
+            ("myenergi:Z1", Use::car()),
+            ("myenergi:Z1:grid", Use::Grid),
+            ("tesla:site", Use::Board),
+        ]
+        .map(|(id, use_)| Channel {
+            id: id.to_string(),
+            description: String::new(),
+            use_,
+        })
+        .to_vec();
         let proposed = propose(&wrong, &series, &relations(&series), &channels).unwrap();
-        let expected = circuit("Grid", Use::Grid, &["octopus:electricity"], vec![
-            circuit("Car", Use::car(), &["myenergi:Z1"], vec![]),
-            circuit("Board", Use::Board, &["tesla:site", "myenergi:Z1:grid"], vec![circuit("Unknown", Use::unknown(), &[], vec![])]),
-        ]);
+        let expected = circuit(
+            "Grid",
+            Use::Grid,
+            &["octopus:electricity"],
+            vec![
+                circuit("Car", Use::car(), &["myenergi:Z1"], vec![]),
+                circuit(
+                    "Board",
+                    Use::Board,
+                    &["tesla:site", "myenergi:Z1:grid"],
+                    vec![circuit("Unknown", Use::unknown(), &[], vec![])],
+                ),
+            ],
+        );
         assert_eq!(proposed, expected);
         assert_eq!(verdict(&checks(&proposed, &series)), Verdict::LooksRight);
         assert!(proposed.problems().is_empty());
@@ -563,10 +863,30 @@ mod tests {
         // solar panels and the house, which the gateway's load is.
         let half_hours: Vec<i64> = (0..48).map(|index| DAY + index * HALF_HOUR).collect();
         let car: Vec<f64> = (0..48).map(|index| if index < 8 { 3.5 } else { 0.0 }).collect();
-        let battery: Vec<f64> = (0..48).map(|index| if index < 10 { 2.0 } else if index > 36 { -0.4 } else { 0.0 }).collect();
-        let solar: Vec<f64> = (0..48).map(|index| if (16..32).contains(&index) { -1.0 - (index % 3) as f64 * 0.2 } else { 0.0 }).collect();
+        let battery: Vec<f64> = (0..48)
+            .map(|index| {
+                if index < 10 {
+                    2.0
+                } else if index > 36 {
+                    -0.4
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        let solar: Vec<f64> = (0..48)
+            .map(|index| {
+                if (16..32).contains(&index) {
+                    -1.0 - (index % 3) as f64 * 0.2
+                } else {
+                    0.0
+                }
+            })
+            .collect();
         let load: Vec<f64> = (0..48).map(|index| 0.3 + (index % 5) as f64 * 0.1).collect();
-        let grid: Vec<f64> = (0..48).map(|index| car[index] + battery[index] + solar[index] + load[index]).collect();
+        let grid: Vec<f64> = (0..48)
+            .map(|index| car[index] + battery[index] + solar[index] + load[index])
+            .collect();
         let some = |values: &[f64]| values.iter().map(|value| Some(*value)).collect::<Vec<_>>();
         let series = Series {
             half_hours,
@@ -582,26 +902,65 @@ mod tests {
             grid_name: String::from("octopus:electricity"),
         };
         let relations = relations(&series);
-        let sums: Vec<&Relation> = relations.iter().filter(|relation| matches!(relation, Relation::Sum { .. })).collect();
+        let sums: Vec<&Relation> = relations
+            .iter()
+            .filter(|relation| matches!(relation, Relation::Sum { .. }))
+            .collect();
         assert_eq!(sums.len(), 1, "{relations:#?}");
         // The first household's topology, which this house is not.
-        let beside = circuit("Grid", Use::Grid, &["octopus:electricity"], vec![
-            circuit("Car", Use::car(), &["myenergi:Z1"], vec![]),
-            circuit("Gateway", Use::Board, &["tesla:site"], vec![
-                circuit("Battery", Use::Battery, &["tesla:battery"], vec![]),
-                circuit("Solar", Use::Solar, &["tesla:solar"], vec![]),
-                circuit("House", Use::house(), &[], vec![]),
-            ]),
-        ]);
+        let beside = circuit(
+            "Grid",
+            Use::Grid,
+            &["octopus:electricity"],
+            vec![
+                circuit("Car", Use::car(), &["myenergi:Z1"], vec![]),
+                circuit(
+                    "Gateway",
+                    Use::Board,
+                    &["tesla:site"],
+                    vec![
+                        circuit("Battery", Use::Battery, &["tesla:battery"], vec![]),
+                        circuit("Solar", Use::Solar, &["tesla:solar"], vec![]),
+                        circuit("House", Use::house(), &[], vec![]),
+                    ],
+                ),
+            ],
+        );
         assert!(matches!(verdict(&checks(&beside, &series)), Verdict::Wrong(_)));
         let channels: Vec<Channel> = [
-            ("octopus:electricity", Use::Grid), ("myenergi:Z1", Use::car()), ("myenergi:Z1:grid", Use::Grid), ("tesla:site", Use::Board),
-            ("tesla:battery", Use::Battery), ("tesla:solar", Use::Solar), ("tesla:load", Use::house()),
-        ].map(|(id, use_)| Channel { id: id.to_string(), description: String::new(), use_ }).to_vec();
+            ("octopus:electricity", Use::Grid),
+            ("myenergi:Z1", Use::car()),
+            ("myenergi:Z1:grid", Use::Grid),
+            ("tesla:site", Use::Board),
+            ("tesla:battery", Use::Battery),
+            ("tesla:solar", Use::Solar),
+            ("tesla:load", Use::house()),
+        ]
+        .map(|(id, use_)| Channel {
+            id: id.to_string(),
+            description: String::new(),
+            use_,
+        })
+        .to_vec();
         let proposed = propose(&beside, &series, &relations, &channels).unwrap();
-        assert_eq!(proposed.channels, ["octopus:electricity", "myenergi:Z1:grid", "tesla:site"]);
-        let fed: Vec<(&str, Use, usize)> = proposed.children.iter().map(|child| (child.name.as_str(), child.use_.clone(), child.channels.len())).collect();
-        assert_eq!(fed, [("Car", Use::car(), 1), ("Battery", Use::Battery, 1), ("House", Use::house(), 0), ("Solar", Use::Solar, 1)]);
+        assert_eq!(
+            proposed.channels,
+            ["octopus:electricity", "myenergi:Z1:grid", "tesla:site"]
+        );
+        let fed: Vec<(&str, Use, usize)> = proposed
+            .children
+            .iter()
+            .map(|child| (child.name.as_str(), child.use_.clone(), child.channels.len()))
+            .collect();
+        assert_eq!(
+            fed,
+            [
+                ("Car", Use::car(), 1),
+                ("Battery", Use::Battery, 1),
+                ("House", Use::house(), 0),
+                ("Solar", Use::Solar, 1)
+            ]
+        );
         assert_eq!(verdict(&checks(&proposed, &series)), Verdict::LooksRight);
         assert!(proposed.problems().is_empty());
     }
@@ -611,10 +970,30 @@ mod tests {
         // The first household: the car beside the gateway, whose load is its site less its batteries and solar.
         let half_hours: Vec<i64> = (0..48).map(|index| DAY + index * HALF_HOUR).collect();
         let car: Vec<f64> = (0..48).map(|index| if index < 8 { 3.5 } else { 0.0 }).collect();
-        let battery: Vec<f64> = (0..48).map(|index| if index < 10 { 2.0 } else if index > 36 { -0.4 } else { 0.0 }).collect();
-        let solar: Vec<f64> = (0..48).map(|index| if (16..32).contains(&index) { -1.0 - (index % 3) as f64 * 0.2 } else { 0.0 }).collect();
+        let battery: Vec<f64> = (0..48)
+            .map(|index| {
+                if index < 10 {
+                    2.0
+                } else if index > 36 {
+                    -0.4
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        let solar: Vec<f64> = (0..48)
+            .map(|index| {
+                if (16..32).contains(&index) {
+                    -1.0 - (index % 3) as f64 * 0.2
+                } else {
+                    0.0
+                }
+            })
+            .collect();
         let load: Vec<f64> = (0..48).map(|index| 0.3 + (index % 5) as f64 * 0.1).collect();
-        let site: Vec<f64> = (0..48).map(|index| battery[index] + solar[index] + load[index]).collect();
+        let site: Vec<f64> = (0..48)
+            .map(|index| battery[index] + solar[index] + load[index])
+            .collect();
         let grid: Vec<f64> = (0..48).map(|index| car[index] + site[index]).collect();
         let some = |values: &[f64]| values.iter().map(|value| Some(*value)).collect::<Vec<_>>();
         let series = Series {
@@ -631,19 +1010,42 @@ mod tests {
             grid_name: String::from("octopus:electricity"),
         };
         // As installers fit it, which this house is not.
-        let behind = circuit("Grid", Use::Grid, &["octopus:electricity", "myenergi:Z1:grid"], vec![
-            circuit("Gateway", Use::Board, &["tesla:site"], vec![
-                circuit("Car", Use::car(), &["myenergi:Z1"], vec![]),
-                circuit("House", Use::house(), &[], vec![]),
-            ]),
-        ]);
+        let behind = circuit(
+            "Grid",
+            Use::Grid,
+            &["octopus:electricity", "myenergi:Z1:grid"],
+            vec![circuit(
+                "Gateway",
+                Use::Board,
+                &["tesla:site"],
+                vec![
+                    circuit("Car", Use::car(), &["myenergi:Z1"], vec![]),
+                    circuit("House", Use::house(), &[], vec![]),
+                ],
+            )],
+        );
         let channels: Vec<Channel> = [
-            ("octopus:electricity", Use::Grid), ("myenergi:Z1", Use::car()), ("myenergi:Z1:grid", Use::Grid), ("tesla:site", Use::Board),
-            ("tesla:battery", Use::Battery), ("tesla:solar", Use::Solar), ("tesla:load", Use::house()),
-        ].map(|(id, use_)| Channel { id: id.to_string(), description: String::new(), use_ }).to_vec();
+            ("octopus:electricity", Use::Grid),
+            ("myenergi:Z1", Use::car()),
+            ("myenergi:Z1:grid", Use::Grid),
+            ("tesla:site", Use::Board),
+            ("tesla:battery", Use::Battery),
+            ("tesla:solar", Use::Solar),
+            ("tesla:load", Use::house()),
+        ]
+        .map(|(id, use_)| Channel {
+            id: id.to_string(),
+            description: String::new(),
+            use_,
+        })
+        .to_vec();
         let proposed = propose(&behind, &series, &relations(&series), &channels).unwrap();
         let gateway = proposed.children.iter().find(|child| child.use_ == Use::Board).unwrap();
-        let houses: Vec<&Circuit> = gateway.children.iter().filter(|child| child.use_ == Use::house()).collect();
+        let houses: Vec<&Circuit> = gateway
+            .children
+            .iter()
+            .filter(|child| child.use_ == Use::house())
+            .collect();
         assert_eq!(houses.len(), 1, "{proposed:#?}");
         assert!(houses[0].channels.is_empty());
         assert_eq!(verdict(&checks(&proposed, &series)), Verdict::LooksRight);
@@ -651,6 +1053,9 @@ mod tests {
 
     #[test]
     fn combinations_are_in_order() {
-        assert_eq!(combinations(&["a", "b", "c"], 2), [vec!["a", "b"], vec!["a", "c"], vec!["b", "c"]]);
+        assert_eq!(
+            combinations(&["a", "b", "c"], 2),
+            [vec!["a", "b"], vec!["a", "c"], vec!["b", "c"]]
+        );
     }
 }

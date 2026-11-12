@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
-use crate::octopus::{Profile, graphql::account::viewer::AccountInterface};
 use crate::components::error_text::ErrorText;
+use crate::octopus::{Profile, graphql::account::viewer::AccountInterface};
 use crate::{InitRequested, profile};
 
 #[derive(Props, Clone)]
@@ -30,11 +30,7 @@ impl PartialEq for AccountRowProps {
 pub fn AccountRow(props: AccountRowProps) -> Element {
     let mut error = use_signal(|| None::<String>);
     let mut init_signal = use_context::<Signal<InitRequested>>();
-    let account_ids: Vec<String> = props
-        .accounts
-        .iter()
-        .map(|account| account.number_.clone())
-        .collect();
+    let account_ids: Vec<String> = props.accounts.iter().map(|account| account.number_.clone()).collect();
     let valid_account_ids = account_ids.clone();
     let selected_account_id = props.selected_account_id.clone();
     let profile = props.profile.clone();

@@ -92,9 +92,22 @@ impl Chip {
     /// e.g. ESP32-C6 v0.2, 1 core, 8 MB flash, no PSRAM, as the device's /config page says it.
     pub fn describe(&self) -> String {
         let mb = |bytes: u64| format!("{} MB", bytes / (1024 * 1024));
-        let cores = if self.cores == 1 { "1 core".to_string() } else { format!("{} cores", self.cores) };
-        let psram = if self.psram_bytes == 0 { "no PSRAM".to_string() } else { format!("{} PSRAM", mb(self.psram_bytes)) };
-        format!("{} {}, {cores}, {} flash, {psram}", self.model, self.revision, mb(self.flash_bytes))
+        let cores = if self.cores == 1 {
+            "1 core".to_string()
+        } else {
+            format!("{} cores", self.cores)
+        };
+        let psram = if self.psram_bytes == 0 {
+            "no PSRAM".to_string()
+        } else {
+            format!("{} PSRAM", mb(self.psram_bytes))
+        };
+        format!(
+            "{} {}, {cores}, {} flash, {psram}",
+            self.model,
+            self.revision,
+            mb(self.flash_bytes)
+        )
     }
 }
 
@@ -164,26 +177,41 @@ struct PinnedCertificate {
 }
 
 impl ServerCertVerifier for PinnedCertificate {
-    fn verify_server_cert(&self, end_entity: &CertificateDer<'_>, _intermediates: &[CertificateDer<'_>],
-        _server_name: &ServerName<'_>, _ocsp_response: &[u8], _now: UnixTime) -> Result<ServerCertVerified, rustls::Error> {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
         let fingerprint = sha256_hex(end_entity.as_ref());
         *self.seen.lock().unwrap() = Some(fingerprint.clone());
         match &self.expected {
             Some(expected) if *expected != fingerprint => Err(rustls::Error::General(format!(
                 "the device's certificate is not the one it had when it was adopted ({fingerprint} instead of {expected}), \
-                 it may have been reset, or something else may be at its address"))),
+                 it may have been reset, or something else may be at its address"
+            ))),
             _ => Ok(ServerCertVerified::assertion()),
         }
     }
 
     // The certificate's signature still proves the device has its key.
-    fn verify_tls12_signature(&self, message: &[u8], cert: &CertificateDer<'_>, dss: &DigitallySignedStruct)
-        -> Result<HandshakeSignatureValid, rustls::Error> {
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
         rustls::crypto::verify_tls12_signature(message, cert, dss, &self.provider.signature_verification_algorithms)
     }
 
-    fn verify_tls13_signature(&self, message: &[u8], cert: &CertificateDer<'_>, dss: &DigitallySignedStruct)
-        -> Result<HandshakeSignatureValid, rustls::Error> {
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
         rustls::crypto::verify_tls13_signature(message, cert, dss, &self.provider.signature_verification_algorithms)
     }
 
@@ -206,13 +234,19 @@ const PAGE_TIMEOUT: Duration = Duration::from_secs(2 * 60);
 fn sign(key: &str, method: &str, uri: &str, time: i64) -> anyhow::Result<String> {
     use hmac::Mac;
 
-    let key = (0..key.len()).step_by(2)
+    let key = (0..key.len())
+        .step_by(2)
         .map(|at| key.get(at..at + 2).and_then(|byte| u8::from_str_radix(byte, 16).ok()))
         .collect::<Option<Vec<u8>>>()
         .ok_or_else(|| anyhow!("the device key is not hex"))?;
     let mut mac = hmac::Hmac::<Sha256>::new_from_slice(&key)?;
     mac.update(format!("{method} {uri} {time}").as_bytes());
-    let signature: String = mac.finalize().into_bytes().iter().map(|byte| format!("{byte:02x}")).collect();
+    let signature: String = mac
+        .finalize()
+        .into_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     Ok(format!("Sparko-HMAC-SHA256 {time}:{signature}"))
 }
 
@@ -236,7 +270,11 @@ impl DeviceClient {
     pub fn new(address: &str, fingerprint: Option<&str>, key: Option<&str>) -> anyhow::Result<DeviceClient> {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let seen = Arc::new(Mutex::new(None));
-        let verifier = PinnedCertificate { expected: fingerprint.map(String::from), seen: seen.clone(), provider: provider.clone() };
+        let verifier = PinnedCertificate {
+            expected: fingerprint.map(String::from),
+            seen: seen.clone(),
+            provider: provider.clone(),
+        };
         let tls = rustls::ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()?
             .dangerous()
@@ -249,7 +287,9 @@ impl DeviceClient {
             // Long enough for a night's 10 second samples, a few MB, which a device sends slowly.
             .timeout(Duration::from_secs(5 * 60))
             .build()?;
-        let plain = crate::http::client_builder().connect_timeout(PLAIN_CONNECT_TIMEOUT).build()?;
+        let plain = crate::http::client_builder()
+            .connect_timeout(PLAIN_CONNECT_TIMEOUT)
+            .build()?;
         Ok(DeviceClient {
             http,
             base: format!("https://{}/api", address.trim()),
@@ -287,12 +327,18 @@ impl DeviceClient {
         let text = response.text().await?;
         if !status.is_success() {
             // The API's errors are JSON, but not the HTTP server's own, e.g. 404 for a path no feature has.
-            let message = serde_json::from_str::<Value>(&text).ok()
+            let message = serde_json::from_str::<Value>(&text)
+                .ok()
                 .and_then(|json| json.get("error").and_then(|error| error.as_str()).map(String::from))
                 .unwrap_or_else(|| crate::http::summary(&text));
-            return Err(StatusError { status: status.as_u16(), message }.into());
+            return Err(StatusError {
+                status: status.as_u16(),
+                message,
+            }
+            .into());
         }
-        serde_json::from_str(&text).map_err(|_| anyhow!("the device responded {status}: {}", crate::http::summary(&text)))
+        serde_json::from_str(&text)
+            .map_err(|_| anyhow!("the device responded {status}: {}", crate::http::summary(&text)))
     }
 
     pub async fn get(&self, path: &str) -> anyhow::Result<Value> {
@@ -308,7 +354,12 @@ impl DeviceClient {
     /// As get_query, but if missing_over_https is false, a path the device does not have, 404, is not asked for again
     /// over HTTPS, e.g. /api/store/info, which a device from before the store does not have, whether or not it takes
     /// signed requests.
-    async fn get_signed(&self, path: &str, query: &[(&str, String)], missing_over_https: bool) -> anyhow::Result<Value> {
+    async fn get_signed(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+        missing_over_https: bool,
+    ) -> anyhow::Result<Value> {
         if let Some(key) = &self.key {
             let mut url = reqwest::Url::parse(&format!("http://{}/api/{path}", self.address))?;
             if !query.is_empty() {
@@ -323,7 +374,11 @@ impl DeviceClient {
             let lock = device_lock(&self.base);
             let _turn = lock.lock().await;
             let authorization = sign(key, "GET", &uri, time::OffsetDateTime::now_utc().unix_timestamp())?;
-            let request = self.plain.get(url).header(reqwest::header::AUTHORIZATION, authorization).timeout(PAGE_TIMEOUT);
+            let request = self
+                .plain
+                .get(url)
+                .header(reqwest::header::AUTHORIZATION, authorization)
+                .timeout(PAGE_TIMEOUT);
             let result = Self::receive(request).await;
             drop(_turn);
             // A 404 from a device which has taken a signed request is a path it does not have, e.g. /api/store/info
@@ -331,8 +386,15 @@ impl DeviceClient {
             // HTTPS, which needs tens of KB of its RAM.
             let signed = !missing_over_https || SIGNED.lock().unwrap().contains(&self.address);
             match result {
-                Err(error) if error.downcast_ref::<StatusError>().is_some_and(|error| error.status == 401 || (error.status == 404 && !signed)) => {
-                    crate::log_info!("Capture device at {} did not take a signed request for {path}, using HTTPS, {error:#}", self.address);
+                Err(error)
+                    if error
+                        .downcast_ref::<StatusError>()
+                        .is_some_and(|error| error.status == 401 || (error.status == 404 && !signed)) =>
+                {
+                    crate::log_info!(
+                        "Capture device at {} did not take a signed request for {path}, using HTTPS, {error:#}",
+                        self.address
+                    );
                 }
                 result => {
                     if result.is_ok() {
@@ -342,17 +404,22 @@ impl DeviceClient {
                 }
             }
         }
-        self.send(self.http.get(format!("{}/{path}", self.base)).query(query)).await
+        self.send(self.http.get(format!("{}/{path}", self.base)).query(query))
+            .await
     }
 
     pub async fn post(&self, path: &str, body: &Value) -> anyhow::Result<Value> {
-        self.send(self.http.post(format!("{}/{path}", self.base)).json(body)).await
+        self.send(self.http.post(format!("{}/{path}", self.base)).json(body))
+            .await
     }
 
     /// What the device says it is, over plain HTTP, to be quick, see PLAIN_CONNECT_TIMEOUT, and to not need the RAM
     /// HTTPS does, as it is public, and a device which is not the one adopted does not get the key, see secure_info.
     pub async fn info(&self) -> anyhow::Result<DeviceInfo> {
-        let request = self.plain.get(format!("http://{}/api/info", self.address)).timeout(INFO_TIMEOUT);
+        let request = self
+            .plain
+            .get(format!("http://{}/api/info", self.address))
+            .timeout(INFO_TIMEOUT);
         Ok(serde_json::from_value(Self::receive(request).await?)?)
     }
 
@@ -365,7 +432,9 @@ impl DeviceClient {
     /// Asks the device to show a pairing code, returning how long it lasts.
     pub async fn start_pairing(&self) -> anyhow::Result<Duration> {
         let json = self.post("adopt/start", &serde_json::json!({})).await?;
-        Ok(Duration::from_secs(json["expiresInSeconds"].as_u64().unwrap_or_default()))
+        Ok(Duration::from_secs(
+            json["expiresInSeconds"].as_u64().unwrap_or_default(),
+        ))
     }
 
     pub async fn release(&self) -> anyhow::Result<()> {
@@ -414,27 +483,50 @@ pub struct FoundDevice {
 pub async fn find(address: &str) -> anyhow::Result<FoundDevice> {
     let address = address.trim();
     let client = DeviceClient::new(address, None, None)?;
-    let info = client.secure_info().await.map_err(|error| anyhow!("no capture device answered at {address}, {error:#}"))?;
-    let fingerprint = client.seen_fingerprint().ok_or_else(|| anyhow!("the device presented no certificate"))?;
+    let info = client
+        .secure_info()
+        .await
+        .map_err(|error| anyhow!("no capture device answered at {address}, {error:#}"))?;
+    let fingerprint = client
+        .seen_fingerprint()
+        .ok_or_else(|| anyhow!("the device presented no certificate"))?;
     if fingerprint != info.certificate_fingerprint {
-        return Err(anyhow!("the certificate presented at {address} is not the one the device there says it has, \
-            something else may be in between"));
+        return Err(anyhow!(
+            "the certificate presented at {address} is not the one the device there says it has, \
+            something else may be in between"
+        ));
     }
-    Ok(FoundDevice { address: address.to_string(), info, fingerprint })
+    Ok(FoundDevice {
+        address: address.to_string(),
+        info,
+        fingerprint,
+    })
 }
 
 /// Asks a found device to show its pairing code, see adopt.
 pub async fn start_pairing(found: &FoundDevice) -> anyhow::Result<Duration> {
-    DeviceClient::new(&found.address, Some(&found.fingerprint), None)?.start_pairing().await
+    DeviceClient::new(&found.address, Some(&found.fingerprint), None)?
+        .start_pairing()
+        .await
 }
 
 /// Adopts a found device with the code on its screen, giving it a new key, and returns it for the profile.
 pub async fn adopt(found: &FoundDevice, code: &str) -> anyhow::Result<DeviceProfile> {
-    let key: String = rand::random::<[u8; 32]>().iter().map(|byte| format!("{byte:02x}")).collect();
+    let key: String = rand::random::<[u8; 32]>()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     let client = DeviceClient::new(&found.address, Some(&found.fingerprint), None)?;
-    client.post("adopt", &serde_json::json!({ "code": code.trim(), "key": key })).await?;
+    client
+        .post("adopt", &serde_json::json!({ "code": code.trim(), "key": key }))
+        .await?;
     crate::log_info!("Adopted the capture device {} at {}", found.info.id, found.address);
-    Ok(DeviceProfile { id: found.info.id.clone(), address: found.address.clone(), fingerprint: found.fingerprint.clone(), key })
+    Ok(DeviceProfile {
+        id: found.info.id.clone(),
+        address: found.address.clone(),
+        fingerprint: found.fingerprint.clone(),
+        key,
+    })
 }
 
 /// How long to wait before asking a device which did not answer again, see CaptureReader::read_device.
@@ -554,7 +646,8 @@ pub struct DeviceStatus {
 }
 
 /// The status of each of the profile's capture devices, by ID, since the poller started, see clear_statuses.
-static STATUSES: Mutex<std::collections::BTreeMap<String, DeviceStatus>> = Mutex::new(std::collections::BTreeMap::new());
+static STATUSES: Mutex<std::collections::BTreeMap<String, DeviceStatus>> =
+    Mutex::new(std::collections::BTreeMap::new());
 
 /// The status of each capture device read since the poller started, by ID. The Polling page shows them after each
 /// poll, which is when they change.
@@ -569,7 +662,10 @@ pub fn clear_statuses() {
 
 /// The names of the devices which take the module's records, e.g. ["WaveTouch", "cyd"], by ID if they have no name.
 pub fn devices_taking(module_id: &str) -> Vec<String> {
-    STATUSES.lock().unwrap().values()
+    STATUSES
+        .lock()
+        .unwrap()
+        .values()
         .filter(|status| status.takes.contains(module_id))
         .map(|status| status.name.clone().unwrap_or_else(|| status.id.clone()))
         .collect()
@@ -578,7 +674,10 @@ pub fn devices_taking(module_id: &str) -> Vec<String> {
 /// Changes the status of device with change, adding it if it is new.
 fn update_status(device: &DeviceProfile, change: impl FnOnce(&mut DeviceStatus)) {
     let mut statuses = STATUSES.lock().unwrap();
-    let status = statuses.entry(device.id.clone()).or_insert_with(|| DeviceStatus { id: device.id.clone(), ..Default::default() });
+    let status = statuses.entry(device.id.clone()).or_insert_with(|| DeviceStatus {
+        id: device.id.clone(),
+        ..Default::default()
+    });
     status.address = device.address.clone();
     change(status);
 }
@@ -609,7 +708,8 @@ struct Records {
 
 /// When a record is of: its slot, if it was taken on one, otherwise when it was requested.
 pub fn record_time(record: &Value) -> Option<time::OffsetDateTime> {
-    ["slot", "requested", "end"].iter()
+    ["slot", "requested", "end"]
+        .iter()
         .find_map(|name| record.get(*name)?.as_str())
         .and_then(|time| time::OffsetDateTime::parse(time, &time::format_description::well_known::Rfc3339).ok())
 }
@@ -630,7 +730,10 @@ impl CaptureReader {
     /// polls, see Module::next_poll.
     pub fn next_read(&self, now: time::OffsetDateTime, interval: Duration) -> Option<time::OffsetDateTime> {
         let slot = crate::polling::next_slot(now, interval);
-        self.schedules.lock().unwrap().values()
+        self.schedules
+            .lock()
+            .unwrap()
+            .values()
             .filter_map(|spec| next_occurrence(spec, slot - Duration::from_secs(1)))
             .min()
             .map(|next| next + READ_DELAY)
@@ -642,16 +745,27 @@ impl CaptureReader {
     /// whether it was new.
     /// Returns false if none of them takes them, e.g. there are none, so that the app fetches them itself, and an error
     /// if none which does could be read.
-    pub async fn read(&self, store: &bruce_db::Store, devices: &[DeviceProfile], since: Option<time::OffsetDateTime>,
-        save: &mut dyn FnMut(&DeviceProfile, &Value) -> anyhow::Result<bool>, progress: &mut dyn FnMut(String)) -> anyhow::Result<bool> {
+    pub async fn read(
+        &self,
+        store: &bruce_db::Store,
+        devices: &[DeviceProfile],
+        since: Option<time::OffsetDateTime>,
+        save: &mut dyn FnMut(&DeviceProfile, &Value) -> anyhow::Result<bool>,
+        progress: &mut dyn FnMut(String),
+    ) -> anyhow::Result<bool> {
         self.read_each(store, devices, &|_| since, save, progress).await
     }
 
     /// As read, with since_for giving each device's since, e.g. the latest the app has of that device's own records,
     /// for records which are each device's own, e.g. its temperature, rather than copies of a source's.
-    pub async fn read_each(&self, store: &bruce_db::Store, devices: &[DeviceProfile],
+    pub async fn read_each(
+        &self,
+        store: &bruce_db::Store,
+        devices: &[DeviceProfile],
         since_for: &dyn Fn(&DeviceProfile) -> Option<time::OffsetDateTime>,
-        save: &mut dyn FnMut(&DeviceProfile, &Value) -> anyhow::Result<bool>, progress: &mut dyn FnMut(String)) -> anyhow::Result<bool> {
+        save: &mut dyn FnMut(&DeviceProfile, &Value) -> anyhow::Result<bool>,
+        progress: &mut dyn FnMut(String),
+    ) -> anyhow::Result<bool> {
         let mut takes = false;
         let mut read_any = false;
         let mut first_error = None;
@@ -662,11 +776,18 @@ impl CaptureReader {
                 Ok(Some(info)) => match info.features.get(&self.module_id) {
                     Some(feature) => {
                         if let Some(schedule) = &feature.schedule {
-                            self.schedules.lock().unwrap().insert(device.id.clone(), schedule.clone());
+                            self.schedules
+                                .lock()
+                                .unwrap()
+                                .insert(device.id.clone(), schedule.clone());
                         }
                         Ok(())
                     }
-                    None => Err(StatusError { status: 404, message: format!("It does not take {}", self.module_id) }.into()),
+                    None => Err(StatusError {
+                        status: 404,
+                        message: format!("It does not take {}", self.module_id),
+                    }
+                    .into()),
                 },
                 Ok(None) => self.read_device(device, since_for(device), save, progress).await,
                 Err(error) => Err(error),
@@ -677,14 +798,26 @@ impl CaptureReader {
                     read_any = true;
                 }
                 // It does not take them.
-                Err(error) if error.downcast_ref::<StatusError>().is_some_and(|error| error.status == 404) => {
+                Err(error)
+                    if error
+                        .downcast_ref::<StatusError>()
+                        .is_some_and(|error| error.status == 404) =>
+                {
                     self.schedules.lock().unwrap().remove(&device.id);
-                    update_status(device, |status| { status.takes.remove(&self.module_id); });
+                    update_status(device, |status| {
+                        status.takes.remove(&self.module_id);
+                    });
                 }
                 Err(error) => {
                     takes = true;
-                    crate::log_warning!("Unable to read {} from the capture device {}, {error:#}", self.path, device.id);
-                    update_status(device, |status| status.last_error = Some((crate::clock::now_utc(), format!("{error:#}"))));
+                    crate::log_warning!(
+                        "Unable to read {} from the capture device {}, {error:#}",
+                        self.path,
+                        device.id
+                    );
+                    update_status(device, |status| {
+                        status.last_error = Some((crate::clock::now_utc(), format!("{error:#}")))
+                    });
                     first_error.get_or_insert(error);
                 }
             }
@@ -696,15 +829,26 @@ impl CaptureReader {
     }
 
     /// Reads the records of device a page at a time, see PAGE_SIZE, saving each page before asking for the next.
-    async fn read_device(&self, device: &DeviceProfile, since: Option<time::OffsetDateTime>,
-        save: &mut dyn FnMut(&DeviceProfile, &Value) -> anyhow::Result<bool>, progress: &mut dyn FnMut(String)) -> anyhow::Result<()> {
+    async fn read_device(
+        &self,
+        device: &DeviceProfile,
+        since: Option<time::OffsetDateTime>,
+        save: &mut dyn FnMut(&DeviceProfile, &Value) -> anyhow::Result<bool>,
+        progress: &mut dyn FnMut(String),
+    ) -> anyhow::Result<()> {
         let mut since = self.read_until.lock().unwrap().get(&device.id).copied().or(since);
         let client = DeviceClient::for_device(device)?;
         // Its name, once, for the Polling page.
-        let named = STATUSES.lock().unwrap().get(&device.id).is_some_and(|status| status.name.is_some());
+        let named = STATUSES
+            .lock()
+            .unwrap()
+            .get(&device.id)
+            .is_some_and(|status| status.name.is_some());
         if !named {
             match client.info().await {
-                Ok(info) => update_status(device, |status| status.name = info.hostname.filter(|name| !name.is_empty())),
+                Ok(info) => update_status(device, |status| {
+                    status.name = info.hostname.filter(|name| !name.is_empty())
+                }),
                 Err(error) => crate::log_info!("Unable to get the name of the capture device {}, {error:#}", device.id),
             }
         }
@@ -718,7 +862,10 @@ impl CaptureReader {
             let mut latest = since;
             for record in &records.records {
                 let Some(time) = record_time(record) else {
-                    crate::log_warning!("A capture device record has no time, {}", crate::http::summary(&record.to_string()));
+                    crate::log_warning!(
+                        "A capture device record has no time, {}",
+                        crate::http::summary(&record.to_string())
+                    );
                     continue;
                 };
                 if save(device, record)? {
@@ -746,25 +893,47 @@ impl CaptureReader {
                 break;
             }
             since = latest;
-            progress(format!("Read {read} samples from the capture device {} so far, saved {saved}", device.id));
+            progress(format!(
+                "Read {read} samples from the capture device {} so far, saved {saved}",
+                device.id
+            ));
         }
-        progress(format!("Saved {saved} of the {read} samples from the capture device {}", device.id));
+        progress(format!(
+            "Saved {saved} of the {read} samples from the capture device {}",
+            device.id
+        ));
         Ok(())
     }
 
     /// Reads a page of the records of device, those after since.
-    async fn read_page(&self, client: &DeviceClient, device: &DeviceProfile, since: Option<time::OffsetDateTime>)
-        -> anyhow::Result<Records> {
+    async fn read_page(
+        &self,
+        client: &DeviceClient,
+        device: &DeviceProfile,
+        since: Option<time::OffsetDateTime>,
+    ) -> anyhow::Result<Records> {
         let rfc3339 = &time::format_description::well_known::Rfc3339;
-        let mut query: Vec<(&str, String)> = since.map(|since| since.format(rfc3339)).transpose()?
-            .into_iter().map(|since| ("since", since)).collect();
+        let mut query: Vec<(&str, String)> = since
+            .map(|since| since.format(rfc3339))
+            .transpose()?
+            .into_iter()
+            .map(|since| ("since", since))
+            .collect();
         query.push(("limit", PAGE_SIZE.to_string()));
         crate::log_info!("Capture device {} GET /api/{} {query:?}", device.id, self.path);
         let json = match client.get_query(self.path, &query).await {
             // The app polls on the same slots as the device, which may still be busy with its own polls, e.g. of
             // myenergi over the internet, so once more when it should have finished.
-            Err(error) if error.downcast_ref::<reqwest::Error>().is_some_and(|error| error.is_connect() || error.is_timeout()) => {
-                crate::log_info!("Capture device {} did not answer, trying again in {} s, {error:#}", device.id, RETRY_AFTER.as_secs());
+            Err(error)
+                if error
+                    .downcast_ref::<reqwest::Error>()
+                    .is_some_and(|error| error.is_connect() || error.is_timeout()) =>
+            {
+                crate::log_info!(
+                    "Capture device {} did not answer, trying again in {} s, {error:#}",
+                    device.id,
+                    RETRY_AFTER.as_secs()
+                );
                 tokio::time::sleep(RETRY_AFTER).await;
                 client.get_query(self.path, &query).await?
             }
@@ -773,11 +942,22 @@ impl CaptureReader {
         let records: Records = serde_json::from_value(json)?;
         let info = &records.device;
         if let Some(schedule) = &info.schedule {
-            self.schedules.lock().unwrap().insert(device.id.clone(), schedule.clone());
+            self.schedules
+                .lock()
+                .unwrap()
+                .insert(device.id.clone(), schedule.clone());
         }
-        crate::log_info!("Capture device {}: {} records{}, kept on {:?} {:?}, started {:?} after {:?}, free heap {:?}",
-            device.id, records.records.len(), if records.more { " and more" } else { "" }, info.storage,
-            info.storage_problem, info.boot_time, info.reset_reason, info.free_heap);
+        crate::log_info!(
+            "Capture device {}: {} records{}, kept on {:?} {:?}, started {:?} after {:?}, free heap {:?}",
+            device.id,
+            records.records.len(),
+            if records.more { " and more" } else { "" },
+            info.storage,
+            info.storage_problem,
+            info.boot_time,
+            info.reset_reason,
+            info.free_heap
+        );
         if let Some(error) = &records.records_error {
             crate::log_warning!("Capture device {} could not read all its records, {error}", device.id);
         }
@@ -817,32 +997,57 @@ struct ChangesPage {
 }
 
 /// The latest replication of each device, by its ID, with what it said of itself then, see REPLICATED_FOR.
-static REPLICATIONS: Mutex<std::collections::BTreeMap<String, Arc<tokio::sync::Mutex<Option<(std::time::Instant, StoreInfo)>>>>> =
-    Mutex::new(std::collections::BTreeMap::new());
+static REPLICATIONS: Mutex<
+    std::collections::BTreeMap<String, Arc<tokio::sync::Mutex<Option<(std::time::Instant, StoreInfo)>>>>,
+> = Mutex::new(std::collections::BTreeMap::new());
 
 /// Pulls the changes a device on the store has made since the app last did, putting each into store as from the
 /// device, see the design's capture devices on the store, and returns what the device says of itself, or None if its
 /// firmware is from before the store, so that it is read as it was. The cursor is the app's, in store, with the
 /// device's store's ID, so that a device whose store is new, e.g. a changed card, is pulled from the start again.
-pub async fn replicate(store: &bruce_db::Store, device: &DeviceProfile, progress: &mut dyn FnMut(String))
-    -> anyhow::Result<Option<StoreInfo>> {
-    let latest = REPLICATIONS.lock().unwrap().entry(device.id.clone()).or_default().clone();
+pub async fn replicate(
+    store: &bruce_db::Store,
+    device: &DeviceProfile,
+    progress: &mut dyn FnMut(String),
+) -> anyhow::Result<Option<StoreInfo>> {
+    let latest = REPLICATIONS
+        .lock()
+        .unwrap()
+        .entry(device.id.clone())
+        .or_default()
+        .clone();
     let mut latest = latest.lock().await;
     if let Some((at, info)) = latest.as_ref().filter(|(at, _)| at.elapsed() < REPLICATED_FOR) {
-        crate::log_info!("Capture device {} replicated {} ms ago", device.id, at.elapsed().as_millis());
+        crate::log_info!(
+            "Capture device {} replicated {} ms ago",
+            device.id,
+            at.elapsed().as_millis()
+        );
         return Ok(Some(info.clone()));
     }
     let client = DeviceClient::for_device(device)?;
-    let named = STATUSES.lock().unwrap().get(&device.id).is_some_and(|status| status.name.is_some());
+    let named = STATUSES
+        .lock()
+        .unwrap()
+        .get(&device.id)
+        .is_some_and(|status| status.name.is_some());
     if !named {
         match client.info().await {
-            Ok(info) => update_status(device, |status| status.name = info.hostname.filter(|name| !name.is_empty())),
+            Ok(info) => update_status(device, |status| {
+                status.name = info.hostname.filter(|name| !name.is_empty())
+            }),
             Err(error) => crate::log_info!("Unable to get the name of the capture device {}, {error:#}", device.id),
         }
     }
     let info: StoreInfo = match client.get_signed("store/info", &[], false).await {
         Ok(json) => serde_json::from_value(json)?,
-        Err(error) if error.downcast_ref::<StatusError>().is_some_and(|error| error.status == 404) => return Ok(None),
+        Err(error)
+            if error
+                .downcast_ref::<StatusError>()
+                .is_some_and(|error| error.status == 404) =>
+        {
+            return Ok(None);
+        }
         Err(error) => return Err(error),
     };
     if let Some(problem) = &info.problem {
@@ -850,12 +1055,22 @@ pub async fn replicate(store: &bruce_db::Store, device: &DeviceProfile, progress
     }
     let site = store.site().to_string();
     if info.site.as_deref() != Some(site.as_str()) {
-        anyhow::bail!("The capture device {} keeps the site {}, not this profile's", device.id, info.site.as_deref().unwrap_or("none"));
+        anyhow::bail!(
+            "The capture device {} keeps the site {}, not this profile's",
+            device.id,
+            info.site.as_deref().unwrap_or("none")
+        );
     }
-    let hk = store.hash_key(REPLICATION_KIND, &[bruce_db::Part::Name(crate::store::node()?),
-        bruce_db::Part::Name(crate::store::device_part(&device.id))])?;
+    let hk = store.hash_key(
+        REPLICATION_KIND,
+        &[
+            bruce_db::Part::Name(crate::store::node()?),
+            bruce_db::Part::Name(crate::store::device_part(&device.id)),
+        ],
+    )?;
     let cursor = store.get(&hk, "-")?.and_then(|item| item.attributes);
-    let mut since = cursor.as_ref()
+    let mut since = cursor
+        .as_ref()
         .filter(|cursor| cursor["store"].as_str() == info.store.as_deref())
         .and_then(|cursor| cursor["next"].as_u64())
         .unwrap_or(0);
@@ -873,10 +1088,17 @@ pub async fn replicate(store: &bruce_db::Store, device: &DeviceProfile, progress
             }
         }
         read += count as u64;
-        store.put(&bruce_db::Item::new(&hk, "-", crate::store::version_now(),
-            serde_json::json!({ "store": page.store, "next": page.next })))?;
+        store.put(&bruce_db::Item::new(
+            &hk,
+            "-",
+            crate::store::version_now(),
+            serde_json::json!({ "store": page.store, "next": page.next }),
+        ))?;
         if let Some(error) = page.error {
-            anyhow::bail!("The capture device {} could not read all its changes, {error}", device.id);
+            anyhow::bail!(
+                "The capture device {} could not read all its changes, {error}",
+                device.id
+            );
         }
         // Only while the page moved on, so that a device which gives fewer than asked for is not asked forever.
         let moved = page.next != since;
@@ -884,9 +1106,15 @@ pub async fn replicate(store: &bruce_db::Store, device: &DeviceProfile, progress
         if count < CHANGES_PAGE || !moved {
             break;
         }
-        progress(format!("Read {read} changes from the capture device {} so far, {stored} new", device.id));
+        progress(format!(
+            "Read {read} changes from the capture device {} so far, {stored} new",
+            device.id
+        ));
     }
-    crate::log_info!("Capture device {}: {read} changes, {stored} new, up to {since}", device.id);
+    crate::log_info!(
+        "Capture device {}: {read} changes, {stored} new, up to {since}",
+        device.id
+    );
     update_status(device, |status| {
         status.takes = info.features.keys().cloned().collect();
         status.last_read = Some(crate::clock::now_utc());
@@ -913,9 +1141,16 @@ mod tests {
     fn a_chip_is_described_as_the_device_describes_it() {
         let chip: Chip = serde_json::from_value(serde_json::json!({
             "model": "ESP32-C6", "revision": "v0.2", "cores": 1, "flashBytes": 4194304, "psramBytes": 0,
-        })).unwrap();
+        }))
+        .unwrap();
         assert_eq!(chip.describe(), "ESP32-C6 v0.2, 1 core, 4 MB flash, no PSRAM");
-        let chip = Chip { model: "ESP32-S3".to_string(), revision: "v0.2".to_string(), cores: 2, flash_bytes: 16 << 20, psram_bytes: 8 << 20 };
+        let chip = Chip {
+            model: "ESP32-S3".to_string(),
+            revision: "v0.2".to_string(),
+            cores: 2,
+            flash_bytes: 16 << 20,
+            psram_bytes: 8 << 20,
+        };
         assert_eq!(chip.describe(), "ESP32-S3 v0.2, 2 cores, 16 MB flash, 8 MB PSRAM");
     }
 
@@ -924,26 +1159,57 @@ mod tests {
         // From Python's hmac, as a check independent of the code.
         let key: String = (0u8..32).map(|byte| format!("{byte:02x}")).collect();
         let uri = "/api/capture/tesla/records?since=2026-10-30T06%3A00%3A00Z&limit=500";
-        assert_eq!(sign(&key, "GET", uri, 1793340000).unwrap(),
-            "Sparko-HMAC-SHA256 1793340000:e639c3cc64688ccbb3ae81570f79f7eab2944a7415544b40a701b9fe298de232");
+        assert_eq!(
+            sign(&key, "GET", uri, 1793340000).unwrap(),
+            "Sparko-HMAC-SHA256 1793340000:e639c3cc64688ccbb3ae81570f79f7eab2944a7415544b40a701b9fe298de232"
+        );
     }
 
     #[test]
     fn the_next_read_is_a_minute_after_the_devices_poll_of_the_apps_next_slot() {
         let five_minutes = Duration::from_secs(5 * 60);
         let reader = CaptureReader::new("capture/tesla/records");
-        let at = |text: &str| time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339).unwrap();
-        reader.schedules.lock().unwrap().insert("a".to_string(), "0 */5 * * * *".to_string());
-        assert_eq!(reader.next_read(at("2026-10-29T17:02:10Z"), five_minutes), Some(at("2026-10-29T17:06:00Z")));
+        let at =
+            |text: &str| time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339).unwrap();
+        reader
+            .schedules
+            .lock()
+            .unwrap()
+            .insert("a".to_string(), "0 */5 * * * *".to_string());
+        assert_eq!(
+            reader.next_read(at("2026-10-29T17:02:10Z"), five_minutes),
+            Some(at("2026-10-29T17:06:00Z"))
+        );
         // After a read, the next slot's.
-        assert_eq!(reader.next_read(at("2026-10-29T17:06:00Z"), five_minutes), Some(at("2026-10-29T17:11:00Z")));
+        assert_eq!(
+            reader.next_read(at("2026-10-29T17:06:00Z"), five_minutes),
+            Some(at("2026-10-29T17:11:00Z"))
+        );
         // Every 5 minutes, however often the device polls.
-        reader.schedules.lock().unwrap().insert("a".to_string(), "*/10 * * * * *".to_string());
-        assert_eq!(reader.next_read(at("2026-10-29T17:02:10Z"), five_minutes), Some(at("2026-10-29T17:06:00Z")));
+        reader
+            .schedules
+            .lock()
+            .unwrap()
+            .insert("a".to_string(), "*/10 * * * * *".to_string());
+        assert_eq!(
+            reader.next_read(at("2026-10-29T17:02:10Z"), five_minutes),
+            Some(at("2026-10-29T17:06:00Z"))
+        );
         // The soonest of two devices, one of which does not poll on the slots.
-        reader.schedules.lock().unwrap().insert("a".to_string(), "30 29,59 * * * *".to_string());
-        reader.schedules.lock().unwrap().insert("b".to_string(), "0 */15 * * * *".to_string());
-        assert_eq!(reader.next_read(at("2026-10-29T17:16:00Z"), Duration::from_secs(15 * 60)), Some(at("2026-10-29T17:31:00Z")));
+        reader
+            .schedules
+            .lock()
+            .unwrap()
+            .insert("a".to_string(), "30 29,59 * * * *".to_string());
+        reader
+            .schedules
+            .lock()
+            .unwrap()
+            .insert("b".to_string(), "0 */15 * * * *".to_string());
+        assert_eq!(
+            reader.next_read(at("2026-10-29T17:16:00Z"), Duration::from_secs(15 * 60)),
+            Some(at("2026-10-29T17:31:00Z"))
+        );
     }
 
     /// Against a real device, only reading: cargo test --lib capture_device -- --ignored, with CAPTURE_DEVICE set to its
@@ -965,9 +1231,19 @@ mod tests {
 /// capture device device, signed with the key the app keeps for it, which is not shown, and prints its response.
 pub fn cli_get(args: &crate::Args, device_id: &str, path: &str) -> anyhow::Result<()> {
     let device = cli_device(args, device_id)?;
-    let (path, query) = path.trim_start_matches('/').trim_start_matches("api/").split_once('?').unwrap_or((path, ""));
-    let query: Vec<(String, String)> = reqwest::Url::parse(&format!("http://device/?{query}"))?.query_pairs().into_owned().collect();
-    let query: Vec<(&str, String)> = query.iter().map(|(name, value)| (name.as_str(), value.clone())).collect();
+    let (path, query) = path
+        .trim_start_matches('/')
+        .trim_start_matches("api/")
+        .split_once('?')
+        .unwrap_or((path, ""));
+    let query: Vec<(String, String)> = reqwest::Url::parse(&format!("http://device/?{query}"))?
+        .query_pairs()
+        .into_owned()
+        .collect();
+    let query: Vec<(&str, String)> = query
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.clone()))
+        .collect();
     let client = DeviceClient::for_device(&device)?;
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     let json = runtime.block_on(client.get_query(path, &query))?;
@@ -990,8 +1266,17 @@ pub fn cli_post(args: &crate::Args, device_id: &str, path: &str, body: &str) -> 
 /// The active profile's capture device with the ID device_id, for --deviceget and --devicepost.
 fn cli_device(args: &crate::Args, device_id: &str) -> anyhow::Result<DeviceProfile> {
     let profile = crate::profile::fetch_active_profile(&args.marco_sparko_args.profile)?;
-    profile.active_profile.settings.capture_devices.iter()
+    profile
+        .active_profile
+        .settings
+        .capture_devices
+        .iter()
         .find(|device| device.id == device_id)
         .cloned()
-        .ok_or_else(|| anyhow::anyhow!("The profile {} has no capture device {device_id}", profile.active_profile.name))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "The profile {} has no capture device {device_id}",
+                profile.active_profile.name
+            )
+        })
 }

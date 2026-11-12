@@ -25,8 +25,7 @@ pub struct OctopusRootProps {
 
 impl PartialEq for OctopusRootProps {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.context, &other.context)
-            && self.children == other.children
+        Arc::ptr_eq(&self.context, &other.context) && self.children == other.children
     }
 }
 

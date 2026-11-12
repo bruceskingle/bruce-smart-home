@@ -17,19 +17,33 @@ const DEFAULT_MEGABYTES: u32 = 10;
 pub fn Settings() -> Element {
     let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
     let mut settings = use_context::<Signal<ProfileSettings>>();
-    let profile_name = context_signal.read().as_ref().map(|context| context.profile.active_profile.name.clone()).unwrap_or_default();
+    let profile_name = context_signal
+        .read()
+        .as_ref()
+        .map(|context| context.profile.active_profile.name.clone())
+        .unwrap_or_default();
 
     // The settings being edited, until they are saved.
     let mut retention = use_signal(|| settings.read().log.retention);
-    let mut hours = use_signal(|| match settings.read().log.retention { LogRetention::Hours { hours } => hours, _ => DEFAULT_HOURS });
-    let mut megabytes = use_signal(|| match settings.read().log.retention { LogRetention::Size { megabytes } => megabytes, _ => DEFAULT_MEGABYTES });
+    let mut hours = use_signal(|| match settings.read().log.retention {
+        LogRetention::Hours { hours } => hours,
+        _ => DEFAULT_HOURS,
+    });
+    let mut megabytes = use_signal(|| match settings.read().log.retention {
+        LogRetention::Size { megabytes } => megabytes,
+        _ => DEFAULT_MEGABYTES,
+    });
     let mut status = use_signal(|| None::<Result<String, String>>);
 
     let chosen = |kind: &str| match (kind, retention()) {
-        ("eachRun", LogRetention::EachRun) | ("hours", LogRetention::Hours { .. }) | ("size", LogRetention::Size { .. }) => true,
+        ("eachRun", LogRetention::EachRun)
+        | ("hours", LogRetention::Hours { .. })
+        | ("size", LogRetention::Size { .. }) => true,
         _ => false,
     };
-    let log_path = logging::log_path(&profile_name).map(|path| path.display().to_string()).unwrap_or_default();
+    let log_path = logging::log_path(&profile_name)
+        .map(|path| path.display().to_string())
+        .unwrap_or_default();
 
     let save = {
         let profile_name = profile_name.clone();
@@ -38,7 +52,9 @@ pub fn Settings() -> Element {
             new_settings.log.retention = match retention() {
                 LogRetention::EachRun => LogRetention::EachRun,
                 LogRetention::Hours { .. } => LogRetention::Hours { hours: hours().max(1) },
-                LogRetention::Size { .. } => LogRetention::Size { megabytes: megabytes().max(1) },
+                LogRetention::Size { .. } => LogRetention::Size {
+                    megabytes: megabytes().max(1),
+                },
             };
             match crate::profile::update_settings(&profile_name, &new_settings) {
                 Ok(()) => {
@@ -46,11 +62,11 @@ pub fn Settings() -> Element {
                     crate::log_info!("Saved the settings of profile {profile_name}");
                     settings.set(new_settings);
                     status.set(Some(Ok(String::from("Saved"))));
-                },
+                }
                 Err(error) => {
                     crate::log_error!("Failed to save the settings of profile {profile_name}: {error}");
                     status.set(Some(Err(format!("Failed to save the settings: {error}"))));
-                },
+                }
             }
         }
     };

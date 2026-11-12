@@ -11,16 +11,16 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use bruce_embedded_std::graphics::{Color, DisplayManager, DrawTargetResultExt};
+use bruce_embedded_std::platform::PlatformInitializer;
+use bruce_embedded_std::task::scheduler::ScheduledTask;
+use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer};
 use chrono::Local;
 use embedded_graphics::mono_font::{MonoTextStyle, MonoTextStyleBuilder};
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Baseline, Text};
 use rgb::RGB8;
-use bruce_embedded_std::graphics::{Color, DisplayManager, DrawTargetResultExt};
-use bruce_embedded_std::platform::PlatformInitializer;
-use bruce_embedded_std::task::scheduler::ScheduledTask;
-use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer};
 
 use crate::device::captured_by;
 use crate::graph::{self, History, Palette, Sample};
@@ -141,7 +141,11 @@ impl Screen {
     /// Where to find the device, and what it needs, shown while no feature has set any lines, e.g. as none is
     /// enabled, as it has not been set up yet.
     fn unconfigured(sparko: &Esp32Platform, adopted: bool) -> Vec<Line> {
-        let needs = if adopted { "Nothing set up yet" } else { "Not adopted yet" };
+        let needs = if adopted {
+            "Nothing set up yet"
+        } else {
+            "Not adopted yet"
+        };
         vec![
             (captured_by(sparko), false),
             (address(sparko), false),
@@ -160,10 +164,23 @@ impl Screen {
         let mut lines = vec![
             (captured_by(sparko), false),
             (address(sparko), false),
-            (format!("Up {}d {:02}:{:02}  heap {heap}K/{minimum}K", up / 86400, up / 3600 % 24, up / 60 % 60), false),
+            (
+                format!(
+                    "Up {}d {:02}:{:02}  heap {heap}K/{minimum}K",
+                    up / 86400,
+                    up / 3600 % 24,
+                    up / 60 % 60
+                ),
+                false,
+            ),
         ];
         let sections = self.panel.sections.lock().unwrap();
-        lines.extend(sections.iter().filter(|(order, _)| **order != METERS_SECTION).flat_map(|(_, lines)| lines.clone()));
+        lines.extend(
+            sections
+                .iter()
+                .filter(|(order, _)| **order != METERS_SECTION)
+                .flat_map(|(_, lines)| lines.clone()),
+        );
         lines
     }
 
@@ -183,7 +200,9 @@ impl Screen {
 
 /// The device's address on the Wi-Fi, for the screen.
 fn address(sparko: &Esp32Platform) -> String {
-    sparko.ip_address().map_or_else(|| "Not on the Wi-Fi".to_string(), |address| address.to_string())
+    sparko
+        .ip_address()
+        .map_or_else(|| "Not on the Wi-Fi".to_string(), |address| address.to_string())
 }
 
 /// Draws lines in area, in the console's font, without its margin, which would leave room for fewer numbers.
@@ -193,15 +212,22 @@ fn draw_lines<DM: DisplayManager>(manager: &mut DM, area: Rectangle, lines: &[Li
     let text = MonoTextStyle::new(console.font, manager.map_color(&Color::White));
     let warning = MonoTextStyle::new(console.font, manager.map_color(&Color::Yellow));
     let display = manager.display();
-    area.into_styled(PrimitiveStyle::with_fill(background)).draw(display).anyhow()?;
+    area.into_styled(PrimitiveStyle::with_fill(background))
+        .draw(display)
+        .anyhow()?;
     let line_height = console.line_height() as i32;
     let max_lines = (area.size.height as i32 / line_height) as usize;
     let fit = (area.size.width / console.character_width()) as usize;
     for (index, (line, is_warning)) in lines.iter().take(max_lines).enumerate() {
         let position = area.top_left + Point::new(0, index as i32 * line_height);
         let style = if *is_warning { warning } else { text };
-        let line = line.char_indices().nth(fit).map_or(line.as_str(), |(end, _)| &line[..end]);
-        Text::with_baseline(line, position, style, Baseline::Top).draw(display).anyhow()?;
+        let line = line
+            .char_indices()
+            .nth(fit)
+            .map_or(line.as_str(), |(end, _)| &line[..end]);
+        Text::with_baseline(line, position, style, Baseline::Top)
+            .draw(display)
+            .anyhow()?;
     }
     Ok(())
 }
@@ -218,11 +244,20 @@ fn draw_numbers<DM: DisplayManager>(manager: &mut DM, area: Rectangle, latest: O
     let share = (right - left) / colours.len() as i32;
     let number_width = (NUMBER_CHARACTERS * console.character_width()) as i32;
     for (index, colour) in colours.into_iter().enumerate() {
-        let style = MonoTextStyleBuilder::new().font(console.font).text_color(colour).background_color(background).build();
-        let number = latest.map_or_else(|| "    -".to_string(), |sample| format!("{:>5.1}", sample.power[index] / 1000.0));
+        let style = MonoTextStyleBuilder::new()
+            .font(console.font)
+            .text_color(colour)
+            .background_color(background)
+            .build();
+        let number = latest.map_or_else(
+            || "    -".to_string(),
+            |sample| format!("{:>5.1}", sample.power[index] / 1000.0),
+        );
         let x = left + (index as i32 + 1) * share - number_width;
         let position = area.top_left + Point::new(x, 0);
-        Text::with_baseline(&number, position, style, Baseline::Top).draw(display).anyhow()?;
+        Text::with_baseline(&number, position, style, Baseline::Top)
+            .draw(display)
+            .anyhow()?;
     }
     Ok(())
 }
@@ -230,10 +265,15 @@ fn draw_numbers<DM: DisplayManager>(manager: &mut DM, area: Rectangle, latest: O
 /// Draws the time, at the top left of area.
 fn draw_clock<DM: DisplayManager>(manager: &mut DM, area: Rectangle, time: &str) -> anyhow::Result<()> {
     let console = manager.console();
-    let style = MonoTextStyleBuilder::new().font(console.font).text_color(manager.map_color(&Color::White))
-        .background_color(manager.map_color(&Color::Black)).build();
+    let style = MonoTextStyleBuilder::new()
+        .font(console.font)
+        .text_color(manager.map_color(&Color::White))
+        .background_color(manager.map_color(&Color::Black))
+        .build();
     let position = area.top_left + Point::new(CLOCK_LEFT, 0);
-    Text::with_baseline(time, position, style, Baseline::Top).draw(manager.display()).anyhow()?;
+    Text::with_baseline(time, position, style, Baseline::Top)
+        .draw(manager.display())
+        .anyhow()?;
     Ok(())
 }
 
@@ -242,7 +282,12 @@ impl ScheduledTask<Esp32Platform> for Screen {
         self.listen(sparko);
         let generation = self.panel.generation.load(Ordering::SeqCst);
         let adopted = sparko.is_adopted();
-        let status = self.panel.status_until.lock().unwrap().is_some_and(|until| Instant::now() < until);
+        let status = self
+            .panel
+            .status_until
+            .lock()
+            .unwrap()
+            .is_some_and(|until| Instant::now() < until);
         let has_samples = self.panel.history.lock().unwrap().latest().is_some();
         let mode = match (status, crate::board::GRAPH && has_samples) {
             (true, _) => Mode::Status,
@@ -252,8 +297,20 @@ impl ScheduledTask<Esp32Platform> for Screen {
         let lines = match mode {
             Mode::Status => self.status(sparko),
             _ => {
-                let lines: Vec<Line> = self.panel.sections.lock().unwrap().values().flatten().cloned().collect();
-                if lines.is_empty() { Self::unconfigured(sparko, adopted) } else { lines }
+                let lines: Vec<Line> = self
+                    .panel
+                    .sections
+                    .lock()
+                    .unwrap()
+                    .values()
+                    .flatten()
+                    .cloned()
+                    .collect();
+                if lines.is_empty() {
+                    Self::unconfigured(sparko, adopted)
+                } else {
+                    lines
+                }
             }
         };
 
@@ -278,14 +335,19 @@ impl ScheduledTask<Esp32Platform> for Screen {
         let shown = (mode, generation, manager.generation(), adopted);
         let changed = self.shown != Some(shown);
         // Everything is drawn again after the mode changes, or the screen has been cleared.
-        let whole = self.shown.is_none_or(|(mode_shown, _, display_shown, _)| mode_shown != mode || display_shown != shown.2);
+        let whole = self
+            .shown
+            .is_none_or(|(mode_shown, _, display_shown, _)| mode_shown != mode || display_shown != shown.2);
         self.shown = Some(shown);
 
         match mode {
             Mode::Lines if changed => {
                 let area = Rectangle::new(
                     Point::new(bounding_box.top_left.x, bounding_box.top_left.y + CLOCK_HEIGHT as i32),
-                    Size::new(bounding_box.size.width, bounding_box.size.height.saturating_sub(CLOCK_HEIGHT)),
+                    Size::new(
+                        bounding_box.size.width,
+                        bounding_box.size.height.saturating_sub(CLOCK_HEIGHT),
+                    ),
                 );
                 draw_lines(&mut *manager, area, &lines)?;
             }
@@ -293,7 +355,10 @@ impl ScheduledTask<Esp32Platform> for Screen {
             Mode::Graph => {
                 if whole {
                     let background = manager.map_color(&Color::Black);
-                    bounding_box.into_styled(PrimitiveStyle::with_fill(background)).draw(manager.display()).anyhow()?;
+                    bounding_box
+                        .into_styled(PrimitiveStyle::with_fill(background))
+                        .draw(manager.display())
+                        .anyhow()?;
                     self.clock_shown = None;
                 }
                 if changed {
@@ -308,7 +373,10 @@ impl ScheduledTask<Esp32Platform> for Screen {
                     };
                     let area = Rectangle::new(
                         bounding_box.top_left + Point::new(0, NUMBERS_HEIGHT as i32),
-                        Size::new(bounding_box.size.width, bounding_box.size.height.saturating_sub(NUMBERS_HEIGHT)),
+                        Size::new(
+                            bounding_box.size.width,
+                            bounding_box.size.height.saturating_sub(NUMBERS_HEIGHT),
+                        ),
                     );
                     let font = manager.console().font;
                     graph::draw(manager.display(), &palette, &history, area, font)?;
@@ -346,7 +414,10 @@ impl Swipe {
     const GAP: Duration = Duration::from_millis(200);
 
     fn new(panel: Arc<Panel>) -> Swipe {
-        Swipe { panel, touch: Mutex::new(None) }
+        Swipe {
+            panel,
+            touch: Mutex::new(None),
+        }
     }
 }
 

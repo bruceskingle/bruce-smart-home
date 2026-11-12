@@ -37,11 +37,16 @@ impl CallBudget {
     /// Counts a request, or fails if CALLS_PER_HOUR have been made in the last hour.
     fn spend(&self) -> anyhow::Result<()> {
         let mut calls = self.calls.lock().unwrap();
-        while calls.front().is_some_and(|call| call.elapsed() >= Duration::from_secs(60 * 60)) {
+        while calls
+            .front()
+            .is_some_and(|call| call.elapsed() >= Duration::from_secs(60 * 60))
+        {
             calls.pop_front();
         }
         if calls.len() >= CALLS_PER_HOUR {
-            return Err(anyhow!("Skipped, as polling has made {CALLS_PER_HOUR} requests to Octopus in the last hour"));
+            return Err(anyhow!(
+                "Skipped, as polling has made {CALLS_PER_HOUR} requests to Octopus in the last hour"
+            ));
         }
         calls.push_back(Instant::now());
         Ok(())
@@ -56,8 +61,16 @@ pub struct ChargingDevice(Mutex<Option<String>>);
 /// The IDs of the devices which charge, a charge point or vehicle, which are the only ones with planned dispatches, in a
 /// response's devices, as JSON.
 fn charging_devices(devices: &serde_json::Value) -> Vec<String> {
-    devices.as_array().into_iter().flatten()
-        .filter(|device| matches!(device["__typename"].as_str(), Some("SmartFlexChargePoint" | "SmartFlexVehicle")))
+    devices
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|device| {
+            matches!(
+                device["__typename"].as_str(),
+                Some("SmartFlexChargePoint" | "SmartFlexVehicle")
+            )
+        })
         .filter_map(|device| device["id"].as_str().map(String::from))
         .collect()
 }
@@ -68,8 +81,12 @@ fn charging_devices(devices: &serde_json::Value) -> Vec<String> {
 /// Once it knows the charging device, from an earlier poll, it is one request, flexPoll, otherwise one for the devices,
 /// one for each charging device's planned dispatches, and one for the completed dispatches. Either way the responses
 /// are saved as the separate requests' would be, so that what reads them need not know which it was.
-pub async fn poll(context: &OctopusContext, slot: Option<OffsetDateTime>, budget: &CallBudget,
-    charging_device: &ChargingDevice) -> anyhow::Result<String> {
+pub async fn poll(
+    context: &OctopusContext,
+    slot: Option<OffsetDateTime>,
+    budget: &CallBudget,
+    charging_device: &ChargingDevice,
+) -> anyhow::Result<String> {
     if context.cache_config.offline {
         return Err(anyhow!("This profile is offline, so nothing can be fetched"));
     }
@@ -79,38 +96,72 @@ pub async fn poll(context: &OctopusContext, slot: Option<OffsetDateTime>, budget
     let (devices, mut planned, completed) = match known {
         Some(device_id) => {
             budget.spend()?;
-            let response = context.request_manager.call(&flex_poll::Query::builder()
-                .with_account_number(context.account_id.clone())
-                .with_device_id(device_id.clone())
-                .build()?).await
+            let response = context
+                .request_manager
+                .call(
+                    &flex_poll::Query::builder()
+                        .with_account_number(context.account_id.clone())
+                        .with_device_id(device_id.clone())
+                        .build()?,
+                )
+                .await
                 // e.g. the device has gone, so that the next poll finds the devices again.
                 .inspect_err(|_| *charging_device.0.lock().unwrap() = None)?;
             let mut planned = serde_json::Map::new();
-            planned.insert(device_id, serde_json::json!({ "flexPlannedDispatches": response.flex_planned_dispatches_ }));
-            (serde_json::to_value(&response.devices_)?, planned, serde_json::to_value(&response.completed_dispatches_)?)
-        },
+            planned.insert(
+                device_id,
+                serde_json::json!({ "flexPlannedDispatches": response.flex_planned_dispatches_ }),
+            );
+            (
+                serde_json::to_value(&response.devices_)?,
+                planned,
+                serde_json::to_value(&response.completed_dispatches_)?,
+            )
+        }
         None => {
             budget.spend()?;
-            let preferences = context.request_manager.call(&device_preferences::Query::builder()
-                .with_account_number(context.account_id.clone())
-                .build()?).await?;
+            let preferences = context
+                .request_manager
+                .call(
+                    &device_preferences::Query::builder()
+                        .with_account_number(context.account_id.clone())
+                        .build()?,
+                )
+                .await?;
             budget.spend()?;
-            let completed = context.request_manager.call(&completed_dispatches::Query::builder()
-                .with_account_number(context.account_id.clone())
-                .build()?).await?;
-            (serde_json::to_value(&preferences.devices_)?, serde_json::Map::new(), serde_json::to_value(&completed.completed_dispatches_)?)
-        },
+            let completed = context
+                .request_manager
+                .call(
+                    &completed_dispatches::Query::builder()
+                        .with_account_number(context.account_id.clone())
+                        .build()?,
+                )
+                .await?;
+            (
+                serde_json::to_value(&preferences.devices_)?,
+                serde_json::Map::new(),
+                serde_json::to_value(&completed.completed_dispatches_)?,
+            )
+        }
     };
 
     // Each charging device's planned dispatches, those the combined query did not ask for, e.g. all of them the first
     // time, or a second charging device.
     let charging = charging_devices(&devices);
-    let unasked: Vec<&String> = charging.iter().filter(|device_id| !planned.contains_key(*device_id)).collect();
+    let unasked: Vec<&String> = charging
+        .iter()
+        .filter(|device_id| !planned.contains_key(*device_id))
+        .collect();
     for device_id in unasked {
         budget.spend()?;
-        let response = context.request_manager.call(&flex_planned_dispatches::Query::builder()
-            .with_device_id(device_id.clone())
-            .build()?).await?;
+        let response = context
+            .request_manager
+            .call(
+                &flex_planned_dispatches::Query::builder()
+                    .with_device_id(device_id.clone())
+                    .build()?,
+            )
+            .await?;
         planned.insert(device_id.clone(), serde_json::to_value(&response)?);
     }
     *charging_device.0.lock().unwrap() = charging.first().cloned();
@@ -148,9 +199,17 @@ pub fn save(context: &OctopusContext, saved: &serde_json::Value, device: Option<
 }
 
 /// Saves a poll of the account's, see save.
-pub(super) fn save_to(store: &bruce_db::Store, account_id: &str, saved: &serde_json::Value, device: Option<&str>) -> anyhow::Result<bool> {
+pub(super) fn save_to(
+    store: &bruce_db::Store,
+    account_id: &str,
+    saved: &serde_json::Value,
+    device: Option<&str>,
+) -> anyhow::Result<bool> {
     let origin = crate::store::origin();
-    let writer = device.map_or(crate::device_kinds::Writer::App(&origin), crate::device_kinds::Writer::Device);
+    let writer = device.map_or(
+        crate::device_kinds::Writer::App(&origin),
+        crate::device_kinds::Writer::Device,
+    );
     Ok(store.put(&crate::device_kinds::octopus_flex(store, account_id, saved, writer)?)? == bruce_db::Put::Stored)
 }
 
@@ -158,7 +217,10 @@ pub(super) fn save_to(store: &bruce_db::Store, account_id: &str, saved: &serde_j
 pub fn latest(context: &OctopusContext) -> Option<(Option<OffsetDateTime>, String)> {
     let hk = hash_key(&context.store, &context.account_id).ok()?;
     let mut found = None;
-    for from in [second_key(crate::clock::now_utc() - time::Duration::days(2)), String::from("\0")] {
+    for from in [
+        second_key(crate::clock::now_utc() - time::Duration::days(2)),
+        String::from("\0"),
+    ] {
         let _ = context.store.query(&hk, from.as_str()..bruce_db::ALL.end, &mut |item| {
             found = item.attributes;
             Ok(bruce_db::Flow::Continue)
@@ -173,7 +235,10 @@ pub fn latest(context: &OctopusContext) -> Option<(Option<OffsetDateTime>, Strin
 
 /// What a poll's responses say, e.g. "charging capped, 2 planned dispatches, 5 completed".
 fn summary(responses: &serde_json::Value) -> String {
-    let caps: Vec<&str> = responses["devicePreferences"]["devices"].as_array().into_iter().flatten()
+    let caps: Vec<&str> = responses["devicePreferences"]["devices"]
+        .as_array()
+        .into_iter()
+        .flatten()
         .filter_map(|device| device["preferences"]["isChargingDurationCapped"].as_str())
         .filter(|cap| *cap != "NOT_APPLICABLE")
         .collect();
@@ -183,11 +248,16 @@ fn summary(responses: &serde_json::Value) -> String {
         caps if caps.iter().all(|cap| *cap == "DISABLED") => "charging NOT capped".to_string(),
         caps => format!("charging cap {}", caps.join(", ")),
     };
-    let planned: usize = responses["flexPlannedDispatches"].as_object().into_iter().flatten()
+    let planned: usize = responses["flexPlannedDispatches"]
+        .as_object()
+        .into_iter()
+        .flatten()
         .filter_map(|(_, device)| device["flexPlannedDispatches"].as_array())
         .map(Vec::len)
         .sum();
-    let completed = responses["completedDispatches"]["completedDispatches"].as_array().map_or(0, Vec::len);
+    let completed = responses["completedDispatches"]["completedDispatches"]
+        .as_array()
+        .map_or(0, Vec::len);
     format!("{cap}, {planned} planned dispatches, {completed} completed")
 }
 
@@ -205,8 +275,14 @@ mod tests {
             "flexPlannedDispatches": { "charger": { "flexPlannedDispatches": [{ "start": "a" }, { "start": "b" }] } },
             "completedDispatches": { "completedDispatches": [{ "start": "c" }] },
         });
-        assert_eq!(summary(&responses), "charging capped, 2 planned dispatches, 1 completed");
-        assert_eq!(charging_devices(&responses["devicePreferences"]["devices"]), ["charger"]);
+        assert_eq!(
+            summary(&responses),
+            "charging capped, 2 planned dispatches, 1 completed"
+        );
+        assert_eq!(
+            charging_devices(&responses["devicePreferences"]["devices"]),
+            ["charger"]
+        );
     }
 
     #[test]

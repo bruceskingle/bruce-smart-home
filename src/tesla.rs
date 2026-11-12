@@ -56,7 +56,10 @@ impl std::fmt::Debug for Profile {
             .field("gateway_host", &self.gateway_host)
             .field("din", &self.din)
             .field("email", &self.email)
-            .field("password", &self.password.as_ref().map(|_| bruce_graphql::redact::REDACTED))
+            .field(
+                "password",
+                &self.password.as_ref().map(|_| bruce_graphql::redact::REDACTED),
+            )
             .finish()
     }
 }
@@ -106,29 +109,43 @@ impl TeslaContext {
     ///
     /// If any of the profile's capture devices polls the gateway, reads the samples they took instead, see capture.rs,
     /// so that the app does not poll it too.
-    async fn take_snapshot(&self, slot: Option<time::OffsetDateTime>, progress: &mut dyn FnMut(String)) -> anyhow::Result<()> {
+    async fn take_snapshot(
+        &self,
+        slot: Option<time::OffsetDateTime>,
+        progress: &mut dyn FnMut(String),
+    ) -> anyhow::Result<()> {
         self.reload_profile();
         let devices = crate::capture_device::adopted_devices(&self.context.profile.active_profile.name);
         // Those after the latest snapshot, the first time, and only into an online profile, see snapshot::take.
         let since = snapshot::latest(&self.store).as_ref().and_then(snapshot::time_of);
-        let save = &mut |device: &crate::capture_device::DeviceProfile, record: &serde_json::Value| snapshot::save(&self.store, record, Some(&device.id));
+        let save = &mut |device: &crate::capture_device::DeviceProfile, record: &serde_json::Value| {
+            snapshot::save(&self.store, record, Some(&device.id))
+        };
         if !self.cache_config.offline && self.capture.read(&self.store, &devices, since, save, progress).await? {
             return Ok(());
         }
         let din = self.profile.lock().unwrap().din.clone();
         if let Some(din) = din.filter(|_| !self.cache_config.offline) {
             if let Err(error) = self.client.get("status").await {
-                let unreachable = error.downcast_ref::<reqwest::Error>().is_some_and(|error| error.is_connect() || error.is_timeout());
+                let unreachable = error
+                    .downcast_ref::<reqwest::Error>()
+                    .is_some_and(|error| error.is_connect() || error.is_timeout());
                 if !unreachable {
                     return Err(self.handle_error(error));
                 }
-                progress(format!("The gateway does not answer at {}, searching the network for it", self.client.host()));
+                progress(format!(
+                    "The gateway does not answer at {}, searching the network for it",
+                    self.client.host()
+                ));
                 let Some((host, _)) = local::find_gateway(Some(&din), Some(&self.client.host())).await? else {
                     return Err(anyhow::anyhow!("The gateway was not found on the network"));
                 };
                 progress(format!("Found the gateway at {host}"));
                 self.client.set_host(host.clone());
-                let profile = Profile { gateway_host: Some(host), ..self.profile.lock().unwrap().clone() };
+                let profile = Profile {
+                    gateway_host: Some(host),
+                    ..self.profile.lock().unwrap().clone()
+                };
                 self.save_profile(profile)?;
             }
         }
@@ -142,7 +159,10 @@ impl TeslaContext {
     /// The error, after removing the password from the profile if it was rejected.
     fn handle_error(&self, error: anyhow::Error) -> anyhow::Error {
         if error.is::<PasswordRejected>() {
-            let profile = Profile { password: None, ..self.profile.lock().unwrap().clone() };
+            let profile = Profile {
+                password: None,
+                ..self.profile.lock().unwrap().clone()
+            };
             if let Err(save_error) = self.save_profile(profile) {
                 crate::log_error!("Unable to remove the rejected Tesla password from the profile, {save_error:#}");
             }
@@ -165,7 +185,10 @@ impl TeslaModule {
         }
     }
 
-    pub fn constructor(context: Arc<MarcoSparkoContext>, json_profile: Option<serde_json::Value>) -> anyhow::Result<Arc<dyn ModuleFactory>> {
+    pub fn constructor(
+        context: Arc<MarcoSparkoContext>,
+        json_profile: Option<serde_json::Value>,
+    ) -> anyhow::Result<Arc<dyn ModuleFactory>> {
         let args = TeslaArgs::parse_from(context.args.module_args(MODULE_ID).unwrap_or_default());
         let mut profile: Profile = match json_profile {
             Some(json) => serde_json::from_value(json)?,
@@ -181,7 +204,12 @@ impl TeslaModule {
             println!("Tesla Module Profile: {:?}", profile);
         }
         let cache_config = context.create_cache_config(MODULE_ID)?;
-        Ok(Arc::new(TeslaModuleFactory { context, profile, cache_config, verbose }))
+        Ok(Arc::new(TeslaModuleFactory {
+            context,
+            profile,
+            cache_config,
+            verbose,
+        }))
     }
 }
 
@@ -189,12 +217,16 @@ impl TeslaModule {
 impl Module for TeslaModule {
     /// The grid's import and export through the gateway, for a profile with no supplier's.
     fn electricity_source(&self) -> Option<Arc<dyn crate::power::ElectricitySource>> {
-        Some(Arc::new(electricity::TeslaElectricity { store: self.context.store.clone() }))
+        Some(Arc::new(electricity::TeslaElectricity {
+            store: self.context.store.clone(),
+        }))
     }
 
     /// What the gateway measured of the site's use, which splits a supplier's import by use.
     fn measurement_source(&self) -> Option<Arc<dyn crate::power::measured::MeasurementSource>> {
-        Some(Arc::new(electricity::TeslaMeasurements { store: self.context.store.clone() }))
+        Some(Arc::new(electricity::TeslaMeasurements {
+            store: self.context.store.clone(),
+        }))
     }
 
     /// The gateway's meters.
@@ -203,14 +235,30 @@ impl Module for TeslaModule {
         use crate::power::topology::{Channel, Use};
         [
             (SITE_CHANNEL, "The gateway's site meter, its grid CT clamp", Use::Board),
-            (BATTERY_CHANNEL, "The Powerwalls, charging and discharging", Use::Battery),
+            (
+                BATTERY_CHANNEL,
+                "The Powerwalls, charging and discharging",
+                Use::Battery,
+            ),
             (SOLAR_CHANNEL, "The solar panels", Use::Solar),
-            (LOAD_CHANNEL, "The house, as the gateway works it out from its meters", Use::house()),
-        ].map(|(id, description, use_)| Channel { id: id.to_string(), description: description.to_string(), use_ }).to_vec()
+            (
+                LOAD_CHANNEL,
+                "The house, as the gateway works it out from its meters",
+                Use::house(),
+            ),
+        ]
+        .map(|(id, description, use_)| Channel {
+            id: id.to_string(),
+            description: description.to_string(),
+            use_,
+        })
+        .to_vec()
     }
 
     async fn fetch_latest_data(&self) -> anyhow::Result<()> {
-        self.context.take_snapshot(None, &mut |message| println!("{message}")).await
+        self.context
+            .take_snapshot(None, &mut |message| println!("{message}"))
+            .await
     }
 
     fn poll_interval(&self) -> Option<std::time::Duration> {
@@ -223,11 +271,16 @@ impl Module for TeslaModule {
 
     async fn poll(&self, slot: Option<time::OffsetDateTime>) -> anyhow::Result<String> {
         self.context.take_snapshot(slot, &mut |_| {}).await?;
-        let latest = snapshot::latest(&self.context.store).ok_or_else(|| anyhow::anyhow!("The snapshot was not saved"))?;
-        let mut summary: Vec<String> = snapshot::meters(&latest).iter()
+        let latest =
+            snapshot::latest(&self.context.store).ok_or_else(|| anyhow::anyhow!("The snapshot was not saved"))?;
+        let mut summary: Vec<String> = snapshot::meters(&latest)
+            .iter()
             .map(|meter| format!("{} {:.2} kW", meter.name, meter.power / 1000.0))
             .collect();
-        if let Some(charge) = latest.pointer("/responses/system_status~1soe/percentage").and_then(|value| value.as_f64()) {
+        if let Some(charge) = latest
+            .pointer("/responses/system_status~1soe/percentage")
+            .and_then(|value| value.as_f64())
+        {
             summary.push(format!("battery charge {charge:.1}%"));
         }
         Ok(summary.join(", "))
@@ -244,9 +297,18 @@ impl Module for TeslaModule {
 
     fn get_page_list(&self) -> Vec<PageInfo> {
         vec![
-            PageInfo { label: "Powerwall", path: "powerwall" },
-            PageInfo { label: "Samples", path: "samples" },
-            PageInfo { label: "Cache Files", path: "cache" },
+            PageInfo {
+                label: "Powerwall",
+                path: "powerwall",
+            },
+            PageInfo {
+                label: "Samples",
+                path: "samples",
+            },
+            PageInfo {
+                label: "Cache Files",
+                path: "cache",
+            },
         ]
     }
 
@@ -277,17 +339,31 @@ fn PowerwallPage(context: SharedProp<TeslaContext>) -> Element {
     // Read so that a new snapshot, which changes it, is shown.
     generation();
     let latest = snapshot::latest(&context.0.store);
-    let time = latest.as_ref().and_then(snapshot::time_of).map(crate::util::local_date_time).unwrap_or_default();
+    let time = latest
+        .as_ref()
+        .and_then(snapshot::time_of)
+        .map(crate::util::local_date_time)
+        .unwrap_or_default();
     let meters = latest.as_ref().map(snapshot::meters).unwrap_or_default();
-    let charge = latest.as_ref().and_then(|snapshot| snapshot.pointer("/responses/system_status~1soe/percentage")).and_then(|value| value.as_f64());
+    let charge = latest
+        .as_ref()
+        .and_then(|snapshot| snapshot.pointer("/responses/system_status~1soe/percentage"))
+        .and_then(|value| value.as_f64());
     // Which the button reads, if the profile has any, see TeslaContext::take_snapshot.
-    let has_devices = !use_context::<Signal<crate::profile::Settings>>().read().capture_devices.is_empty();
+    let has_devices = !use_context::<Signal<crate::profile::Settings>>()
+        .read()
+        .capture_devices
+        .is_empty();
     let take = move |_| {
         let context = context.clone();
         spawn(async move {
             busy.set(true);
             messages.set(Vec::new());
-            if let Err(error) = context.0.take_snapshot(None, &mut |message| messages.write().push(message)).await {
+            if let Err(error) = context
+                .0
+                .take_snapshot(None, &mut |message| messages.write().push(message))
+                .await
+            {
                 messages.write().push(format!("Failed: {error:#}"));
             }
             busy.set(false);
@@ -368,10 +444,18 @@ fn SamplesPage(context: SharedProp<TeslaContext>) -> Element {
 
 #[component]
 fn SampleRow(sample: snapshot::Sample) -> Element {
-    let power = |name: &str| sample.meter(name).map(|meter| format!("{:.2}", meter.power / 1000.0)).unwrap_or_default();
-    let energy = |name: &str, imported: bool| sample.meter(name)
-        .map(|meter| format!("{:.3}", if imported { meter.imported } else { meter.exported }))
-        .unwrap_or_default();
+    let power = |name: &str| {
+        sample
+            .meter(name)
+            .map(|meter| format!("{:.2}", meter.power / 1000.0))
+            .unwrap_or_default()
+    };
+    let energy = |name: &str, imported: bool| {
+        sample
+            .meter(name)
+            .map(|meter| format!("{:.3}", if imported { meter.imported } else { meter.exported }))
+            .unwrap_or_default()
+    };
     let percent = |value: Option<f64>| value.map(|value| format!("{value:.1}")).unwrap_or_default();
     rsx! {
         tr {
@@ -416,16 +500,26 @@ pub struct TeslaModuleFactory {
 
 impl TeslaModuleFactory {
     /// Finds the gateway if host is empty, logs in once, and saves the login in the profile and the token in the cache.
-    async fn login(context: Arc<MarcoSparkoContext>, profile: Profile, host: String, email: String, password: String,
-        verbose: bool, progress: &mut dyn FnMut(String)) -> anyhow::Result<()> {
+    async fn login(
+        context: Arc<MarcoSparkoContext>,
+        profile: Profile,
+        host: String,
+        email: String,
+        password: String,
+        verbose: bool,
+        progress: &mut dyn FnMut(String),
+    ) -> anyhow::Result<()> {
         let (host, din) = if host.is_empty() {
             progress("Searching the network for the gateway".to_string());
             match local::find_gateway(None, profile.gateway_host.as_deref()).await? {
                 Some((host, status)) => (host, status["din"].as_str().map(String::from)),
-                None => return Err(anyhow::anyhow!("No gateway was found on the network, enter its address")),
+                None => {
+                    return Err(anyhow::anyhow!(
+                        "No gateway was found on the network, enter its address"
+                    ));
+                }
             }
-        }
-        else {
+        } else {
             (host, profile.din.clone())
         };
         progress(format!("Logging in to the gateway at {host}"));
@@ -436,7 +530,13 @@ impl TeslaModuleFactory {
             Some(din) => Some(din),
             None => client.get("status").await?["din"].as_str().map(String::from),
         };
-        let profile = Profile { gateway_host: Some(host), din, email: Some(email), password: Some(password), ..profile };
+        let profile = Profile {
+            gateway_host: Some(host),
+            din,
+            email: Some(email),
+            password: Some(password),
+            ..profile
+        };
         crate::profile::update_profile(&context.profile.active_profile.name, MODULE_ID, &profile)?;
         if let Some(token) = client.token() {
             context.update_cache(MODULE_ID, &StoredToken { token })?;
@@ -568,7 +668,10 @@ impl ModuleFactory for TeslaModuleFactory {
     }
 
     async fn build(&self) -> anyhow::Result<Box<dyn Module + Send>> {
-        let token = self.context.read_cache::<StoredToken>(MODULE_ID).map(|stored| stored.token);
+        let token = self
+            .context
+            .read_cache::<StoredToken>(MODULE_ID)
+            .map(|stored| stored.token);
         let client = LocalClient::new(
             self.profile.gateway_host.clone().unwrap_or_default(),
             self.profile.email.clone().unwrap_or_default(),

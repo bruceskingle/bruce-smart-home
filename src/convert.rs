@@ -31,7 +31,10 @@ impl LegacyFile {
 
     /// Each line which is JSON, for files of a record a line.
     pub fn lines(&self) -> anyhow::Result<Vec<serde_json::Value>> {
-        Ok(std::fs::read_to_string(&self.path)?.lines().filter_map(|line| serde_json::from_str(line).ok()).collect())
+        Ok(std::fs::read_to_string(&self.path)?
+            .lines()
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect())
     }
 }
 
@@ -46,7 +49,9 @@ pub fn legacy_files(dir: &Path) -> Vec<LegacyFile> {
                 dirs.push(path);
                 continue;
             }
-            let Some(name) = path.file_name().and_then(|name| name.to_str()).map(str::to_string) else { continue };
+            let Some(name) = path.file_name().and_then(|name| name.to_str()).map(str::to_string) else {
+                continue;
+            };
             let (day, key) = match name.split_once('#') {
                 Some((day, key)) => (Some(day.to_string()), key.to_string()),
                 None => (None, name.clone()),
@@ -70,19 +75,39 @@ pub fn legacy_files(dir: &Path) -> Vec<LegacyFile> {
 /// see climate.rs.
 fn convert_climate(store: &Store, dir: &Path, progress: &mut dyn Progress) -> anyhow::Result<usize> {
     let mut count = 0;
-    for device in std::fs::read_dir(dir).into_iter().flatten().flatten().filter(|entry| entry.path().is_dir()) {
+    for device in std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+    {
         progress.check()?;
         progress.report(&format!("device {}", device.file_name().to_string_lossy()));
-        let named: serde_json::Value = std::fs::read_to_string(device.path().join("device.json")).ok()
-            .and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
-        let Some(id) = named.get("id").and_then(|id| id.as_str()).map(str::to_string) else { continue };
-        let name = named.get("name").and_then(|name| name.as_str()).unwrap_or_default().to_string();
+        let named: serde_json::Value = std::fs::read_to_string(device.path().join("device.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
+        let Some(id) = named.get("id").and_then(|id| id.as_str()).map(str::to_string) else {
+            continue;
+        };
+        let name = named
+            .get("name")
+            .and_then(|name| name.as_str())
+            .unwrap_or_default()
+            .to_string();
         let mut records = Vec::new();
-        for series in std::fs::read_dir(device.path()).into_iter().flatten().flatten().filter(|entry| entry.path().is_dir()) {
+        for series in std::fs::read_dir(device.path())
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|entry| entry.path().is_dir())
+        {
             let series_name = series.file_name().to_string_lossy().to_string();
             for day in std::fs::read_dir(series.path()).into_iter().flatten().flatten() {
-                let periods: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(day.path()).ok()
-                    .and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
+                let periods: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(day.path())
+                    .ok()
+                    .and_then(|text| serde_json::from_str(&text).ok())
+                    .unwrap_or_default();
                 for (start, saved) in periods {
                     records.push(serde_json::json!({
                         "series": series_name, "start": start, "end": saved["end"], "value": saved["value"],
@@ -104,8 +129,19 @@ fn convert_polling(store: &Store, dir: &Path, progress: &mut dyn Progress) -> an
     for (index, file) in files.iter().enumerate() {
         step(progress, index, files.len())?;
         for record in file.lines()? {
-            let Some(time) = record.get("time").and_then(|time| time.as_str()).and_then(|time| Micros::parse(time).ok()) else { continue };
-            store.put(&Item::new(&hk, &time.to_text(), Version::new(time, &crate::store::origin()), record))?;
+            let Some(time) = record
+                .get("time")
+                .and_then(|time| time.as_str())
+                .and_then(|time| Micros::parse(time).ok())
+            else {
+                continue;
+            };
+            store.put(&Item::new(
+                &hk,
+                &time.to_text(),
+                Version::new(time, &crate::store::origin()),
+                record,
+            ))?;
             count += 1;
         }
     }
@@ -137,7 +173,9 @@ pub fn convert_profile(profile_name: &str, progress: &mut dyn Progress) -> anyho
     // Once, see CONVERTED.
     let converted = store.hash_key(CONVERTED, &[])?;
     if store.get(&converted, "-")?.is_some() {
-        progress.report(&format!("{profile_name}'s data has been converted into the store already"));
+        progress.report(&format!(
+            "{profile_name}'s data has been converted into the store already"
+        ));
         return Ok(());
     }
     // Synced once at the end, as it is many records at once, and synced as usual again however it ends.
@@ -146,10 +184,18 @@ pub fn convert_profile(profile_name: &str, progress: &mut dyn Progress) -> anyho
     store.set_sync(true);
     store.sync()?;
     result?;
-    store.put(&Item::new(&converted, "-", crate::store::version_now(), serde_json::json!({ "profile": profile_name })))?;
+    store.put(&Item::new(
+        &converted,
+        "-",
+        crate::store::version_now(),
+        serde_json::json!({ "profile": profile_name }),
+    ))?;
     progress.report("Compacting the store");
     let started = std::time::Instant::now();
-    let tomorrow = bruce_db::Micros::now().date()?.next_day().ok_or_else(|| anyhow::anyhow!("No day after today"))?;
+    let tomorrow = bruce_db::Micros::now()
+        .date()?
+        .next_day()
+        .ok_or_else(|| anyhow::anyhow!("No day after today"))?;
     store.compact_with_progress(tomorrow, &mut prefixed(progress, "Compacting the store: "))?;
     progress.report(&format!("Compacted the store in {}", took(started)));
     progress.report("The Octopus module's other data is imported the first time each part of it is shown");
@@ -163,7 +209,9 @@ fn convert_parts(store: &Arc<Store>, profile_name: &str, progress: &mut dyn Prog
     let dir = |name: &str| cache.join(format!("{profile_name}-{name}"));
     // Those with a directory to convert, numbered for the progress.
     let converters = crate::ModuleRegistrations::converters();
-    let parts: Vec<String> = ["climate", "polling"].iter().map(|part| part.to_string())
+    let parts: Vec<String> = ["climate", "polling"]
+        .iter()
+        .map(|part| part.to_string())
         .chain(converters.iter().map(|(module_id, _)| module_id.clone()))
         .filter(|part| dir(part).exists())
         .collect();
@@ -188,7 +236,10 @@ fn convert_parts(store: &Arc<Store>, profile_name: &str, progress: &mut dyn Prog
 
 /// Upgrades the profile, see profile::upgrade_profile, for --upgrade, saying what it did.
 pub fn upgrade(profile_name: &str) -> anyhow::Result<()> {
-    crate::profile::upgrade_profile(profile_name, &mut bruce_db::progress::Reporter::new(|message: &str| println!("{message}")))?;
+    crate::profile::upgrade_profile(
+        profile_name,
+        &mut bruce_db::progress::Reporter::new(|message: &str| println!("{message}")),
+    )?;
     println!("{profile_name} is now version {}", crate::profile::CURRENT_VERSION);
     Ok(())
 }
@@ -221,7 +272,10 @@ mod tests {
         std::fs::write(dir.join("currentuser"), "{}").unwrap();
         let files = legacy_files(&dir);
         assert_eq!(files.len(), 2);
-        assert_eq!((files[0].date, files[0].key.as_str()), (Some(time::macros::date!(2026-11-01)), "status-134000"));
+        assert_eq!(
+            (files[0].date, files[0].key.as_str()),
+            (Some(time::macros::date!(2026 - 11 - 01)), "status-134000")
+        );
         assert_eq!((files[1].date, files[1].key.as_str()), (None, "currentuser"));
         let _ = std::fs::remove_dir_all(&dir);
     }

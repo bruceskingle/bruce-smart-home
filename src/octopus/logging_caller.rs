@@ -14,9 +14,12 @@ use crate::{log_error, log_info, log_warning};
 pub struct LoggingCaller<C>(pub C);
 
 impl<C: GraphQLCaller> GraphQLCaller for LoggingCaller<C> {
-    async fn call3<Q: GraphQLQuery<R>, R: GraphQLResponse, P: ProgressMonitor + ?Sized>(&self, query: &Q, token: Option<&Arc<String>>, progress: &P)
-        -> Result<R, bruce_graphql::Error>
-    {
+    async fn call3<Q: GraphQLQuery<R>, R: GraphQLResponse, P: ProgressMonitor + ?Sized>(
+        &self,
+        query: &Q,
+        token: Option<&Arc<String>>,
+        progress: &P,
+    ) -> Result<R, bruce_graphql::Error> {
         let started = Instant::now();
         let result = self.0.call3(query, token, progress).await;
         let seconds = started.elapsed().as_secs_f64();
@@ -24,10 +27,14 @@ impl<C: GraphQLCaller> GraphQLCaller for LoggingCaller<C> {
         match &result {
             Ok(response) => {
                 // The size of the data as JSON, which is close to the size of the response.
-                let size = serde_json::to_vec(response).map(|json| data_size(json.len())).unwrap_or_default();
+                let size = serde_json::to_vec(response)
+                    .map(|json| data_size(json.len()))
+                    .unwrap_or_default();
                 log_info!("Octopus {name} request returned {size} in {seconds:.2}s");
-            },
-            Err(error) if is_transient(error) => log_warning!("Octopus {name} request failed after {seconds:.2}s: {}", brief(error)),
+            }
+            Err(error) if is_transient(error) => {
+                log_warning!("Octopus {name} request failed after {seconds:.2}s: {}", brief(error))
+            }
             Err(error) => log_error!("Octopus {name} request failed after {seconds:.2}s: {}", brief(error)),
         }
         result

@@ -1,47 +1,56 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use bruce_graphql::types::DateTime;
 use dioxus::prelude::*;
 use time_tz::Tz;
-use bruce_graphql::types::DateTime;
 
+use crate::components::category_filter::{CategoryFilter, CategoryFilterMenu};
 use crate::components::date_range_picker::{DateRangePicker, RangeSelection};
 use crate::components::export::{ExportButton, ExportFormat, export_file_name, save_table};
 use crate::components::toggle_button::ToggleButton;
 use crate::data_set::CancelToken;
-use crate::components::category_filter::{CategoryFilter, CategoryFilterMenu};
-use crate::octopus::trend_graph::{TrendSmoothing, range_years};
 use crate::octopus::context::OctopusContext;
 use crate::octopus::measurements::MeasurementsDataSet;
+use crate::octopus::trend_graph::{TrendSmoothing, range_years};
 // use crate::octopus::measurements::MeasurementsDevice;
-use crate::octopus::meter_point::MeterPointDataSet;
-use crate::octopus::smart_device::SmartDeviceDataSet;
-use crate::octopus::property::{PropertyDataSet, smart_device_network_table};
 use super::telemetry::Telemetry;
 use crate::components::stacked_bar_graph::{BarClick, BarMenuItem, GraphMode, MAX_BARS, StackedBarPeriod};
+use crate::octopus::meter_point::MeterPointDataSet;
+use crate::octopus::property::{PropertyDataSet, smart_device_network_table};
+use crate::octopus::smart_device::SmartDeviceDataSet;
 
 /// Each GraphQL error from the server in error, as its message, its description, which is often advice about the
 /// message, and its code, e.g. "Unable to find matching device for this request. Ensure the device id is correct.
 /// (KT-CT-4716)", or None if it is not from GraphQL errors.
 pub(super) fn graphql_error_descriptions(error: &anyhow::Error) -> Option<Vec<String>> {
-    let errors = error.chain().find_map(|cause| match cause.downcast_ref::<bruce_graphql::Error>() {
-        Some(bruce_graphql::Error::GraphQLError(errors)) => Some(errors.clone()),
-        _ => None,
-    })?;
+    let errors = error
+        .chain()
+        .find_map(|cause| match cause.downcast_ref::<bruce_graphql::Error>() {
+            Some(bruce_graphql::Error::GraphQLError(errors)) => Some(errors.clone()),
+            _ => None,
+        })?;
     let text = |value: Option<&serde_json::Value>| value.and_then(|value| value.as_str()).map(String::from);
-    Some(errors.iter()
-        .map(|error| {
-            let parts: Vec<String> = [error.message.clone(), text(error.extensions.get("errorDescription"))]
-                .into_iter()
-                .flatten()
-                .collect();
-            let description = if parts.is_empty() { String::from("Unknown error") } else { parts.join(" ") };
-            match text(error.extensions.get("errorCode")) {
-                Some(code) => format!("{description} ({code})"),
-                None => description,
-            }
-        })
-        .collect())
+    Some(
+        errors
+            .iter()
+            .map(|error| {
+                let parts: Vec<String> = [error.message.clone(), text(error.extensions.get("errorDescription"))]
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                let description = if parts.is_empty() {
+                    String::from("Unknown error")
+                } else {
+                    parts.join(" ")
+                };
+                match text(error.extensions.get("errorCode")) {
+                    Some(code) => format!("{description} ({code})"),
+                    None => description,
+                }
+            })
+            .collect(),
+    )
 }
 
 #[derive(Props, Clone, PartialEq)]
@@ -58,7 +67,9 @@ pub fn MeasurementsPage(props: MeasurementsPageProps) -> Element {
         let context = context.clone();
         move || {
             let context = context.clone();
-            async move { MeterPointDataSet::new(&context.account_id, &context.cache_config, &*context.request_manager).await }
+            async move {
+                MeterPointDataSet::new(&context.account_id, &context.cache_config, &*context.request_manager).await
+            }
         }
     });
 
@@ -76,7 +87,9 @@ pub fn MeasurementsPage(props: MeasurementsPageProps) -> Element {
         let context = context.clone();
         move || {
             let context = context.clone();
-            async move { SmartDeviceDataSet::new(&context.account_id, &context.cache_config, &*context.request_manager).await }
+            async move {
+                SmartDeviceDataSet::new(&context.account_id, &context.cache_config, &*context.request_manager).await
+            }
         }
     });
 
@@ -86,24 +99,23 @@ pub fn MeasurementsPage(props: MeasurementsPageProps) -> Element {
         },
         Some(Err(error)) => Err(anyhow!("Failed to load Meter Points: {error:#}"))?,
         Some(Ok(meter_point_list)) => {
-
             // Are we looking at a device? Its path is device, its ID, modelled or measured, and the meter point to
             // fetch them for.
             // if let (Some("device"), Some(device_id), Some(mpan)) = (props.path.first().map(String::as_str), props.path.get(1), props.path.get(3)) {
-                // let modelled = props.path.get(2).is_some_and(|mode| mode == "modelled");
-                // let export = meter_point_list.meter_points.iter()
-                    // .find(|meter_point| &meter_point.mpan_ == mpan)
-                    // .is_some_and(|meter_point| matches!(meter_point.direction_, Some(crate::octopus::graphql::ElectricityDirection::Export)));
-                // rsx! {
-                    // MeasurementsConsumption {
-                        // key: "{device_id}#{modelled}#{mpan}",
-                        // account_id: context.account_id.clone(),
-                        // mpan: mpan.clone(),
-                        // export,
-                        // device: MeasurementsDevice { id: device_id.clone(), modelled },
-                        // billing_timezone: context.billing_timezone,
-                    // }
-                // }
+            // let modelled = props.path.get(2).is_some_and(|mode| mode == "modelled");
+            // let export = meter_point_list.meter_points.iter()
+            // .find(|meter_point| &meter_point.mpan_ == mpan)
+            // .is_some_and(|meter_point| matches!(meter_point.direction_, Some(crate::octopus::graphql::ElectricityDirection::Export)));
+            // rsx! {
+            // MeasurementsConsumption {
+            // key: "{device_id}#{modelled}#{mpan}",
+            // account_id: context.account_id.clone(),
+            // mpan: mpan.clone(),
+            // export,
+            // device: MeasurementsDevice { id: device_id.clone(), modelled },
+            // billing_timezone: context.billing_timezone,
+            // }
+            // }
             // }
             // else
             // Are we looking at a meter's readings every 10 seconds? Its path is telemetry, the meter's ESME ID and the ID
@@ -122,28 +134,31 @@ pub fn MeasurementsPage(props: MeasurementsPageProps) -> Element {
             }
             // Are we looking at one meter?
             else if let Some(mpan) = props.path.first() {
-                    // Export meter points have generation readings rather than consumption.
-                    let export = meter_point_list.meter_points.iter()
-                        .find(|meter_point| &meter_point.mpan_ == mpan)
-                        .is_some_and(|meter_point| matches!(meter_point.direction_, Some(crate::octopus::graphql::ElectricityDirection::Export)));
-                    rsx! {
-                        MeasurementsConsumption {
-                            key: "{mpan}",
-                            account_id: context.account_id.clone(),
-                            mpan: mpan.clone(),
-                            export,
-                            // device: None,
-                            billing_timezone: context.billing_timezone,
-                        }
+                // Export meter points have generation readings rather than consumption.
+                let export = meter_point_list
+                    .meter_points
+                    .iter()
+                    .find(|meter_point| &meter_point.mpan_ == mpan)
+                    .is_some_and(|meter_point| {
+                        matches!(
+                            meter_point.direction_,
+                            Some(crate::octopus::graphql::ElectricityDirection::Export)
+                        )
+                    });
+                rsx! {
+                    MeasurementsConsumption {
+                        key: "{mpan}",
+                        account_id: context.account_id.clone(),
+                        mpan: mpan.clone(),
+                        export,
+                        // device: None,
+                        billing_timezone: context.billing_timezone,
                     }
-            }
-            else {
-
+                }
+            } else {
                 let mut lines = Vec::new();
 
-
                 for meter_point in &meter_point_list.meter_points {
-
                     let product_code = meter_point.agreements_.first()
                         .and_then(|agreement| agreement.tariff_.as_ref())
                         .and_then(|tariff| match tariff {
@@ -157,9 +172,10 @@ pub fn MeasurementsPage(props: MeasurementsPageProps) -> Element {
                         })
                         .unwrap_or("UNKNOWN");
 
-
-                        
-                    let direction = meter_point.direction_.as_ref().map_or("UNKNOWN".to_string(), |v| v.to_string());
+                    let direction = meter_point
+                        .direction_
+                        .as_ref()
+                        .map_or("UNKNOWN".to_string(), |v| v.to_string());
                     let id = meter_point.mpan_.clone();
                     // Import and export meter points both have measurements, the direction is needed to fetch them.
                     let mpan_link = if meter_point.direction_.is_some() {
@@ -175,13 +191,12 @@ pub fn MeasurementsPage(props: MeasurementsPageProps) -> Element {
                                 {meter_point.mpan_.clone()}
                             }
                         }
-                    }
-                    else {
+                    } else {
                         rsx! {
                             {meter_point.mpan_.clone()}
                         }
                     };
-                    lines.push(rsx!{
+                    lines.push(rsx! {
                         tr {
                             td { {mpan_link} }
                             td { {direction} }
@@ -190,14 +205,13 @@ pub fn MeasurementsPage(props: MeasurementsPageProps) -> Element {
                     })
                 }
 
-
                 // // The meter points a device's readings can be fetched for, export first, with their direction.
                 // let mut device_meter_points: Vec<(String, String)> = meter_point_list.meter_points.iter()
-                    // .filter_map(|meter_point| meter_point.direction_.as_ref().map(|direction| {
-                        // let direction = if matches!(direction, crate::octopus::graphql::ElectricityDirection::Export) { "Export" } else { "Import" };
-                        // (String::from(direction), meter_point.mpan_.clone())
-                    // }))
-                    // .collect();
+                // .filter_map(|meter_point| meter_point.direction_.as_ref().map(|direction| {
+                // let direction = if matches!(direction, crate::octopus::graphql::ElectricityDirection::Export) { "Export" } else { "Import" };
+                // (String::from(direction), meter_point.mpan_.clone())
+                // }))
+                // .collect();
                 // device_meter_points.sort_by_key(|(direction, _)| direction != "Export");
 
                 rsx! {
@@ -315,7 +329,7 @@ pub fn MeasurementsPage(props: MeasurementsPageProps) -> Element {
                     }
                 }
             }
-        },
+        }
     }
 }
 
@@ -368,7 +382,11 @@ fn MeasurementsConsumption(props: MeasurementsConsumptionProps) -> Element {
     let mut history = use_signal(Vec::<(RangeSelection, StackedBarPeriod)>::new);
 
     // Power is not offered for the trend, see display_trend, which shows the energy instead.
-    let shown_mode = if view() == ConsumptionView::Trend && graph_mode() == GraphMode::Power { GraphMode::Energy } else { graph_mode() };
+    let shown_mode = if view() == ConsumptionView::Trend && graph_mode() == GraphMode::Power {
+        GraphMode::Energy
+    } else {
+        graph_mode()
+    };
 
     let selection = *applied_range.read();
     let (start, end) = selection.to_date_times(tz).map_err(|error| anyhow!(error))?;
@@ -378,27 +396,44 @@ fn MeasurementsConsumption(props: MeasurementsConsumptionProps) -> Element {
     // again. Rate periods depend on the tariff, so they are counted once the data is loaded.
     let fits = |option: StackedBarPeriod| {
         let seconds = end.unix_timestamp() - start.unix_timestamp();
-        view() != ConsumptionView::Graph || match option {
-            StackedBarPeriod::Raw => (seconds / 1800) as usize <= MAX_BARS,
-            StackedBarPeriod::Rate => exportable.read().as_ref()
-                .is_none_or(|data| data.graph_bars(&start, &end, tz, StackedBarPeriod::Rate) <= MAX_BARS),
-            StackedBarPeriod::Day => (seconds / 86400) as usize <= MAX_BARS,
-            StackedBarPeriod::Week | StackedBarPeriod::Month => true,
-        }
+        view() != ConsumptionView::Graph
+            || match option {
+                StackedBarPeriod::Raw => (seconds / 1800) as usize <= MAX_BARS,
+                StackedBarPeriod::Rate => exportable
+                    .read()
+                    .as_ref()
+                    .is_none_or(|data| data.graph_bars(&start, &end, tz, StackedBarPeriod::Rate) <= MAX_BARS),
+                StackedBarPeriod::Day => (seconds / 86400) as usize <= MAX_BARS,
+                StackedBarPeriod::Week | StackedBarPeriod::Month => true,
+            }
     };
-    let shown_period = [StackedBarPeriod::Raw, StackedBarPeriod::Rate, StackedBarPeriod::Day, StackedBarPeriod::Week]
-        .into_iter()
-        .find(|option| *option >= graph_period() && fits(*option))
-        .unwrap_or(StackedBarPeriod::Month);
+    let shown_period = [
+        StackedBarPeriod::Raw,
+        StackedBarPeriod::Rate,
+        StackedBarPeriod::Day,
+        StackedBarPeriod::Week,
+    ]
+    .into_iter()
+    .find(|option| *option >= graph_period() && fits(*option))
+    .unwrap_or(StackedBarPeriod::Month);
 
     // Double clicking a bar shows it in more detail: a month by week, a week by day, and a day as its raw readings. A
     // rate period, if Rate was chosen, shows the raw readings for its whole day (the period alone would look the same
     // as the bar).
     let on_drill = move |(bar_start, bar_end): (i64, i64)| {
         let (period, range) = match shown_period {
-            StackedBarPeriod::Month => (StackedBarPeriod::Week, RangeSelection::from_unix_timestamps(bar_start, bar_end, tz)),
-            StackedBarPeriod::Week => (StackedBarPeriod::Day, RangeSelection::from_unix_timestamps(bar_start, bar_end, tz)),
-            StackedBarPeriod::Day => (StackedBarPeriod::Raw, RangeSelection::from_unix_timestamps(bar_start, bar_end, tz)),
+            StackedBarPeriod::Month => (
+                StackedBarPeriod::Week,
+                RangeSelection::from_unix_timestamps(bar_start, bar_end, tz),
+            ),
+            StackedBarPeriod::Week => (
+                StackedBarPeriod::Day,
+                RangeSelection::from_unix_timestamps(bar_start, bar_end, tz),
+            ),
+            StackedBarPeriod::Day => (
+                StackedBarPeriod::Raw,
+                RangeSelection::from_unix_timestamps(bar_start, bar_end, tz),
+            ),
             StackedBarPeriod::Rate => (StackedBarPeriod::Raw, RangeSelection::day_containing(bar_start, tz)),
             StackedBarPeriod::Raw => return,
         };
@@ -456,21 +491,29 @@ fn MeasurementsConsumption(props: MeasurementsConsumptionProps) -> Element {
         let data = exportable.read().clone()?;
         Some(match view() {
             ConsumptionView::Table if shown_period == StackedBarPeriod::Raw => data.readings_export(&start, &end),
-            ConsumptionView::Table | ConsumptionView::Graph | ConsumptionView::Trend => data.graph_export(&start, &end, tz, shown_period),
+            ConsumptionView::Table | ConsumptionView::Graph | ConsumptionView::Trend => {
+                data.graph_export(&start, &end, tz, shown_period)
+            }
         })
     };
 
     // The categories in the loaded data, for the category menu.
-    let categories = exportable.read().as_ref()
+    let categories = exportable
+        .read()
+        .as_ref()
         .map(|data| data.categories(&start, &end, shown_mode))
         .unwrap_or_default();
-    let export_name = export_file_name("measurements", &props.mpan, &start, &end, &view().export_description(shown_period));
+    let export_name = export_file_name(
+        "measurements",
+        &props.mpan,
+        &start,
+        &end,
+        &view().export_description(shown_period),
+    );
 
     // FIXME: remove this hardcoded test date range
     // let start = DateTime::from_calendar_date_time(2026, time::Month::October, 1, 5, 0, 0)?;
     // let end = Some(DateTime::from_calendar_date_time(2026, time::Month::October, 1, 6, 0, 0)?);
-
-
 
     // The key causes MeterDetail to be re-mounted when the applied range changes, which drops
     // (and so cancels) any fetch in progress for the previous range and starts a new one.
@@ -663,17 +706,35 @@ fn MeasurementsDetail(props: MeasurementsDetailProps) -> Element {
             let reload = reload();
             async move {
                 cancelling.set(false);
-                let monitor = move |message: String| { let mut progress = progress; progress.set(message) };
-                MeasurementsDataSet::new(&props.account_id, &props.mpan, props.export, /* props.device.clone(), */
-                    &props.start, &props.end, reload,
-                    props.billing_timezone, &monitor,
-                    &cancel, &context.cache_config, &*context.request_manager).await.map(Arc::new)
+                let monitor = move |message: String| {
+                    let mut progress = progress;
+                    progress.set(message)
+                };
+                MeasurementsDataSet::new(
+                    &props.account_id,
+                    &props.mpan,
+                    props.export, /* props.device.clone(), */
+                    &props.start,
+                    &props.end,
+                    reload,
+                    props.billing_timezone,
+                    &monitor,
+                    &cancel,
+                    &context.cache_config,
+                    &*context.request_manager,
+                )
+                .await
+                .map(Arc::new)
             }
         }
     });
 
     let tz = props.billing_timezone;
-    let to_date_time = move |timestamp: i64| DateTime::from_unix_timestamp(timestamp).ok().map(|date_time| date_time.to_timezone(tz));
+    let to_date_time = move |timestamp: i64| {
+        DateTime::from_unix_timestamp(timestamp)
+            .ok()
+            .map(|date_time| date_time.to_timezone(tz))
+    };
 
     // The menu shown when a bar is right clicked.
     let mut menu = props.range_menu.clone();
@@ -725,8 +786,7 @@ fn MeasurementsDetail(props: MeasurementsDetailProps) -> Element {
             };
             let next_month = if month.month() == time::Month::December {
                 bruce_graphql::types::Date::from_calendar_date(month.year() + 1, time::Month::January, 1)
-            }
-            else {
+            } else {
                 bruce_graphql::types::Date::from_calendar_date(month.year(), month.month().next(), 1)
             };
             // From the day before the month, for the same reason as Reload this bar starts at the bar before.
@@ -777,11 +837,16 @@ fn MeasurementsDetail(props: MeasurementsDetailProps) -> Element {
                     }
                 }
             },
-            None => Err(anyhow!("Failed to load measurements for meter {}: {error:#}", props.mpan))?,
+            None => Err(anyhow!(
+                "Failed to load measurements for meter {}: {error:#}",
+                props.mpan
+            ))?,
         },
         Some(Ok(consumption)) => {
             let content = match props.view {
-                ConsumptionView::Table => consumption.display(&props.start, &props.end, props.billing_timezone, props.graph_period),
+                ConsumptionView::Table => {
+                    consumption.display(&props.start, &props.end, props.billing_timezone, props.graph_period)
+                }
                 ConsumptionView::Graph => consumption.display_graph(
                     &props.start,
                     &props.end,
@@ -829,7 +894,7 @@ fn MeasurementsDetail(props: MeasurementsDetailProps) -> Element {
                     }
                 }
             }
-        },
+        }
     }
 }
 

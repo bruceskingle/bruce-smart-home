@@ -1,11 +1,13 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use crate::{MarcoSparkoContext, ModuleRegistrations, PageInfo, UpgradeRequested, components::app::Route, profile::CURRENT_VERSION};
+use crate::{
+    MarcoSparkoContext, ModuleRegistrations, PageInfo, UpgradeRequested, components::app::Route,
+    profile::CURRENT_VERSION,
+};
 
 use super::polling::PollingPage;
 use super::sidebar::SidebarLayout;
 use dioxus::prelude::*;
-
 
 include!(concat!(env!("OUT_DIR"), "/crate_info.rs"));
 
@@ -13,9 +15,7 @@ const APP_ICON: Asset = asset!("/assets/MarcoSparko.png");
 
 /// The Home page component that will be rendered when the current route is `[Route::Home]`
 #[component]
-pub fn Home(
-
-    // xid: i32,
+pub fn Home(// xid: i32,
     // modules_signal: ModuleRegistrations
 ) -> Element {
     let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
@@ -58,7 +58,7 @@ pub fn Home(
                     p { "Profile {profile.name} is version \"{profile_version}\" which is invalid" }
                 }
             }
-        },
+        }
         crate::profile::ProfileVersionState::NewerThanCurrent => {
             rsx! {
 
@@ -69,7 +69,7 @@ pub fn Home(
                     p { "Thi profile is for a newer version of the program" }
                 }
             }
-        },
+        }
         crate::profile::ProfileVersionState::OlderThanCurrent => {
             if upgrade_requested.read().0 {
                 rsx! {
@@ -90,26 +90,23 @@ pub fn Home(
                     }
                 }
             }
-        },
+        }
         crate::profile::ProfileVersionState::Current => {
             for module_id in module_registrations.0.keys() {
                 let active = if context.profile.active_profile.modules.contains_key(module_id) {
                     "Active"
-                }
-                else {
+                } else {
                     "inactive"
                 };
 
-                modules.insert(module_id.clone(),active);
+                modules.insert(module_id.clone(), active);
             }
 
-            
             let branch = if create_info::GIT_BRANCH.is_empty() {
                 "N/A".to_string()
             } else {
                 let mut s = create_info::GIT_BRANCH.to_string();
-                if create_info::GIT_DIRTY  {
-                    
+                if create_info::GIT_DIRTY {
                     s.push_str("-dirty");
                 }
                 if create_info::GIT_STAGED {
@@ -157,9 +154,8 @@ pub fn Home(
                         }
                     }
                 }
-            }
-            else {
-                rsx!( "" )
+            } else {
+                rsx!("")
             }?;
 
             let modules_page = rsx! {
@@ -256,13 +252,34 @@ pub fn Home(
 
 /// The pages of Home.
 const HOME_PAGES: [PageInfo; 7] = [
-    PageInfo { label: "Electricity", path: "electricity" },
-    PageInfo { label: "Live", path: "live" },
-    PageInfo { label: "Site", path: "site" },
-    PageInfo { label: "Modules", path: "modules" },
-    PageInfo { label: "Polling", path: "polling" },
-    PageInfo { label: "Devices", path: "devices" },
-    PageInfo { label: "Temp & Humidity", path: "climate" },
+    PageInfo {
+        label: "Electricity",
+        path: "electricity",
+    },
+    PageInfo {
+        label: "Live",
+        path: "live",
+    },
+    PageInfo {
+        label: "Site",
+        path: "site",
+    },
+    PageInfo {
+        label: "Modules",
+        path: "modules",
+    },
+    PageInfo {
+        label: "Polling",
+        path: "polling",
+    },
+    PageInfo {
+        label: "Devices",
+        path: "devices",
+    },
+    PageInfo {
+        label: "Temp & Humidity",
+        path: "climate",
+    },
 ];
 
 /// Upgrades the profile, see profile::upgrade_profile, which may take a minute or two, e.g. converting its data into the
@@ -291,11 +308,15 @@ fn ProfileUpgrade(name: String) -> Element {
             let upgraded = tokio::task::spawn_blocking(move || {
                 let mut reporter = bruce_db::progress::Reporter::new(|message: &str| {
                     let _ = sender.send(message.to_string());
-                }).with_cancel(cancel);
+                })
+                .with_cancel(cancel);
                 crate::profile::upgrade_profile(&name, &mut reporter)
-            }).await;
+            })
+            .await;
             match upgraded {
-                Ok(Ok(profile)) => context_signal.set(Some(MarcoSparkoContext::for_profile(crate::Args::ms_parse(), profile))),
+                Ok(Ok(profile)) => {
+                    context_signal.set(Some(MarcoSparkoContext::for_profile(crate::Args::ms_parse(), profile)))
+                }
                 Ok(Err(upgrade_error)) if upgrade_error.is::<bruce_db::progress::Cancelled>() => cancelled.set(true),
                 Ok(Err(upgrade_error)) => error.set(Some(format!("{upgrade_error:#}"))),
                 Err(join_error) => error.set(Some(join_error.to_string())),

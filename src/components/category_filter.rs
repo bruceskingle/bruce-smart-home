@@ -6,7 +6,10 @@
 use std::collections::BTreeMap;
 
 use dioxus::prelude::*;
-use dioxus_free_icons::{Icon, icons::ld_icons::{LdChevronDown, LdFilter}};
+use dioxus_free_icons::{
+    Icon,
+    icons::ld_icons::{LdChevronDown, LdFilter},
+};
 
 use crate::components::color_panel::move_color_panel_to_mouse;
 
@@ -44,8 +47,15 @@ const CATEGORY_COLORS: [(&str, &str); 4] = [
 /// or a built-in category's, or one of the palette's, by where it is in categories, e.g. the profile's, see
 /// profile::Settings::all_categories.
 pub fn category_colour(category: &str, saved: &BTreeMap<String, String>, categories: &[String]) -> String {
-    saved.get(category).cloned()
-        .or_else(|| CATEGORY_COLORS.iter().find(|(known, _)| *known == category).map(|(_, color)| color.to_string()))
+    saved
+        .get(category)
+        .cloned()
+        .or_else(|| {
+            CATEGORY_COLORS
+                .iter()
+                .find(|(known, _)| *known == category)
+                .map(|(_, color)| color.to_string())
+        })
         .unwrap_or_else(|| {
             let index = categories.iter().position(|known| known == category).unwrap_or(0);
             OTHER_COLORS[index % OTHER_COLORS.len()].to_string()
@@ -65,7 +75,13 @@ fn category_label_colour<'a>(label: &str, colours: impl IntoIterator<Item = (&'a
 /// graph.
 pub fn use_category_filter() -> Signal<CategoryFilter> {
     let settings = try_use_context::<Signal<crate::profile::Settings>>();
-    use_signal(move || CategoryFilter::with_saved(settings.map(|settings| settings.peek().colours.clone()).unwrap_or_default()))
+    use_signal(move || {
+        CategoryFilter::with_saved(
+            settings
+                .map(|settings| settings.peek().colours.clone())
+                .unwrap_or_default(),
+        )
+    })
 }
 
 /// Where the active profile's colours are saved, see save_colour: its name, and its settings, which the pages share.
@@ -77,22 +93,32 @@ pub struct ColourStore {
 
 /// Where the active profile's colours are saved, from a component.
 pub fn use_colour_store() -> ColourStore {
-    ColourStore { context: try_use_context(), settings: try_use_context() }
+    ColourStore {
+        context: try_use_context(),
+        settings: try_use_context(),
+    }
 }
 
 impl ColourStore {
     /// Saves the colour chosen for a label or category with the active profile, so that it is the default from now on,
     /// in every graph, see use_category_filter.
     pub fn save(self, label: &str, color: &str) {
-        let Some(profile_name) = self.context.and_then(|context| context.peek().as_ref().map(|context| context.profile.active_profile.name.clone())) else {
+        let Some(profile_name) = self.context.and_then(|context| {
+            context
+                .peek()
+                .as_ref()
+                .map(|context| context.profile.active_profile.name.clone())
+        }) else {
             return;
         };
-        match crate::profile::update_settings_with(&profile_name, |settings| { settings.colours.insert(label.to_string(), color.to_string()); }) {
+        match crate::profile::update_settings_with(&profile_name, |settings| {
+            settings.colours.insert(label.to_string(), color.to_string());
+        }) {
             Ok(saved) => {
                 if let Some(mut settings) = self.settings {
                     settings.write().colours = saved.colours;
                 }
-            },
+            }
             Err(error) => crate::log_error!("Failed to save the colour of {label}: {error:#}"),
         }
     }
@@ -145,8 +171,14 @@ impl Default for CategoryFilter {
             saved: BTreeMap::new(),
             dashes: BTreeMap::new(),
             year_colors: BTreeMap::new(),
-            total: CategoryStyle { color: String::from(TOTAL_COLOR), visible: false },
-            trend_total: CategoryStyle { color: String::from(TOTAL_COLOR), visible: true },
+            total: CategoryStyle {
+                color: String::from(TOTAL_COLOR),
+                visible: false,
+            },
+            trend_total: CategoryStyle {
+                color: String::from(TOTAL_COLOR),
+                visible: true,
+            },
         }
     }
 }
@@ -154,13 +186,17 @@ impl Default for CategoryFilter {
 impl CategoryFilter {
     /// A filter whose default colours are saved, by label or category, see use_category_filter.
     pub fn with_saved(saved: BTreeMap<String, String>) -> Self {
-        Self { saved, ..Self::default() }
+        Self {
+            saved,
+            ..Self::default()
+        }
     }
 
     /// The style of each of the given categories, in the same order.
     pub fn styles(&self, categories: &[String]) -> Vec<CategoryStyle> {
         let mut other_colors = OTHER_COLORS.iter().cycle();
-        categories.iter()
+        categories
+            .iter()
             .map(|label| {
                 // Work out the default for every category so that the palette colours do not depend on which have
                 // been changed.
@@ -168,17 +204,26 @@ impl CategoryFilter {
                 // for EV Low Rate's, and a built-in category's after it, e.g. Unknown's for Unknown Low Rate.
                 let known = if label == STANDING_CHARGE_LABEL {
                     Some(String::from(STANDING_CHARGE_COLOR))
-                }
-                else {
-                    category_label_colour(label, self.saved.iter().map(|(category, color)| (category.as_str(), color.as_str())))
-                        .or_else(|| crate::known_labels().find(|(known, _)| known == label).map(|(_, color)| color.to_string()))
-                        .or_else(|| category_label_colour(label, CATEGORY_COLORS.iter().copied()))
+                } else {
+                    category_label_colour(
+                        label,
+                        self.saved
+                            .iter()
+                            .map(|(category, color)| (category.as_str(), color.as_str())),
+                    )
+                    .or_else(|| {
+                        crate::known_labels()
+                            .find(|(known, _)| known == label)
+                            .map(|(_, color)| color.to_string())
+                    })
+                    .or_else(|| category_label_colour(label, CATEGORY_COLORS.iter().copied()))
                 };
                 let default_color = known.unwrap_or_else(|| String::from(*other_colors.next().unwrap()));
                 let default_color = self.saved.get(label).cloned().unwrap_or(default_color);
-                self.styles.get(label)
-                    .cloned()
-                    .unwrap_or_else(|| CategoryStyle { color: default_color, visible: true })
+                self.styles.get(label).cloned().unwrap_or_else(|| CategoryStyle {
+                    color: default_color,
+                    visible: true,
+                })
             })
             .collect()
     }
@@ -189,11 +234,15 @@ impl CategoryFilter {
 
     /// The line style of each of the given categories in the trend graph, as an SVG stroke-dasharray.
     pub fn dashes(&self, categories: &[String]) -> Vec<String> {
-        categories.iter()
+        categories
+            .iter()
             .enumerate()
-            .map(|(index, label)| self.dashes.get(label)
-                .cloned()
-                .unwrap_or_else(|| String::from(LINE_STYLES[index % LINE_STYLES.len()].1)))
+            .map(|(index, label)| {
+                self.dashes
+                    .get(label)
+                    .cloned()
+                    .unwrap_or_else(|| String::from(LINE_STYLES[index % LINE_STYLES.len()].1))
+            })
             .collect()
     }
 
@@ -203,11 +252,15 @@ impl CategoryFilter {
 
     /// The colour of each of the given years in the trend graph.
     pub fn year_colors(&self, years: &[i32]) -> Vec<String> {
-        years.iter()
+        years
+            .iter()
             .enumerate()
-            .map(|(index, year)| self.year_colors.get(year)
-                .cloned()
-                .unwrap_or_else(|| String::from(YEAR_COLORS[index % YEAR_COLORS.len()])))
+            .map(|(index, year)| {
+                self.year_colors
+                    .get(year)
+                    .cloned()
+                    .unwrap_or_else(|| String::from(YEAR_COLORS[index % YEAR_COLORS.len()]))
+            })
             .collect()
     }
 
@@ -223,8 +276,7 @@ impl CategoryFilter {
     pub fn set_total(&mut self, trend: bool, style: CategoryStyle) {
         if trend {
             self.trend_total = style;
-        }
-        else {
+        } else {
             self.total = style;
         }
     }
@@ -245,21 +297,36 @@ impl CategoryFilter {
     /// categories gives the label and the value for each point of every category, trend chooses the total of the trend graph.
     pub fn apply(&self, categories: Vec<(String, Vec<f64>)>, points: usize, trend: bool) -> Vec<CategoryValues> {
         let labels: Vec<String> = categories.iter().map(|(label, _)| label.clone()).collect();
-        let visible: Vec<CategoryValues> = categories.into_iter()
+        let visible: Vec<CategoryValues> = categories
+            .into_iter()
             .zip(self.styles(&labels))
             .zip(self.dashes(&labels))
             .filter(|((_, style), _)| style.visible)
-            .map(|(((label, values), style), dash)| CategoryValues { label, color: style.color, dash, values })
+            .map(|(((label, values), style), dash)| CategoryValues {
+                label,
+                color: style.color,
+                dash,
+                values,
+            })
             .collect();
 
         let total = self.total(trend);
         if total.visible {
             let values = (0..points)
-                .map(|index| visible.iter().map(|category| category.values.get(index).copied().unwrap_or_default()).sum())
+                .map(|index| {
+                    visible
+                        .iter()
+                        .map(|category| category.values.get(index).copied().unwrap_or_default())
+                        .sum()
+                })
                 .collect();
-            vec![CategoryValues { label: String::from(TOTAL_LABEL), color: total.color.clone(), dash: String::from(SOLID), values }]
-        }
-        else {
+            vec![CategoryValues {
+                label: String::from(TOTAL_LABEL),
+                color: total.color.clone(),
+                dash: String::from(SOLID),
+                values,
+            }]
+        } else {
             visible
         }
     }
@@ -271,8 +338,14 @@ impl CategoryFilter {
 #[component]
 /// With visibility_only, the categories only have a check box, and there is no total, e.g. for categories which filter
 /// what is shown rather than being drawn themselves.
-pub fn CategoryFilterMenu(filter: Signal<CategoryFilter>, categories: Vec<String>, years: Vec<i32>, trend: bool, disabled: bool,
-    #[props(default)] visibility_only: bool) -> Element {
+pub fn CategoryFilterMenu(
+    filter: Signal<CategoryFilter>,
+    categories: Vec<String>,
+    years: Vec<i32>,
+    trend: bool,
+    disabled: bool,
+    #[props(default)] visibility_only: bool,
+) -> Element {
     let mut menu_open = use_signal(|| false);
     let store = use_colour_store();
     let styles = filter.read().styles(&categories);
@@ -401,7 +474,12 @@ fn line_style_picker(filter: Signal<CategoryFilter>, label: String, dash: String
 }
 
 /// A check box which shows or hides the category, or the total if total_for_trend is given, with the label.
-fn visibility_check_box(filter: Signal<CategoryFilter>, label: String, style: CategoryStyle, total_for_trend: Option<bool>) -> Element {
+fn visibility_check_box(
+    filter: Signal<CategoryFilter>,
+    label: String,
+    style: CategoryStyle,
+    total_for_trend: Option<bool>,
+) -> Element {
     rsx! {
         label {
             input {
@@ -442,14 +520,28 @@ mod tests {
             (String::from("EV Standard Rate"), String::from("#fedcba")),
         ]);
         let filter = CategoryFilter::with_saved(saved);
-        let colors: Vec<String> = filter.styles(&labels(&["Hot water Low Rate", "EV Low Rate", "EV Standard Rate", "Unknown Low Rate", "Other"]))
-            .into_iter().map(|style| style.color).collect();
+        let colors: Vec<String> = filter
+            .styles(&labels(&[
+                "Hot water Low Rate",
+                "EV Low Rate",
+                "EV Standard Rate",
+                "Unknown Low Rate",
+                "Other",
+            ]))
+            .into_iter()
+            .map(|style| style.color)
+            .collect();
         assert_eq!(colors, ["#123456", "#abcdef", "#fedcba", "#8a8a99", "#f2c94c"]);
     }
 
     #[test]
     fn known_labels_keep_their_colours_and_others_use_the_palette() {
-        let styles = CategoryFilter::default().styles(&labels(&[STANDING_CHARGE_LABEL, "Home Low Rate", "OFF_PEAK", "STANDARD_RATE"]));
+        let styles = CategoryFilter::default().styles(&labels(&[
+            STANDING_CHARGE_LABEL,
+            "Home Low Rate",
+            "OFF_PEAK",
+            "STANDARD_RATE",
+        ]));
         let colors: Vec<&str> = styles.iter().map(|style| style.color.as_str()).collect();
         assert_eq!(colors, ["#b8c0cc", "#46ee43", "#f2c94c", "#bb6bd9"]);
         assert!(styles.iter().all(|style| style.visible));
@@ -458,25 +550,53 @@ mod tests {
     #[test]
     fn changing_one_category_does_not_change_the_default_colours_of_the_others() {
         let mut filter = CategoryFilter::default();
-        filter.set_style("OFF_PEAK", CategoryStyle { color: String::from("#000000"), visible: true });
-        let colors: Vec<String> = filter.styles(&labels(&["OFF_PEAK", "STANDARD_RATE"])).into_iter().map(|style| style.color).collect();
+        filter.set_style(
+            "OFF_PEAK",
+            CategoryStyle {
+                color: String::from("#000000"),
+                visible: true,
+            },
+        );
+        let colors: Vec<String> = filter
+            .styles(&labels(&["OFF_PEAK", "STANDARD_RATE"]))
+            .into_iter()
+            .map(|style| style.color)
+            .collect();
         assert_eq!(colors, ["#000000", "#bb6bd9"]);
     }
 
     #[test]
     fn hidden_categories_are_left_out_and_the_total_replaces_the_visible_ones() {
-        let categories = || vec![
-            (String::from("A"), vec![1.0, 2.0]),
-            (String::from("B"), vec![10.0, 20.0]),
-            (String::from("C"), vec![100.0, 200.0]),
-        ];
+        let categories = || {
+            vec![
+                (String::from("A"), vec![1.0, 2.0]),
+                (String::from("B"), vec![10.0, 20.0]),
+                (String::from("C"), vec![100.0, 200.0]),
+            ]
+        };
         let mut filter = CategoryFilter::default();
-        filter.set_style("B", CategoryStyle { color: String::from("#000000"), visible: false });
+        filter.set_style(
+            "B",
+            CategoryStyle {
+                color: String::from("#000000"),
+                visible: false,
+            },
+        );
 
-        let shown: Vec<String> = filter.apply(categories(), 2, false).into_iter().map(|category| category.label).collect();
+        let shown: Vec<String> = filter
+            .apply(categories(), 2, false)
+            .into_iter()
+            .map(|category| category.label)
+            .collect();
         assert_eq!(shown, ["A", "C"]);
 
-        filter.set_total(false, CategoryStyle { color: String::from("#ffffff"), visible: true });
+        filter.set_total(
+            false,
+            CategoryStyle {
+                color: String::from("#ffffff"),
+                visible: true,
+            },
+        );
         let total = filter.apply(categories(), 2, false);
         assert_eq!(total.len(), 1);
         assert_eq!(total[0].label, TOTAL_LABEL);

@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
+use bruce_graphql::types::{Currency, DateTime};
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
-use bruce_graphql::types::{Currency, DateTime};
 use time_tz::Tz;
 
 const LEFT: f64 = 64.0;
@@ -40,7 +40,11 @@ impl GraphMode {
 
     /// How the graph formats its values.
     pub fn bar_mode(self) -> StackedBarMode {
-        if self == GraphMode::Cost { StackedBarMode::Cost } else { StackedBarMode::Units }
+        if self == GraphMode::Cost {
+            StackedBarMode::Cost
+        } else {
+            StackedBarMode::Units
+        }
     }
 }
 
@@ -152,26 +156,61 @@ const MENU_PADDING: f64 = 40.0;
 /// right edge, so it is at the mouse however good the estimate of its size is.
 fn menu_position(x: f64, y: f64, menu: &[BarMenuItem]) -> String {
     let window = dioxus::desktop::window();
-    let size = window.window.inner_size().to_logical::<f64>(window.window.scale_factor());
+    let size = window
+        .window
+        .inner_size()
+        .to_logical::<f64>(window.window.scale_factor());
     let height = menu.len() as f64 * MENU_ITEM_HEIGHT + MENU_PADDING;
-    let width = menu.iter().map(|item| item.label.chars().count()).max().unwrap_or(0) as f64 * MENU_CHAR_WIDTH + MENU_PADDING;
-    let vertical = if y + height > size.height { format!("bottom: {}px;", size.height - y) } else { format!("top: {y}px;") };
-    let horizontal = if x + width > size.width { format!("right: {}px;", size.width - x) } else { format!("left: {x}px;") };
+    let width =
+        menu.iter().map(|item| item.label.chars().count()).max().unwrap_or(0) as f64 * MENU_CHAR_WIDTH + MENU_PADDING;
+    let vertical = if y + height > size.height {
+        format!("bottom: {}px;", size.height - y)
+    } else {
+        format!("top: {y}px;")
+    };
+    let horizontal = if x + width > size.width {
+        format!("right: {}px;", size.width - x)
+    } else {
+        format!("left: {x}px;")
+    };
     format!("{vertical} {horizontal}")
 }
 
 /// Times of day which make good x axis labels, in seconds from midnight, finest first.
-const TICK_INTERVALS: [i64; 12] = [10, 30, 60, 300, 600, 900, 1800, 3600, 3 * 3600, 6 * 3600, 12 * 3600, 24 * 3600];
+const TICK_INTERVALS: [i64; 12] = [
+    10,
+    30,
+    60,
+    300,
+    600,
+    900,
+    1800,
+    3600,
+    3 * 3600,
+    6 * 3600,
+    12 * 3600,
+    24 * 3600,
+];
 
 /// The roundest time of day from start to end, as unix timestamps, in the timezone, and its rank, which is higher the
 /// rounder it is, e.g. midnight is the highest and a time on 10 seconds is 1, for the tick label of a bar.
 pub fn time_tick(start: i64, end: i64, tz: &'static Tz) -> Option<(i64, u8)> {
-    let offset = DateTime::from_unix_timestamp(start).ok()?.to_timezone(tz).offset().whole_seconds() as i64;
+    let offset = DateTime::from_unix_timestamp(start)
+        .ok()?
+        .to_timezone(tz)
+        .offset()
+        .whole_seconds() as i64;
     let local_start = start + offset;
-    TICK_INTERVALS.iter()
+    TICK_INTERVALS
+        .iter()
         .enumerate()
         .rev()
-        .map(|(index, interval)| (local_start + (interval - local_start.rem_euclid(*interval)).rem_euclid(*interval) - offset, index as u8 + 1))
+        .map(|(index, interval)| {
+            (
+                local_start + (interval - local_start.rem_euclid(*interval)).rem_euclid(*interval) - offset,
+                index as u8 + 1,
+            )
+        })
         .find(|(boundary, _)| *boundary < end)
 }
 
@@ -180,23 +219,32 @@ pub fn time_tick_label(start: i64, end: i64, tz: &'static Tz) -> (Option<String>
     let Some((boundary, rank)) = time_tick(start, end, tz) else {
         return (None, 0);
     };
-    let format = if boundary.rem_euclid(60) == 0 { "[hour]:[minute]" } else { "[hour]:[minute]:[second]" };
-    let label = DateTime::from_unix_timestamp(boundary).ok()
-        .and_then(|time| time.to_timezone(tz).format(&time::format_description::parse(format).unwrap()).ok());
+    let format = if boundary.rem_euclid(60) == 0 {
+        "[hour]:[minute]"
+    } else {
+        "[hour]:[minute]:[second]"
+    };
+    let label = DateTime::from_unix_timestamp(boundary).ok().and_then(|time| {
+        time.to_timezone(tz)
+            .format(&time::format_description::parse(format).unwrap())
+            .ok()
+    });
     (label, rank)
 }
 
 /// The x axis bands of tick labels, as (x, label, rank) from left to right, each from its x to the next one's, the last
 /// to end_x, as (x, width, label), and whether all of the labels fit in their bands.
 fn tick_bands(ticks: &[&(f64, String, u8)], end_x: f64) -> (Vec<(f64, f64, Option<String>)>, bool) {
-    let bands: Vec<(f64, f64, Option<String>)> = ticks.iter()
+    let bands: Vec<(f64, f64, Option<String>)> = ticks
+        .iter()
         .enumerate()
         .map(|(index, (tick_x, label, _))| {
             let right = ticks.get(index + 1).map(|next| next.0).unwrap_or(end_x);
             (*tick_x, (right - tick_x).max(0.0), Some(label.clone()))
         })
         .collect();
-    let fit = bands.iter()
+    let fit = bands
+        .iter()
         .all(|(_, band_width, label)| label.as_ref().is_none_or(|label| label_width(label) <= *band_width));
     (bands, fit)
 }
@@ -235,7 +283,8 @@ pub fn day_bands(start: i64, end: i64, tz: &'static Tz) -> Vec<XBand> {
         bands.push(XBand {
             start: day_start.unix_timestamp(),
             end: day_end.unix_timestamp(),
-            labels: [&long_format, &short_format, &day_format].iter()
+            labels: [&long_format, &short_format, &day_format]
+                .iter()
                 .map(|format| day.format(format).unwrap_or_default())
                 .collect(),
         });
@@ -256,7 +305,9 @@ pub(crate) fn nice_step(raw: f64) -> (f64, usize) {
         .find(|s| *s >= raw)
         .unwrap_or(10.0 * magnitude);
     let mut decimals = 0;
-    while decimals < 6 && ((step * 10f64.powi(decimals as i32)).round() - step * 10f64.powi(decimals as i32)).abs() > 1e-9 {
+    while decimals < 6
+        && ((step * 10f64.powi(decimals as i32)).round() - step * 10f64.powi(decimals as i32)).abs() > 1e-9
+    {
         decimals += 1;
     }
     (step, decimals)
@@ -271,7 +322,11 @@ pub(crate) fn format_money(minor_units: f64, currency: Currency) -> String {
 }
 
 fn currency_symbol(currency: Currency) -> String {
-    if currency == Currency::NONE { String::new() } else { currency.symbol() }
+    if currency == Currency::NONE {
+        String::new()
+    } else {
+        currency.symbol()
+    }
 }
 
 /// A y axis label for the value, just the number, with decimal places for units and in the major units of the currency
@@ -282,7 +337,7 @@ pub(crate) fn axis_label(value: f64, decimals: usize, mode: StackedBarMode, curr
         StackedBarMode::Cost => {
             let decimals = currency.minor_units() as usize;
             format!("{:.decimals$}", value / 10f64.powi(decimals as i32))
-        },
+        }
     }
 }
 
@@ -320,27 +375,36 @@ pub fn StackedBarGraph(
     unit: String,
     /// Draw a histogram, where bar heights are per hour so that the area of each bar is its total. Needed when the bars
     /// have different widths.
-    #[props(default)] per_hour: bool,
+    #[props(default)]
+    per_hour: bool,
     /// Draw a histogram per this many seconds, as for per_hour, e.g. 10 for kWh per 10 seconds.
-    #[props(default)] per_seconds: Option<i64>,
+    #[props(default)]
+    per_seconds: Option<i64>,
     /// Whether the series are named above the graph, e.g. not when there is a series for each of many sessions, which
     /// the tooltip names.
-    #[props(default = true)] legend: bool,
+    #[props(default = true)]
+    legend: bool,
     /// Called with the start and end of a bar when it is double clicked, to show it in more detail.
-    #[props(default)] on_drill: Option<EventHandler<(i64, i64)>>,
+    #[props(default)]
+    on_drill: Option<EventHandler<(i64, i64)>>,
     /// Called with the start of the first bar and the end of the last when the mouse is dragged across more than one
     /// bar, to show just those bars.
-    #[props(default)] on_zoom: Option<EventHandler<(i64, i64)>>,
+    #[props(default)]
+    on_zoom: Option<EventHandler<(i64, i64)>>,
     /// The menu shown when a bar is right clicked, instead of the webview's menu.
-    #[props(default)] menu: Vec<BarMenuItem>,
+    #[props(default)]
+    menu: Vec<BarMenuItem>,
     /// Whether the tooltip is for the segment the mouse is over, showing just that series and the bar's total, rather
     /// than every series in the bar, e.g. when there is a series for each of many sessions.
-    #[props(default)] segment_tooltip: bool,
+    #[props(default)]
+    segment_tooltip: bool,
     /// Bands under the graph, e.g. for each day, in place of the x axis labels of the bars, for when the bars are not
     /// periods which are easy to label, e.g. charging sessions.
-    #[props(default)] x_bands: Vec<XBand>,
+    #[props(default)]
+    x_bands: Vec<XBand>,
     /// Lines over the bars, see StackedBarLine.
-    #[props(default)] lines: Vec<StackedBarLine>,
+    #[props(default)]
+    lines: Vec<StackedBarLine>,
 ) -> Element {
     let mut hovered = use_signal::<Option<usize>>(|| None);
     // The series of the segment the mouse is over, with segment_tooltip.
@@ -362,35 +426,55 @@ pub fn StackedBarGraph(
     let plot_height = (height - TOP - BOTTOM).max(1.0);
     let x = |t: i64| LEFT + (t as f64 - t_min) / t_span * plot_width;
     // The label and colour of each segment, matching StackedBarPoint::values.
-    let segment_names: Vec<(String, String)> = series.iter()
+    let segment_names: Vec<(String, String)> = series
+        .iter()
         .map(|series| (series.label.clone(), series.color.clone()))
         .collect();
     // The factor from a bar's values to its height, for a histogram per this many seconds, if it is one.
     let per = per_seconds.or(per_hour.then_some(3600));
-    let scale = move |point: &StackedBarPoint| {
-        match per {
-            Some(per) => per as f64 / (point.end - point.start).max(1) as f64,
-            None => 1.0,
-        }
+    let scale = move |point: &StackedBarPoint| match per {
+        Some(per) => per as f64 / (point.end - point.start).max(1) as f64,
+        None => 1.0,
     };
     // The net total of each bar, for its tooltip.
-    let totals: Vec<f64> = points
-        .iter()
-        .map(|point| point.values.iter().sum())
-        .collect();
+    let totals: Vec<f64> = points.iter().map(|point| point.values.iter().sum()).collect();
     // Positive values are stacked up from zero and negative ones down from it, e.g. energy exported, so the y axis goes
     // from the lowest stack of negative values, if there are any, to the highest of positive ones.
-    let stack = |point: &StackedBarPoint, positive: bool| point.values.iter()
-        .filter(|value| (**value > 0.0) == positive)
-        .sum::<f64>() * scale(point);
+    let stack = |point: &StackedBarPoint, positive: bool| {
+        point
+            .values
+            .iter()
+            .filter(|value| (**value > 0.0) == positive)
+            .sum::<f64>()
+            * scale(point)
+    };
     // Each line's value for each point, as drawn, see scale.
-    let line_values: Vec<Vec<Option<f64>>> = lines.iter()
-        .map(|line| points.iter().enumerate()
-            .map(|(index, point)| line.values.get(index).copied().flatten().map(|value| value * scale(point)))
-            .collect())
+    let line_values: Vec<Vec<Option<f64>>> = lines
+        .iter()
+        .map(|line| {
+            points
+                .iter()
+                .enumerate()
+                .map(|(index, point)| {
+                    line.values
+                        .get(index)
+                        .copied()
+                        .flatten()
+                        .map(|value| value * scale(point))
+                })
+                .collect()
+        })
         .collect();
-    let max_value = points.iter().map(|point| stack(point, true)).chain(line_values.iter().flatten().flatten().copied()).fold(0.0, f64::max);
-    let min_value = points.iter().map(|point| stack(point, false)).chain(line_values.iter().flatten().flatten().copied()).fold(0.0, f64::min);
+    let max_value = points
+        .iter()
+        .map(|point| stack(point, true))
+        .chain(line_values.iter().flatten().flatten().copied())
+        .fold(0.0, f64::max);
+    let min_value = points
+        .iter()
+        .map(|point| stack(point, false))
+        .chain(line_values.iter().flatten().flatten().copied())
+        .fold(0.0, f64::min);
     let format_value = |value: f64| match mode {
         StackedBarMode::Units => format!("{value:.3} {unit}"),
         StackedBarMode::Cost => format_money(value, currency),
@@ -426,8 +510,7 @@ pub fn StackedBarGraph(
                     let (from, to) = if value > 0.0 {
                         above += value;
                         (above - value, above)
-                    }
-                    else {
+                    } else {
                         below += value;
                         (below, below - value)
                     };
@@ -438,7 +521,9 @@ pub fn StackedBarGraph(
 
     // Each line, a step across each bar it has a value for, joined to the next if that has one too, with its colour and
     // whether it is dashed, leaving out those with nothing to draw.
-    let line_paths: Vec<(String, String, bool)> = lines.iter().zip(&line_values)
+    let line_paths: Vec<(String, String, bool)> = lines
+        .iter()
+        .zip(&line_values)
         .map(|(line, values)| {
             let mut path = String::new();
             let mut joined = false;
@@ -446,9 +531,14 @@ pub fn StackedBarGraph(
                 match value {
                     Some(value) => {
                         let line_y = y(*value);
-                        path += &format!("{}{:.1} {line_y:.1} L{:.1} {line_y:.1} ", if joined { "L" } else { "M" }, x(point.start), x(point.end));
+                        path += &format!(
+                            "{}{:.1} {line_y:.1} L{:.1} {line_y:.1} ",
+                            if joined { "L" } else { "M" },
+                            x(point.start),
+                            x(point.end)
+                        );
                         joined = true;
-                    },
+                    }
                     None => joined = false,
                 }
             }
@@ -461,9 +551,7 @@ pub fn StackedBarGraph(
         // From a whole number of steps, so that zero is not a rounding error from it, e.g. -0.0.
         .map(|i| ((y_min / step).round() + i as f64) * step + 0.0)
         .take_while(|value| *value <= y_max + step / 2.0)
-        .map(|value| {
-            (y(value), axis_label(value, decimals, mode, currency))
-        })
+        .map(|value| (y(value), axis_label(value, decimals, mode, currency)))
         .collect();
     let y_unit = axis_unit(mode, currency, &unit, &per.map(per_suffix).unwrap_or_default());
 
@@ -472,13 +560,20 @@ pub fn StackedBarGraph(
     // fit with all the higher ranked ones, or if even the highest ranked ones do not fit, every so many of them, as
     // few apart as fit.
     let bands: Vec<(f64, f64, Option<String>)> = if x_bands.is_empty() {
-        let all_x_ticks: Vec<(f64, String, u8)> = points.iter()
-            .filter_map(|point| point.tick_label.as_ref().map(|label| (x(point.start), label.clone(), point.tick_rank)))
+        let all_x_ticks: Vec<(f64, String, u8)> = points
+            .iter()
+            .filter_map(|point| {
+                point
+                    .tick_label
+                    .as_ref()
+                    .map(|label| (x(point.start), label.clone(), point.tick_rank))
+            })
             .collect();
         let end_x = points.last().map(|point| x(point.end)).unwrap_or(LEFT);
         let ranks: BTreeSet<u8> = all_x_ticks.iter().map(|tick| tick.2).collect();
         let ranked = |rank: u8| all_x_ticks.iter().filter(|tick| tick.2 >= rank).collect::<Vec<_>>();
-        ranks.iter()
+        ranks
+            .iter()
             .map(|rank| tick_bands(&ranked(*rank), end_x))
             .find(|(_, fit)| *fit)
             .or_else(|| {
@@ -489,15 +584,19 @@ pub fn StackedBarGraph(
             })
             .map(|(bands, _)| bands)
             .unwrap_or_default()
-    }
-    else {
-        x_bands.iter()
+    } else {
+        x_bands
+            .iter()
             .map(|band| {
                 let left = x(band.start).max(LEFT);
                 let right = x(band.end).min(width - RIGHT);
                 let band_width = (right - left).max(0.0);
                 // The longest label which fits, if any.
-                let label = band.labels.iter().find(|label| label_width(label) <= band_width).cloned();
+                let label = band
+                    .labels
+                    .iter()
+                    .find(|label| label_width(label) <= band_width)
+                    .cloned();
                 (left, band_width, label)
             })
             .filter(|(_, band_width, _)| *band_width > 0.0)
@@ -507,18 +606,22 @@ pub fn StackedBarGraph(
     // The legend, above the graph, as HTML, so that it wraps onto more lines if the labels need them: the series', then
     // the lines', each as a short line, dashed or not as it is.
     let legend_entries: Vec<(String, String)> = if legend { segment_names.clone() } else { Vec::new() };
-    let line_legend: Vec<(String, String, bool)> = lines.iter().zip(&line_values)
+    let line_legend: Vec<(String, String, bool)> = lines
+        .iter()
+        .zip(&line_values)
         .filter(|(_, values)| legend && values.iter().any(Option::is_some))
         .map(|(line, _)| (line.label.clone(), line.color.clone(), line.dashed))
         .collect();
 
     // A column over each bar, the full height of the graph, which shows its tooltip when the mouse is over it and can
     // be double clicked or dragged across, and the start and end of each bar.
-    let columns: Vec<(usize, f64, f64)> = points.iter()
+    let columns: Vec<(usize, f64, f64)> = points
+        .iter()
         .enumerate()
         .map(|(index, point)| (index, x(point.start), (x(point.end) - x(point.start)).max(0.0)))
         .collect();
-    let periods: std::rc::Rc<Vec<(i64, i64)>> = std::rc::Rc::new(points.iter().map(|point| (point.start, point.end)).collect());
+    let periods: std::rc::Rc<Vec<(i64, i64)>> =
+        std::rc::Rc::new(points.iter().map(|point| (point.start, point.end)).collect());
     // The bars being dragged across, from the left of the first to the right of the last.
     let selection = dragged().map(|(from, to)| {
         let (first, last) = (from.min(to), from.max(to));
@@ -537,7 +640,8 @@ pub fn StackedBarGraph(
             .clamp(LEFT, (width - TOOLTIP_WIDTH - RIGHT).max(LEFT));
             // The label, colour and value of each segment, leaving out those which are zero, or with segment_tooltip just
             // the one the mouse is over, if it is over one.
-            let mut rows: Vec<(String, String, String)> = point.values
+            let mut rows: Vec<(String, String, String)> = point
+                .values
                 .iter()
                 .copied()
                 .zip(&segment_names)
@@ -552,23 +656,34 @@ pub fn StackedBarGraph(
             }
             // The rows start lower if there is a line of detail under the period.
             let top = TOP + if point.detail.is_some() { 14.0 } else { 0.0 };
-            (tooltip_x, point.period_label.clone(), point.detail.clone(), top, rows, format_value(totals[index]))
+            (
+                tooltip_x,
+                point.period_label.clone(),
+                point.detail.clone(),
+                top,
+                rows,
+                format_value(totals[index]),
+            )
         })
     });
 
     // The mouse handlers of a bar, for its column, and with segment_tooltip for its segments too, which are over the
     // column so that the mouse can be over them. series is the series of the segment, None for the column.
-    let on_enter = move |index: usize, series: Option<usize>| move |_: MouseEvent| {
-        hovered.set(Some(index));
-        hovered_series.set(series);
-        if let Some((from, _)) = dragged() {
-            dragged.set(Some((from, index)));
+    let on_enter = move |index: usize, series: Option<usize>| {
+        move |_: MouseEvent| {
+            hovered.set(Some(index));
+            hovered_series.set(series);
+            if let Some((from, _)) = dragged() {
+                dragged.set(Some((from, index)));
+            }
         }
     };
-    let on_down = move |index: usize| move |event: MouseEvent| {
-        // Only the left button drags, the right one opens the menu, and only when there is something to zoom to.
-        if on_zoom.is_some() && event.trigger_button() == Some(MouseButton::Primary) {
-            dragged.set(Some((index, index)));
+    let on_down = move |index: usize| {
+        move |event: MouseEvent| {
+            // Only the left button drags, the right one opens the menu, and only when there is something to zoom to.
+            if on_zoom.is_some() && event.trigger_button() == Some(MouseButton::Primary) {
+                dragged.set(Some((index, index)));
+            }
         }
     };
     let on_context_menu = {
@@ -580,9 +695,21 @@ pub fn StackedBarGraph(
                 event.prevent_default();
                 if has_menu {
                     let (start, end) = periods[index];
-                    let previous_start = if index > 0 { periods[index - 1].0 } else { start - (end - start) };
+                    let previous_start = if index > 0 {
+                        periods[index - 1].0
+                    } else {
+                        start - (end - start)
+                    };
                     let point = event.client_coordinates();
-                    menu_at.set(Some((BarClick { start, end, previous_start }, point.x, point.y)));
+                    menu_at.set(Some((
+                        BarClick {
+                            start,
+                            end,
+                            previous_start,
+                        },
+                        point.x,
+                        point.y,
+                    )));
                 }
             }
         }
@@ -796,15 +923,23 @@ mod tests {
     use super::{StackedBarMode, axis_label, axis_unit, day_bands, format_money, nice_step, time_tick_label};
 
     fn time(text: &str) -> i64 {
-        time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339).unwrap().unix_timestamp()
+        time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339)
+            .unwrap()
+            .unix_timestamp()
     }
 
     #[test]
     fn a_bar_is_labelled_with_its_roundest_local_time() {
         let london = time_tz::timezones::db::europe::LONDON;
         // 10 second bars in BST, one with a 3 hour boundary in it but not at its start, as when a reading is missing.
-        assert_eq!(time_tick_label(time("2026-10-24T14:00:10Z"), time("2026-10-24T14:00:20Z"), london), (Some(String::from("15:00:10")), 1));
-        assert_eq!(time_tick_label(time("2026-10-24T13:59:55Z"), time("2026-10-24T14:00:15Z"), london), (Some(String::from("15:00")), 9));
+        assert_eq!(
+            time_tick_label(time("2026-10-24T14:00:10Z"), time("2026-10-24T14:00:20Z"), london),
+            (Some(String::from("15:00:10")), 1)
+        );
+        assert_eq!(
+            time_tick_label(time("2026-10-24T13:59:55Z"), time("2026-10-24T14:00:15Z"), london),
+            (Some(String::from("15:00")), 9)
+        );
         // Half hour bars, local midnight is the roundest.
         let (_, half_past) = time_tick_label(time("2026-10-24T13:30:00Z"), time("2026-10-24T14:00:00Z"), london);
         let (_, hour) = time_tick_label(time("2026-10-24T14:00:00Z"), time("2026-10-24T14:30:00Z"), london);

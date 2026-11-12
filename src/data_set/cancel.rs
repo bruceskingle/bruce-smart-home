@@ -37,8 +37,7 @@ impl CancelToken {
         poll_fn(|cx| {
             if self.is_cancelled() {
                 Poll::Ready(())
-            }
-            else {
+            } else {
                 *self.0.waker.borrow_mut() = Some(cx.waker().clone());
                 Poll::Pending
             }

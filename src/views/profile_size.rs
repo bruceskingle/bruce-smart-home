@@ -2,7 +2,11 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 
-use crate::{MarcoSparkoContext, components::{app::Route, delete_profile::DeleteProfileDialog}, profile::{format_size, profile_names_equal}};
+use crate::{
+    MarcoSparkoContext,
+    components::{app::Route, delete_profile::DeleteProfileDialog},
+    profile::{format_size, profile_names_equal},
+};
 
 /// The disk space used by a profile, by plugin, with buttons to delete the profile or return to the home page.
 #[component]

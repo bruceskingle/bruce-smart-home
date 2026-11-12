@@ -7,24 +7,30 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use bruce_graphql::types::{Currency, DateTime};
 use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, icons::ld_icons::LdRefreshCw};
-use bruce_graphql::types::{Currency, DateTime};
 use time_tz::{OffsetDateTimeExt, Tz};
 
+use crate::components::app::Route;
 use crate::components::category_filter::{CategoryFilter, CategoryFilterMenu, CategoryValues, STANDING_CHARGE_LABEL};
 use crate::components::date_range_picker::{DateRangePicker, LocalSlot, RangeSelection};
+use crate::components::error_text::ErrorText;
 use crate::components::export::{ExportButton, ExportTable, ExportValue, export_file_name};
-use crate::components::stacked_bar_graph::{BarClick, BarMenuItem, GraphMode, MAX_BARS, StackedBarGraph, StackedBarLine, StackedBarMode, StackedBarPoint, StackedBarSeries, day_bands, time_tick_label};
+use crate::components::stacked_bar_graph::{
+    BarClick, BarMenuItem, GraphMode, MAX_BARS, StackedBarGraph, StackedBarLine, StackedBarMode, StackedBarPoint,
+    StackedBarSeries, day_bands, time_tick_label,
+};
 use crate::components::toggle_button::ToggleButton;
 use crate::data_set::CancelToken;
 use crate::period::Period;
 use crate::power::measured::{MeasurementSource, Measurements};
 use crate::power::topology::{CAR, TopologySplit};
+use crate::power::{
+    self, EXPORT_LABEL, Electricity, ElectricityPoint, ElectricitySource, EvComparison, LoadedElectricity,
+    MEASURED_EV_LABEL, OCTOPUS_EV_LABEL,
+};
 use crate::profile::Settings as ProfileSettings;
-use crate::power::{self, EXPORT_LABEL, Electricity, ElectricityPoint, ElectricitySource, EvComparison, LoadedElectricity, MEASURED_EV_LABEL, OCTOPUS_EV_LABEL};
-use crate::components::app::Route;
-use crate::components::error_text::ErrorText;
 use crate::util::SharedProp;
 use crate::{MarcoSparkoContext, ModuleRegistrations};
 
@@ -59,11 +65,20 @@ fn mode_values(mode: GraphMode, point: &ElectricityPoint, uses: &[String]) -> (V
     let hours = (point.end - point.start).max(1) as f64 / 3600.0;
     match (mode, point.demand) {
         (GraphMode::Energy | GraphMode::Cost, _) => (point.import.clone(), point.export),
-        (GraphMode::Power, None) => (point.import.iter().map(|kwh| kwh / hours).collect(), point.export / hours),
+        (GraphMode::Power, None) => (
+            point.import.iter().map(|kwh| kwh / hours).collect(),
+            point.export / hours,
+        ),
         (GraphMode::Power, Some(demand)) => {
             let is_ev = |index: usize| uses[index] == CAR;
-            let ev_kw: f64 = (0..uses.len()).filter(|index| is_ev(*index)).map(|index| point.import[index] / hours).sum();
-            let home_kwh: f64 = (0..uses.len()).filter(|index| !is_ev(*index)).map(|index| point.import[index]).sum();
+            let ev_kw: f64 = (0..uses.len())
+                .filter(|index| is_ev(*index))
+                .map(|index| point.import[index] / hours)
+                .sum();
+            let home_kwh: f64 = (0..uses.len())
+                .filter(|index| !is_ev(*index))
+                .map(|index| point.import[index])
+                .sum();
             let home_kw = (demand.max(0.0) / 1000.0 - ev_kw).max(0.0);
             let import = (0..uses.len())
                 .map(|index| match (is_ev(index), home_kwh > 0.0) {
@@ -73,7 +88,7 @@ fn mode_values(mode: GraphMode, point: &ElectricityPoint, uses: &[String]) -> (V
                 })
                 .collect();
             (import, (-demand).max(0.0) / 1000.0)
-        },
+        }
     }
 }
 
@@ -91,12 +106,23 @@ fn mode_unit(mode: GraphMode) -> &'static str {
 /// negative, leaving out those which cost nothing, e.g. import the meter has no reading for yet.
 fn cost_categories(electricity: &Electricity) -> Vec<(String, Vec<f64>)> {
     let points = &electricity.points;
-    std::iter::once((String::from(STANDING_CHARGE_LABEL), points.iter().map(|point| point.standing_charge).collect::<Vec<f64>>()))
-        .chain(electricity.labels.iter().enumerate()
-            .map(|(index, label)| (label.clone(), points.iter().map(|point| point.costs[index]).collect())))
-        .chain(std::iter::once((String::from(EXPORT_LABEL), points.iter().map(|point| point.export_cost).collect())))
-        .filter(|(_, values)| values.iter().any(|value| *value != 0.0))
-        .collect()
+    std::iter::once((
+        String::from(STANDING_CHARGE_LABEL),
+        points.iter().map(|point| point.standing_charge).collect::<Vec<f64>>(),
+    ))
+    .chain(
+        electricity
+            .labels
+            .iter()
+            .enumerate()
+            .map(|(index, label)| (label.clone(), points.iter().map(|point| point.costs[index]).collect())),
+    )
+    .chain(std::iter::once((
+        String::from(EXPORT_LABEL),
+        points.iter().map(|point| point.export_cost).collect(),
+    )))
+    .filter(|(_, values)| values.iter().any(|value| *value != 0.0))
+    .collect()
 }
 
 /// Where a point's energy is from, for its tooltip and the table, e.g. Home Mini and Tesla.
@@ -112,7 +138,10 @@ fn point_sources(point: &ElectricityPoint) -> String {
 /// The car's import measured and as Octopus split it, in kWh, over the points' half hours which have both, see
 /// ElectricityPoint::ev_comparison, None if none have.
 pub fn ev_comparison(points: &[ElectricityPoint]) -> Option<EvComparison> {
-    points.iter().filter_map(|point| point.ev_comparison).reduce(|total, more| total + more)
+    points
+        .iter()
+        .filter_map(|point| point.ev_comparison)
+        .reduce(|total, more| total + more)
 }
 
 /// The range of half hours containing the times from start to end, as unix timestamps, as ranges are in half hours.
@@ -133,9 +162,11 @@ struct Loaded {
 /// see power::topology, under the heading title, with a range picker, the period, a table or a graph of energy or
 /// power, a filter of the labels shown, Reload and Export.
 #[component]
-pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn ElectricitySource>>,
-    measurements: Vec<SharedProp<dyn MeasurementSource>>) -> Element
-{
+pub fn ElectricityExplorer(
+    title: String,
+    sources: Vec<SharedProp<dyn ElectricitySource>>,
+    measurements: Vec<SharedProp<dyn MeasurementSource>>,
+) -> Element {
     let settings = use_context::<Signal<ProfileSettings>>();
     let topology = settings.read().topology.clone();
     let source = sources[0].clone();
@@ -144,7 +175,13 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
     // The last 7 days, so that e.g. both Octopus's meters' readings and the Home Mini's more recent ones are shown.
     let mut range = use_signal(|| {
         let today = crate::clock::today(tz);
-        RangeSelection { start: LocalSlot { date: today - time::Duration::days(6), slot: 0 }, end: None }
+        RangeSelection {
+            start: LocalSlot {
+                date: today - time::Duration::days(6),
+                slot: 0,
+            },
+            end: None,
+        }
     });
     let mut view = use_signal(|| ElectricityView::Graph);
     // Whether a source's readings are shown alone, with nothing measured to split them, so that at its reading period
@@ -182,31 +219,57 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
                 let (start, end) = dates.map_err(|error| anyhow!(error))?;
                 let mut electricity = Vec::new();
                 for source in &sources {
-                    electricity.push(source.0.load(start, end, reload_period, progress, token.clone()).await?);
+                    electricity.push(
+                        source
+                            .0
+                            .load(start, end, reload_period, progress, token.clone())
+                            .await?,
+                    );
                 }
                 // The half hours either side too, as a split may need them.
                 let mut loaded = Vec::new();
                 for measurements in &measurements {
-                    loaded.push(measurements.0.load(start.unix_timestamp() - 1800, end.unix_timestamp() + 1800).await?);
+                    loaded.push(
+                        measurements
+                            .0
+                            .load(start.unix_timestamp() - 1800, end.unix_timestamp() + 1800)
+                            .await?,
+                    );
                 }
                 let measurements = loaded;
                 if reload_period.is_some() {
                     reload.set(None);
                 }
-                anyhow::Ok(Arc::new(Loaded { electricity, measurements }))
+                anyhow::Ok(Arc::new(Loaded {
+                    electricity,
+                    measurements,
+                }))
             }
         }
     });
     let fetching = matches!(*readings_resource.state().read(), UseResourceState::Pending);
-    let fetching_title = if reload.peek().is_some() { "Reloading" } else { "Loading" };
+    let fetching_title = if reload.peek().is_some() {
+        "Reloading"
+    } else {
+        "Loading"
+    };
 
     let (start, end) = range().to_date_times(tz).map_err(|error| anyhow!(error))?;
     // As on the Home Mini page, periods which would be too many bars or rows can not be chosen, and the one shown is the
     // chosen one or the shortest longer one which fits.
-    let most_shown = if view() == ElectricityView::Table { MAX_SHOWN } else { MAX_BARS };
-    let fits = |option: Period| option.seconds()
-        .is_none_or(|seconds| ((end.unix_timestamp() - start.unix_timestamp()) / seconds) as usize <= most_shown);
-    let shown_period = periods.iter().copied()
+    let most_shown = if view() == ElectricityView::Table {
+        MAX_SHOWN
+    } else {
+        MAX_BARS
+    };
+    let fits = |option: Period| {
+        option
+            .seconds()
+            .is_none_or(|seconds| ((end.unix_timestamp() - start.unix_timestamp()) / seconds) as usize <= most_shown)
+    };
+    let shown_period = periods
+        .iter()
+        .copied()
         .find(|option| *option >= period() && fits(*option))
         .unwrap_or(Period::Month);
     let readings: Option<Arc<Loaded>> = match &*readings_resource.read() {
@@ -215,35 +278,67 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
     };
     let electricity = readings.as_ref().map(|readings| {
         let loaded: Vec<&dyn LoadedElectricity> = readings.electricity.iter().map(|loaded| loaded.as_ref()).collect();
-        let split = topology.clone().filter(|_| !readings.measurements.is_empty())
-            .map(|topology| TopologySplit { topology, measurements: readings.measurements.clone() });
-        power::electricity(&loaded, split.as_ref().map(|split| split as &dyn power::measured::Split), start.unix_timestamp(),
-            end.unix_timestamp(), shown_period, tz)
+        let split = topology
+            .clone()
+            .filter(|_| !readings.measurements.is_empty())
+            .map(|topology| TopologySplit {
+                topology,
+                measurements: readings.measurements.clone(),
+            });
+        power::electricity(
+            &loaded,
+            split.as_ref().map(|split| split as &dyn power::measured::Split),
+            start.unix_timestamp(),
+            end.unix_timestamp(),
+            shown_period,
+            tz,
+        )
     });
     // Cost can be chosen if the meters' readings have costs, see ElectricityPoint::costs.
-    let costed = electricity.as_ref().is_some_and(|electricity| electricity.currency.is_some());
-    let shown_mode = if mode() == GraphMode::Cost && !costed { GraphMode::Energy } else { mode() };
-    let cost_values = electricity.as_ref()
+    let costed = electricity
+        .as_ref()
+        .is_some_and(|electricity| electricity.currency.is_some());
+    let shown_mode = if mode() == GraphMode::Cost && !costed {
+        GraphMode::Energy
+    } else {
+        mode()
+    };
+    let cost_values = electricity
+        .as_ref()
         .filter(|_| shown_mode == GraphMode::Cost)
         .and_then(|electricity| Some((cost_categories(electricity), electricity.currency?)));
     // Where it came from and went, with the topology, of half hours at the shortest, see power::flows.
-    let can_flow = topology.is_some() && readings.as_ref().is_some_and(|readings| !readings.measurements.is_empty());
+    let can_flow = topology.is_some()
+        && readings
+            .as_ref()
+            .is_some_and(|readings| !readings.measurements.is_empty());
     // Of minutes at the shortest, as the zappi's records are.
     let flow_period = shown_period.max(Period::Minute);
     let flows = (view() == ElectricityView::Flows).then(|| {
-        let (Some(topology), Some(readings)) = (topology.as_ref(), readings.as_ref()) else { return Vec::new() };
+        let (Some(topology), Some(readings)) = (topology.as_ref(), readings.as_ref()) else {
+            return Vec::new();
+        };
         let loaded: Vec<&dyn LoadedElectricity> = readings.electricity.iter().map(|loaded| loaded.as_ref()).collect();
         // The grid's readings of the period, or of half hours, which flows adds up into it.
         let detail = flow_period.min(Period::HalfHour);
         let electricity = power::electricity(&loaded, None, start.unix_timestamp(), end.unix_timestamp(), detail, tz);
-        let grid: Vec<power::flows::GridReading> = electricity.points.iter()
-            .map(|point| power::flows::GridReading { start: point.start, end: point.end, import: point.import.iter().sum(), export: point.export })
+        let grid: Vec<power::flows::GridReading> = electricity
+            .points
+            .iter()
+            .map(|point| power::flows::GridReading {
+                start: point.start,
+                end: point.end,
+                import: point.import.iter().sum(),
+                export: point.export,
+            })
             .collect();
         power::flows::flows(topology, &readings.measurements, &grid, flow_period, tz)
     });
     // The next shorter period to drill down to, if the source has it.
     let shorter = shown_period.shorter().filter(|shorter| periods.contains(shorter));
-    let comparison = electricity.as_ref().and_then(|electricity| ev_comparison(&electricity.points));
+    let comparison = electricity
+        .as_ref()
+        .and_then(|electricity| ev_comparison(&electricity.points));
     // The import labels and export, if there is any, e.g. not on the page of one meter register, and Octopus's split
     // of the car's import if there is any to compare, for the categories menu.
     let categories: Vec<String> = match &flows {
@@ -252,13 +347,22 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
             let mut all = sources;
             all.extend(uses.into_iter().filter(|label| label != power::flows::BATTERY));
             all
-        },
-        None if cost_values.is_some() => cost_values.iter().flat_map(|(categories, _)| categories.iter().map(|(label, _)| label.clone())).collect(),
-        None => electricity.as_ref()
-            .map(|electricity| electricity.labels.iter().cloned()
-                .chain(has_export(electricity).then(|| String::from(EXPORT_LABEL)))
-                .chain(comparison.map(|_| String::from(OCTOPUS_EV_LABEL)))
-                .collect())
+        }
+        None if cost_values.is_some() => cost_values
+            .iter()
+            .flat_map(|(categories, _)| categories.iter().map(|(label, _)| label.clone()))
+            .collect(),
+        None => electricity
+            .as_ref()
+            .map(|electricity| {
+                electricity
+                    .labels
+                    .iter()
+                    .cloned()
+                    .chain(has_export(electricity).then(|| String::from(EXPORT_LABEL)))
+                    .chain(comparison.map(|_| String::from(OCTOPUS_EV_LABEL)))
+                    .collect()
+            })
             .unwrap_or_default(),
     };
 
@@ -312,7 +416,10 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
             label: String::from("Reload this bar"),
             enabled: true,
             action: EventHandler::new(move |click: BarClick| {
-                if let (Ok(bar_start), Ok(bar_end)) = (DateTime::from_unix_timestamp(click.start), DateTime::from_unix_timestamp(click.end)) {
+                if let (Ok(bar_start), Ok(bar_end)) = (
+                    DateTime::from_unix_timestamp(click.start),
+                    DateTime::from_unix_timestamp(click.end),
+                ) {
                     reload.set(Some((bar_start, bar_end)));
                     readings_resource.restart();
                 }
@@ -325,14 +432,23 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
     let derived = reading_period.is_some_and(|reading_period| !alone || shown_period != reading_period);
     let export_electricity = electricity.clone();
     let compares_ev = source.0.compares_ev();
-    let export_table = move |_: ()| export_electricity.as_ref().map(|electricity| points_export(electricity, compares_ev, tz));
+    let export_table = move |_: ()| {
+        export_electricity
+            .as_ref()
+            .map(|electricity| points_export(electricity, compares_ev, tz))
+    };
     let export_name = export_file_name("electricity", "all", &start, &end, &shown_period.to_string());
 
-    let warnings: Vec<String> = readings.iter().flat_map(|readings| readings.electricity.iter().filter_map(|loaded| loaded.warning())).collect();
+    let warnings: Vec<String> = readings
+        .iter()
+        .flat_map(|readings| readings.electricity.iter().filter_map(|loaded| loaded.warning()))
+        .collect();
     let content = match (&*readings_resource.read(), &electricity) {
         (None, _) => rsx! {},
         (Some(Err(error)), _) => source.0.error(error),
-        (Some(Ok(_)), Some(electricity)) if electricity.points.is_empty() => rsx! { p { "No readings in this period" } },
+        (Some(Ok(_)), Some(electricity)) if electricity.points.is_empty() => {
+            rsx! { p { "No readings in this period" } }
+        }
         (Some(Ok(_)), Some(electricity)) => rsx! {
             match view() {
                 ElectricityView::Table => electricity_table(electricity, compares_ev, derived, tz),
@@ -357,7 +473,11 @@ pub fn ElectricityExplorer(title: String, sources: Vec<SharedProp<dyn Electricit
     // The site's time zone, which the times are in, see ElectricitySource::timezone, e.g. Sydney's for GloBird's.
     let zone = {
         use time_tz::TimeZone;
-        format!("Times in {} ({})", tz.name(), zone_name(crate::clock::now_utc().unix_timestamp(), tz))
+        format!(
+            "Times in {} ({})",
+            tz.name(),
+            zone_name(crate::clock::now_utc().unix_timestamp(), tz)
+        )
     };
 
     rsx! {
@@ -484,13 +604,23 @@ fn points_export(electricity: &Electricity, compares_ev: bool, tz: &'static Tz) 
     columns.push(String::from("Source"));
     ExportTable {
         columns,
-        rows: electricity.points.iter()
+        rows: electricity
+            .points
+            .iter()
             .map(|point| {
-                let mut row = vec![ExportValue::unix_time(point.start, tz), ExportValue::unix_time(point.end, tz)];
+                let mut row = vec![
+                    ExportValue::unix_time(point.start, tz),
+                    ExportValue::unix_time(point.end, tz),
+                ];
                 row.extend(point.import.iter().map(|kwh| ExportValue::number(*kwh)));
                 row.push(ExportValue::number(point.export));
                 if compares_ev {
-                    row.push(point.ev_comparison.map(|comparison| ExportValue::number(comparison.octopus)).unwrap_or(ExportValue::Text(String::new())));
+                    row.push(
+                        point
+                            .ev_comparison
+                            .map(|comparison| ExportValue::number(comparison.octopus))
+                            .unwrap_or(ExportValue::Text(String::new())),
+                    );
                 }
                 row.push(ExportValue::Text(point_sources(point)));
                 row
@@ -509,30 +639,56 @@ fn electricity_table(electricity: &Electricity, compares_ev: bool, derived: bool
     }
     let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
     let time_format = time::format_description::parse("[hour]:[minute]:[second]").unwrap();
-    let local = |timestamp: i64| time::OffsetDateTime::from_unix_timestamp(timestamp).map(|time| time.to_timezone(tz)).ok();
+    let local = |timestamp: i64| {
+        time::OffsetDateTime::from_unix_timestamp(timestamp)
+            .map(|time| time.to_timezone(tz))
+            .ok()
+    };
 
     let mut previous_date = String::new();
-    let rows: Vec<(String, String, String, Vec<String>, String, String, String)> = electricity.points.iter()
+    let rows: Vec<(String, String, String, Vec<String>, String, String, String)> = electricity
+        .points
+        .iter()
         .map(|point| {
             let (start, end) = (local(point.start), local(point.end));
-            let date = start.map(|start| start.format(&date_format).unwrap_or_default()).unwrap_or_default();
-            let shown_date = if date == previous_date { String::new() } else { date.clone() };
+            let date = start
+                .map(|start| start.format(&date_format).unwrap_or_default())
+                .unwrap_or_default();
+            let shown_date = if date == previous_date {
+                String::new()
+            } else {
+                date.clone()
+            };
             previous_date = date;
             (
                 shown_date,
-                start.map(|start| start.format(&time_format).unwrap_or_default()).unwrap_or_default(),
-                end.map(|end| end.format(&time_format).unwrap_or_default()).unwrap_or_default(),
+                start
+                    .map(|start| start.format(&time_format).unwrap_or_default())
+                    .unwrap_or_default(),
+                end.map(|end| end.format(&time_format).unwrap_or_default())
+                    .unwrap_or_default(),
                 point.import.iter().map(|kwh| format!("{kwh:.3}")).collect(),
                 format!("{:.3}", point.export),
-                point.ev_comparison.map(|comparison| format!("{:.3}", comparison.octopus)).unwrap_or_default(),
+                point
+                    .ev_comparison
+                    .map(|comparison| format!("{:.3}", comparison.octopus))
+                    .unwrap_or_default(),
                 point_sources(point),
             )
         })
         .collect();
     let totals: Vec<String> = (0..electricity.labels.len())
-        .map(|index| format!("{:.3}", electricity.points.iter().map(|point| point.import[index]).sum::<f64>()))
+        .map(|index| {
+            format!(
+                "{:.3}",
+                electricity.points.iter().map(|point| point.import[index]).sum::<f64>()
+            )
+        })
         .collect();
-    let total_export = format!("{:.3}", electricity.points.iter().map(|point| point.export).sum::<f64>());
+    let total_export = format!(
+        "{:.3}",
+        electricity.points.iter().map(|point| point.export).sum::<f64>()
+    );
 
     rsx! {
         table { class: "telemetry-table",
@@ -587,7 +743,9 @@ fn electricity_table(electricity: &Electricity, compares_ev: bool, derived: bool
 /// zone database gives it, which for some zones is the offset, e.g. +11.
 fn zone_name(time: i64, tz: &'static Tz) -> String {
     use time_tz::{Offset, TimeZone};
-    time::OffsetDateTime::from_unix_timestamp(time).map(|time| tz.get_offset_utc(&time).name().to_string()).unwrap_or_default()
+    time::OffsetDateTime::from_unix_timestamp(time)
+        .map(|time| tz.get_offset_utc(&time).name().to_string())
+        .unwrap_or_default()
 }
 
 /// A bar's tick label, with how round its time is, see StackedBarPoint::tick_rank, and the label of its period, for its
@@ -598,7 +756,11 @@ fn bar_labels(start: i64, end: i64, period: Period, tz: &'static Tz) -> Option<(
     let day_format = time::macros::format_description!("[day] [month repr:short]");
     let month_format = time::macros::format_description!("[month repr:short] [year]");
     let long_month_format = time::macros::format_description!("[month repr:long] [year]");
-    let local = |timestamp: i64| time::OffsetDateTime::from_unix_timestamp(timestamp).map(|time| time.to_timezone(tz)).ok();
+    let local = |timestamp: i64| {
+        time::OffsetDateTime::from_unix_timestamp(timestamp)
+            .map(|time| time.to_timezone(tz))
+            .ok()
+    };
     let (point_start, point_end) = (local(start)?, local(end)?);
     Some(match period {
         Period::Day => (
@@ -606,7 +768,13 @@ fn bar_labels(start: i64, end: i64, period: Period, tz: &'static Tz) -> Option<(
             point_start.format(&date_format).unwrap_or_default(),
         ),
         Period::Week => (
-            (Some(format!("Week of {}", point_start.format(&day_format).unwrap_or_default())), 0),
+            (
+                Some(format!(
+                    "Week of {}",
+                    point_start.format(&day_format).unwrap_or_default()
+                )),
+                0,
+            ),
             format!("Week of {}", point_start.format(&date_format).unwrap_or_default()),
         ),
         Period::Month => (
@@ -628,63 +796,99 @@ fn bar_labels(start: i64, end: i64, period: Period, tz: &'static Tz) -> Option<(
 }
 
 /// The graph of electricity, or of its costs, by category, and their currency, if cost_values, see cost_categories.
-fn electricity_graph(electricity: &Electricity, cost_values: Option<(Vec<(String, Vec<f64>)>, Currency)>, start: &DateTime, end: &DateTime,
-    period: Period, drill: bool, mode: GraphMode,
-    filter: &CategoryFilter, tz: &'static Tz, on_drill: impl FnMut((i64, i64)) + 'static, on_zoom: impl FnMut((i64, i64)) + 'static,
-    menu: Vec<BarMenuItem>) -> Element
-{
-    let local = |timestamp: i64| time::OffsetDateTime::from_unix_timestamp(timestamp).map(|time| time.to_timezone(tz)).ok();
+fn electricity_graph(
+    electricity: &Electricity,
+    cost_values: Option<(Vec<(String, Vec<f64>)>, Currency)>,
+    start: &DateTime,
+    end: &DateTime,
+    period: Period,
+    drill: bool,
+    mode: GraphMode,
+    filter: &CategoryFilter,
+    tz: &'static Tz,
+    on_drill: impl FnMut((i64, i64)) + 'static,
+    on_zoom: impl FnMut((i64, i64)) + 'static,
+    menu: Vec<BarMenuItem>,
+) -> Element {
+    let local = |timestamp: i64| {
+        time::OffsetDateTime::from_unix_timestamp(timestamp)
+            .map(|time| time.to_timezone(tz))
+            .ok()
+    };
 
-    let several_days = local(start.unix_timestamp()).map(|time| time.date()) != local(end.unix_timestamp() - 1).map(|time| time.date());
+    let several_days = local(start.unix_timestamp()).map(|time| time.date())
+        != local(end.unix_timestamp() - 1).map(|time| time.date());
     let x_bands = if !period.is_calendar() && several_days {
         day_bands(start.unix_timestamp(), end.unix_timestamp(), tz)
-    }
-    else {
+    } else {
         Vec::new()
     };
 
     // The value of each import label and of the export, as a negative, for each point, as the filter shows them.
     let points = &electricity.points;
-    let values: Vec<(Vec<f64>, f64)> = points.iter().map(|point| mode_values(mode, point, &electricity.uses)).collect();
+    let values: Vec<(Vec<f64>, f64)> = points
+        .iter()
+        .map(|point| mode_values(mode, point, &electricity.uses))
+        .collect();
     // Octopus's split of the car's import, dashed, and the measured one, solid, each half hourly, if they are shown, see
     // CategoryFilterMenu, which shows or hides both as Octopus's EV split.
     let line_style = filter.styles(&[String::from(OCTOPUS_EV_LABEL)]).remove(0);
-    let compared = line_style.visible && cost_values.is_none() && points.iter().any(|point| point.ev_comparison.is_some());
+    let compared =
+        line_style.visible && cost_values.is_none() && points.iter().any(|point| point.ev_comparison.is_some());
     let currency = cost_values.as_ref().map_or(Currency::NONE, |(_, currency)| *currency);
     let mut categories: Vec<(String, Vec<f64>)> = match cost_values {
         Some((categories, _)) => categories,
-        None => electricity.labels.iter()
+        None => electricity
+            .labels
+            .iter()
             .enumerate()
             .map(|(index, label)| (label.clone(), values.iter().map(|(import, _)| import[index]).collect()))
-            .chain(has_export(electricity).then(|| (String::from(EXPORT_LABEL), values.iter().map(|(_, export)| -export).collect())))
+            .chain(has_export(electricity).then(|| {
+                (
+                    String::from(EXPORT_LABEL),
+                    values.iter().map(|(_, export)| -export).collect(),
+                )
+            }))
             .collect(),
     };
     // With the lines, the car's import is at the bottom of the bars, so that the lines, which are drawn up from zero, are
     // level with its top.
     if compared {
-        let car: Vec<&String> = electricity.labels.iter().zip(&electricity.uses).filter(|(_, category)| *category == CAR).map(|(label, _)| label).collect();
+        let car: Vec<&String> = electricity
+            .labels
+            .iter()
+            .zip(&electricity.uses)
+            .filter(|(_, category)| *category == CAR)
+            .map(|(label, _)| label)
+            .collect();
         categories.sort_by_key(|(label, _)| !car.contains(&label));
     }
     let shown: Vec<CategoryValues> = filter.apply(categories, points.len(), false);
     let line = |label: &str, value: fn(&EvComparison) -> f64, dashed: bool| StackedBarLine {
         label: String::from(label),
         color: line_style.color.clone(),
-        values: points.iter()
-            .map(|point| point.ev_comparison.as_ref().map(value).map(|kwh| match mode {
-                GraphMode::Energy | GraphMode::Cost => kwh,
-                GraphMode::Power => kwh / ((point.end - point.start).max(1) as f64 / 3600.0),
-            }))
+        values: points
+            .iter()
+            .map(|point| {
+                point.ev_comparison.as_ref().map(value).map(|kwh| match mode {
+                    GraphMode::Energy | GraphMode::Cost => kwh,
+                    GraphMode::Power => kwh / ((point.end - point.start).max(1) as f64 / 3600.0),
+                })
+            })
             .collect(),
         dashed,
     };
     let lines = if compared {
-        vec![line(MEASURED_EV_LABEL, |comparison| comparison.measured, false), line(OCTOPUS_EV_LABEL, |comparison| comparison.octopus, true)]
-    }
-    else {
+        vec![
+            line(MEASURED_EV_LABEL, |comparison| comparison.measured, false),
+            line(OCTOPUS_EV_LABEL, |comparison| comparison.octopus, true),
+        ]
+    } else {
         Vec::new()
     };
 
-    let bars: Vec<StackedBarPoint> = points.iter()
+    let bars: Vec<StackedBarPoint> = points
+        .iter()
         .enumerate()
         .filter_map(|(index, point)| {
             let ((tick_label, tick_rank), period_label) = bar_labels(point.start, point.end, period, tz)?;
@@ -736,8 +940,17 @@ pub(crate) struct Found {
 
 /// Builds each of the profile's modules, as when its own pages are shown, see views/module.rs, for their electricity
 /// measurements and channels.
-pub(crate) async fn find(context: Arc<MarcoSparkoContext>, registrations: ModuleRegistrations) -> anyhow::Result<Found> {
-    let mut found = Found { sources: Vec::new(), measurements: Vec::new(), channels: Vec::new(), not_ready: Vec::new(), _modules: Vec::new() };
+pub(crate) async fn find(
+    context: Arc<MarcoSparkoContext>,
+    registrations: ModuleRegistrations,
+) -> anyhow::Result<Found> {
+    let mut found = Found {
+        sources: Vec::new(),
+        measurements: Vec::new(),
+        channels: Vec::new(),
+        not_ready: Vec::new(),
+        _modules: Vec::new(),
+    };
     for module_id in context.profile.active_profile.modules.keys() {
         let factory = registrations.module_factory(module_id, &context).await?;
         if !factory.is_ready().await? {
@@ -766,19 +979,28 @@ pub fn ElectricityPage() -> Element {
         let registrations = registrations.clone();
         async move { find(context.ok_or_else(|| anyhow!("There is no profile"))?, registrations).await }
     });
-    let not_ready = |not_ready: &[String]| rsx! {
-        for module_id in not_ready.iter() {
-            p {
-                "Log in to "
-                Link { to: Route::Module { module_id: module_id.clone() }, "{module_id}" }
-                " to see its electricity here."
+    let not_ready = |not_ready: &[String]| {
+        rsx! {
+            for module_id in not_ready.iter() {
+                p {
+                    "Log in to "
+                    Link { to: Route::Module { module_id: module_id.clone() }, "{module_id}" }
+                    " to see its electricity here."
+                }
             }
         }
     };
     match &*found.read() {
         None => rsx! { p { "Loading..." } },
-        Some(Err(error)) => rsx! { div { class: "error", ErrorText { error: format!("{error:#}"), message: "Failed to load the electricity" } } },
-        Some(Ok(Found { sources, measurements, not_ready: waiting, .. })) if !sources.is_empty() => rsx! {
+        Some(Err(error)) => {
+            rsx! { div { class: "error", ErrorText { error: format!("{error:#}"), message: "Failed to load the electricity" } } }
+        }
+        Some(Ok(Found {
+            sources,
+            measurements,
+            not_ready: waiting,
+            ..
+        })) if !sources.is_empty() => rsx! {
             ElectricityExplorer {
                 title: "Electricity",
                 sources: sources.iter().cloned().map(SharedProp).collect::<Vec<_>>(),
@@ -798,39 +1020,80 @@ pub fn ElectricityPage() -> Element {
 /// Battery, Export and Not measured, of those any period has.
 fn flow_labels(flows: &[power::flows::FlowPoint]) -> (Vec<String>, Vec<String>) {
     use power::flows::{BATTERY, GRID, NOT_MEASURED, SOLAR};
-    let sources = [GRID, SOLAR, BATTERY].into_iter()
+    let sources = [GRID, SOLAR, BATTERY]
+        .into_iter()
         .filter(|label| flows.iter().any(|point| point.sources.contains_key(*label)))
         .map(String::from)
         .collect();
     let last = [BATTERY, EXPORT_LABEL, NOT_MEASURED];
-    let mut uses: Vec<String> = flows.iter().flat_map(|point| point.uses.keys().cloned()).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+    let mut uses: Vec<String> = flows
+        .iter()
+        .flat_map(|point| point.uses.keys().cloned())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
     // The car and the house first, as on the Graph, then the others by name, then the batteries, export and the rest.
-    let (car, house) = (power::topology::label_prefix(CAR), power::topology::label_prefix(power::topology::HOUSE));
-    uses.sort_by_key(|label| (label != car, label != house, last.iter().position(|last| last == label), label.clone()));
+    let (car, house) = (
+        power::topology::label_prefix(CAR),
+        power::topology::label_prefix(power::topology::HOUSE),
+    );
+    uses.sort_by_key(|label| {
+        (
+            label != car,
+            label != house,
+            last.iter().position(|last| last == label),
+            label.clone(),
+        )
+    });
     (sources, uses)
 }
 
 /// Where the energy came from and where it went, see power::flows, as two graphs over the range, one above the other,
 /// each in the categories' colours, as filter shows them, which on_drill and on_zoom show in more detail, as the Graph's
 /// do.
-fn flows_graphs(flows: &[power::flows::FlowPoint], start: &DateTime, end: &DateTime, period: Period, filter: &CategoryFilter,
-    tz: &'static Tz, on_drill: Option<EventHandler<(i64, i64)>>, on_zoom: Option<EventHandler<(i64, i64)>>) -> Element
-{
+fn flows_graphs(
+    flows: &[power::flows::FlowPoint],
+    start: &DateTime,
+    end: &DateTime,
+    period: Period,
+    filter: &CategoryFilter,
+    tz: &'static Tz,
+    on_drill: Option<EventHandler<(i64, i64)>>,
+    on_zoom: Option<EventHandler<(i64, i64)>>,
+) -> Element {
     if flows.is_empty() {
         return rsx! { p { "No readings in this period" } };
     }
     let (sources, uses) = flow_labels(flows);
     let several_days = {
-        let local = |timestamp: i64| time::OffsetDateTime::from_unix_timestamp(timestamp).map(|time| time.to_timezone(tz).date()).ok();
+        let local = |timestamp: i64| {
+            time::OffsetDateTime::from_unix_timestamp(timestamp)
+                .map(|time| time.to_timezone(tz).date())
+                .ok()
+        };
         local(start.unix_timestamp()) != local(end.unix_timestamp() - 1)
     };
-    let x_bands = if !period.is_calendar() && several_days { day_bands(start.unix_timestamp(), end.unix_timestamp(), tz) } else { Vec::new() };
+    let x_bands = if !period.is_calendar() && several_days {
+        day_bands(start.unix_timestamp(), end.unix_timestamp(), tz)
+    } else {
+        Vec::new()
+    };
     let graph = |labels: &[String], value: fn(&power::flows::FlowPoint) -> &std::collections::BTreeMap<String, f64>| {
-        let categories: Vec<(String, Vec<f64>)> = labels.iter()
-            .map(|label| (label.clone(), flows.iter().map(|point| value(point).get(label).copied().unwrap_or_default()).collect()))
+        let categories: Vec<(String, Vec<f64>)> = labels
+            .iter()
+            .map(|label| {
+                (
+                    label.clone(),
+                    flows
+                        .iter()
+                        .map(|point| value(point).get(label).copied().unwrap_or_default())
+                        .collect(),
+                )
+            })
             .collect();
         let shown: Vec<CategoryValues> = filter.apply(categories, flows.len(), false);
-        let bars: Vec<StackedBarPoint> = flows.iter()
+        let bars: Vec<StackedBarPoint> = flows
+            .iter()
             .enumerate()
             .filter_map(|(index, point)| {
                 let ((tick_label, tick_rank), period_label) = bar_labels(point.start, point.end, period, tz)?;
@@ -875,25 +1138,55 @@ mod tests {
     fn the_zone_is_named_as_the_clocks_are_then() {
         // 5 November 2026, summer in Sydney and winter in London, and early July.
         let november = 1_793_836_800;
-        assert_eq!(super::zone_name(november, time_tz::timezones::db::australia::SYDNEY), "AEDT");
-        assert_eq!(super::zone_name(november, time_tz::timezones::db::europe::LONDON), "GMT");
-        assert_eq!(super::zone_name(november - 123 * 86400, time_tz::timezones::db::europe::LONDON), "BST");
+        assert_eq!(
+            super::zone_name(november, time_tz::timezones::db::australia::SYDNEY),
+            "AEDT"
+        );
+        assert_eq!(
+            super::zone_name(november, time_tz::timezones::db::europe::LONDON),
+            "GMT"
+        );
+        assert_eq!(
+            super::zone_name(november - 123 * 86400, time_tz::timezones::db::europe::LONDON),
+            "BST"
+        );
     }
 
     #[test]
     fn costs_are_the_standing_charge_first_then_the_labels_and_the_export_leaving_out_none() {
         use super::*;
         let point = |costs: Vec<f64>, export_cost: f64, standing_charge: f64| ElectricityPoint {
-            start: 0, end: 1800, import: vec![1.0, 1.0, 1.0], export: 0.0, costs, export_cost, standing_charge, demand: None,
-            sources: Vec::new(), ev_comparison: None,
+            start: 0,
+            end: 1800,
+            import: vec![1.0, 1.0, 1.0],
+            export: 0.0,
+            costs,
+            export_cost,
+            standing_charge,
+            demand: None,
+            sources: Vec::new(),
+            ev_comparison: None,
         };
-        let labels = ["Home Low Rate", "Home Standard Rate", "Home Low Rate (estimated)"].map(String::from).to_vec();
-        let electricity = Electricity { labels, uses: vec![String::new(); 3], points: vec![point(vec![1.0, 0.0, 0.0], -0.5, 0.25), point(vec![0.0, 10.0, 0.0], 0.0, 0.25)], currency: None };
-        assert_eq!(cost_categories(&electricity), vec![
-            (String::from(STANDING_CHARGE_LABEL), vec![0.25, 0.25]),
-            (String::from("Home Low Rate"), vec![1.0, 0.0]),
-            (String::from("Home Standard Rate"), vec![0.0, 10.0]),
-            (String::from(EXPORT_LABEL), vec![-0.5, 0.0]),
-        ]);
+        let labels = ["Home Low Rate", "Home Standard Rate", "Home Low Rate (estimated)"]
+            .map(String::from)
+            .to_vec();
+        let electricity = Electricity {
+            labels,
+            uses: vec![String::new(); 3],
+            points: vec![
+                point(vec![1.0, 0.0, 0.0], -0.5, 0.25),
+                point(vec![0.0, 10.0, 0.0], 0.0, 0.25),
+            ],
+            currency: None,
+        };
+        assert_eq!(
+            cost_categories(&electricity),
+            vec![
+                (String::from(STANDING_CHARGE_LABEL), vec![0.25, 0.25]),
+                (String::from("Home Low Rate"), vec![1.0, 0.0]),
+                (String::from("Home Standard Rate"), vec![0.0, 10.0]),
+                (String::from(EXPORT_LABEL), vec![-0.5, 0.0]),
+            ]
+        );
     }
 }

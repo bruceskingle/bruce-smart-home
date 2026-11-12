@@ -33,10 +33,25 @@ impl Minute {
     fn from_record(record: &serde_json::Value) -> Option<(i64, Minute)> {
         let number = |name: &str| record.get(name).and_then(|value| value.as_f64()).unwrap_or_default();
         let part = |name: &str| record.get(name).and_then(|value| value.as_i64()).unwrap_or_default();
-        let date = time::Date::from_calendar_date(part("yr") as i32, time::Month::try_from(part("mon") as u8).ok()?, part("dom") as u8).ok()?;
+        let date = time::Date::from_calendar_date(
+            part("yr") as i32,
+            time::Month::try_from(part("mon") as u8).ok()?,
+            part("dom") as u8,
+        )
+        .ok()?;
         let start = date.midnight().assume_utc().unix_timestamp() + part("hr") * 3600 + part("min") * 60;
-        let charging = ["h1d", "h2d", "h3d", "h1b", "h2b", "h3b"].iter().map(|name| number(name)).sum();
-        Some((start, Minute { charging, imported: number("imp"), exported: number("exp") }))
+        let charging = ["h1d", "h2d", "h3d", "h1b", "h2b", "h3b"]
+            .iter()
+            .map(|name| number(name))
+            .sum();
+        Some((
+            start,
+            Minute {
+                charging,
+                imported: number("imp"),
+                exported: number("exp"),
+            },
+        ))
     }
 }
 
@@ -51,7 +66,8 @@ fn grid_channel(serial: &str) -> String {
 
 /// The channels of the zappis in the latest status: each one's charging, and its grid clamp if it has one.
 pub fn channels(store: &bruce_db::Store) -> Vec<Channel> {
-    fetch::zappis(store).into_iter()
+    fetch::zappis(store)
+        .into_iter()
         .flat_map(|(serial, grid)| {
             let mut channels = vec![Channel {
                 id: charging_channel(&serial),
@@ -102,7 +118,8 @@ impl ZappiMeasurements {
     /// see filled.
     fn minutes(&self, serial: &str, start: i64, end: i64) -> Option<Vec<(f64, Minute)>> {
         let (_, minutes) = self.zappis.iter().find(|(zappi, _)| zappi == serial)?;
-        (start.div_euclid(60) * 60..end).step_by(60)
+        (start.div_euclid(60) * 60..end)
+            .step_by(60)
             .map(|minute| {
                 let overlap = (end.min(minute + 60) - start.max(minute)) as f64 / 60.0;
                 Some((overlap, filled(minutes, minute)?))
@@ -126,28 +143,49 @@ impl Measurements for ZappiMeasurements {
     }
 
     fn channels(&self) -> Vec<String> {
-        self.zappis.iter().flat_map(|(serial, _)| [charging_channel(serial), grid_channel(serial)]).collect()
+        self.zappis
+            .iter()
+            .flat_map(|(serial, _)| [charging_channel(serial), grid_channel(serial)])
+            .collect()
     }
 
     /// Whether every zappi has a record of each minute of the half hour, or a short gap's filled in, see filled.
     fn complete(&self, half_hour: i64) -> bool {
-        self.zappis.iter().all(|(serial, _)| self.minutes(serial, half_hour, half_hour + 1800).is_some())
+        self.zappis
+            .iter()
+            .all(|(serial, _)| self.minutes(serial, half_hour, half_hour + 1800).is_some())
     }
 
     fn energy(&self, channel: &str, start: i64, end: i64) -> Option<Flow> {
         let (serial, grid) = Self::channel(channel)?;
         let minutes = self.minutes(serial, start, end)?;
-        let sum = |field: fn(&Minute) -> f64| minutes.iter().map(|(overlap, minute)| overlap * field(minute)).sum::<f64>() / JOULES_PER_KWH;
+        let sum = |field: fn(&Minute) -> f64| {
+            minutes
+                .iter()
+                .map(|(overlap, minute)| overlap * field(minute))
+                .sum::<f64>()
+                / JOULES_PER_KWH
+        };
         Some(if grid {
-            Flow { import: sum(|minute| minute.imported), export: sum(|minute| minute.exported) }
+            Flow {
+                import: sum(|minute| minute.imported),
+                export: sum(|minute| minute.exported),
+            }
         } else {
-            Flow { import: sum(|minute| minute.charging), export: 0.0 }
+            Flow {
+                import: sum(|minute| minute.charging),
+                export: 0.0,
+            }
         })
     }
 
     /// The end of the latest minute every zappi has a record of.
     fn latest(&self) -> Option<i64> {
-        self.zappis.iter().map(|(_, minutes)| minutes.keys().next_back().map(|minute| minute + 60)).min().flatten()
+        self.zappis
+            .iter()
+            .map(|(_, minutes)| minutes.keys().next_back().map(|minute| minute + 60))
+            .min()
+            .flatten()
     }
 
     /// The average power of the minutes, as a record is a minute's energy.
@@ -176,18 +214,26 @@ impl MeasurementSource for ZappiMeasurementSource {
 
 /// Each zappi's records from start to end, from the UTC days which have them.
 fn load(store: &bruce_db::Store, start: i64, end: i64) -> Vec<(String, BTreeMap<i64, Minute>)> {
-    let date = |time: i64| time::OffsetDateTime::from_unix_timestamp(time).map(|time| time.date()).ok();
+    let date = |time: i64| {
+        time::OffsetDateTime::from_unix_timestamp(time)
+            .map(|time| time.date())
+            .ok()
+    };
     let (Some(first), Some(last)) = (date(start), date(end)) else {
         return Vec::new();
     };
-    fetch::zappis(store).into_iter()
+    fetch::zappis(store)
+        .into_iter()
         .map(|(serial, _)| {
             let mut minutes = BTreeMap::new();
             let mut day = first;
             while day <= last {
-                minutes.extend(fetch::zappi_day(store, &serial, day).iter()
-                    .filter_map(Minute::from_record)
-                    .filter(|(minute, _)| *minute + 60 > start && *minute < end));
+                minutes.extend(
+                    fetch::zappi_day(store, &serial, day)
+                        .iter()
+                        .filter_map(Minute::from_record)
+                        .filter(|(minute, _)| *minute + 60 > start && *minute < end),
+                );
                 let Some(next) = day.next_day() else { break };
                 day = next;
             }
@@ -206,17 +252,36 @@ mod tests {
     fn measurements() -> ZappiMeasurements {
         // Charging at 7.2 kW, importing 7.5 kW, every minute of the first hour of the day.
         let minutes = (0..60)
-            .map(|minute| (DAY + minute * 60, Minute { charging: 7200.0 * 60.0, imported: 7500.0 * 60.0, exported: 0.0 }))
+            .map(|minute| {
+                (
+                    DAY + minute * 60,
+                    Minute {
+                        charging: 7200.0 * 60.0,
+                        imported: 7500.0 * 60.0,
+                        exported: 0.0,
+                    },
+                )
+            })
             .collect();
-        ZappiMeasurements { zappis: vec![(String::from("12345678"), minutes)] }
+        ZappiMeasurements {
+            zappis: vec![(String::from("12345678"), minutes)],
+        }
     }
 
     #[test]
     fn a_record_is_of_the_minute_its_own_date_and_time_say() {
-        let record = serde_json::json!({"yr": 2026, "mon": 10, "dom": 28, "hr": 1, "min": 2, "h1d": 60, "h2b": 30, "imp": 120});
+        let record =
+            serde_json::json!({"yr": 2026, "mon": 10, "dom": 28, "hr": 1, "min": 2, "h1d": 60, "h2b": 30, "imp": 120});
         let (start, minute) = Minute::from_record(&record).unwrap();
         assert_eq!(start, DAY + 3600 + 120);
-        assert_eq!(minute, Minute { charging: 90.0, imported: 120.0, exported: 0.0 });
+        assert_eq!(
+            minute,
+            Minute {
+                charging: 90.0,
+                imported: 120.0,
+                exported: 0.0
+            }
+        );
     }
 
     #[test]
@@ -237,13 +302,23 @@ mod tests {
         let mut measurements = measurements();
         assert!(measurements.complete(DAY) && measurements.complete(DAY + 1800));
         // The minute after the gap at a different power, so that the filled minutes are the average.
-        measurements.zappis[0].1.insert(DAY + 720, Minute { charging: 3600.0 * 60.0, imported: 0.0, exported: 0.0 });
+        measurements.zappis[0].1.insert(
+            DAY + 720,
+            Minute {
+                charging: 3600.0 * 60.0,
+                imported: 0.0,
+                exported: 0.0,
+            },
+        );
         measurements.zappis[0].1.remove(&(DAY + 600));
         measurements.zappis[0].1.remove(&(DAY + 660));
         assert!(measurements.complete(DAY));
         let charging = measurements.energy("myenergi:Z12345678", DAY + 600, DAY + 780).unwrap();
         // Two minutes at 5.4 kW, the average of 7.2 kW and 3.6 kW, then one at 3.6 kW.
-        assert!((charging.import - (2.0 * 5400.0 + 3600.0) / 60_000.0).abs() < 1e-9, "{charging:?}");
+        assert!(
+            (charging.import - (2.0 * 5400.0 + 3600.0) / 60_000.0).abs() < 1e-9,
+            "{charging:?}"
+        );
         measurements.zappis[0].1.remove(&(DAY + 720));
         assert!(!measurements.complete(DAY));
         assert!(measurements.energy("myenergi:Z12345678", DAY, DAY + 1800).is_none());

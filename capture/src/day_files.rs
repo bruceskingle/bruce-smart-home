@@ -44,7 +44,8 @@ pub fn write_since(
         let mut file = File::open(&path).with_context(|| format!("opening {}", path.display()))?;
         if day == first_day {
             let start = start_after(&mut file, since).with_context(|| format!("searching {}", path.display()))?;
-            file.seek(SeekFrom::Start(start)).with_context(|| format!("reading {}", path.display()))?;
+            file.seek(SeekFrom::Start(start))
+                .with_context(|| format!("reading {}", path.display()))?;
         }
         for line in BufReader::with_capacity(READ_BUFFER, file).split(b'\n') {
             let line = line.with_context(|| format!("reading {}", path.display()))?;

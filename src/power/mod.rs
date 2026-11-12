@@ -6,10 +6,10 @@
 //! makes the Electricity of the range in periods of any length. Import is split into labels, e.g. Home Low Rate or Peak
 //! Usage, which are the rates it is billed at, and for Octopus what it was used for, e.g. EV Low Rate.
 
-pub mod combine;
-pub mod grid;
 pub mod check;
+pub mod combine;
 pub mod flows;
+pub mod grid;
 pub mod live;
 pub mod measured;
 pub mod topology;
@@ -18,14 +18,14 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use dioxus::prelude::*;
 use bruce_graphql::types::{Currency, DateTime};
+use dioxus::prelude::*;
 use time_tz::Tz;
 
 use crate::components::error_text::ErrorText;
 use crate::data_set::CancelToken;
-use measured::Split;
 use crate::period::Period;
+use measured::Split;
 
 pub const EXPORT_LABEL: &str = "Export";
 /// Octopus's EV share, as a dashed line over the bars, and the measured one to compare it with, as a solid line, each
@@ -36,15 +36,41 @@ pub const MEASURED_EV_LABEL: &str = "Measured EV, half hourly";
 /// The electricity from start to end, as unix timestamps, in periods of period, put together from what the modules
 /// gave, see combine::combine: the meters' readings of the first which has any, e.g. a supplier's, the grid readings of
 /// the first which has any, and the import split by use by split, if there is one, see topology::TopologySplit.
-pub fn electricity(loaded: &[&dyn LoadedElectricity], measurements: Option<&dyn Split>, start: i64, end: i64,
-    period: Period, tz: &'static Tz) -> Electricity
-{
+pub fn electricity(
+    loaded: &[&dyn LoadedElectricity],
+    measurements: Option<&dyn Split>,
+    start: i64,
+    end: i64,
+    period: Period,
+    tz: &'static Tz,
+) -> Electricity {
     let empty = SiteData::default();
-    let meters = loaded.iter().map(|loaded| loaded.data()).find(|data| !data.import.is_empty() || !data.export.is_empty()).unwrap_or(&empty);
-    let grid = loaded.iter().map(|loaded| loaded.data()).find(|data| !data.grid.is_empty()).unwrap_or(&empty);
-    let electricity = combine::combine(&meters.import, &meters.export, &grid.grid, &grid.grid_name, measurements, start, end,
-        period, &meters.estimate, tz);
-    Electricity { currency: meters.currency, ..electricity }
+    let meters = loaded
+        .iter()
+        .map(|loaded| loaded.data())
+        .find(|data| !data.import.is_empty() || !data.export.is_empty())
+        .unwrap_or(&empty);
+    let grid = loaded
+        .iter()
+        .map(|loaded| loaded.data())
+        .find(|data| !data.grid.is_empty())
+        .unwrap_or(&empty);
+    let electricity = combine::combine(
+        &meters.import,
+        &meters.export,
+        &grid.grid,
+        &grid.grid_name,
+        measurements,
+        start,
+        end,
+        period,
+        &meters.estimate,
+        tz,
+    );
+    Electricity {
+        currency: meters.currency,
+        ..electricity
+    }
 }
 
 /// The app's own labels, with their default colours, see crate::known_labels.
@@ -144,8 +170,14 @@ pub trait ElectricitySource {
 
     /// Loads what there is from start to end, fetching what is not cached, and fetching reload again however up to date
     /// it is, saying what it is doing with progress, and stopping if cancel is cancelled.
-    fn load(&self, start: DateTime, end: DateTime, reload: Option<(DateTime, DateTime)>, progress: Signal<String>,
-        cancel: CancelToken) -> Pin<Box<dyn Future<Output = LoadResult>>>;
+    fn load(
+        &self,
+        start: DateTime,
+        end: DateTime,
+        reload: Option<(DateTime, DateTime)>,
+        progress: Signal<String>,
+        cancel: CancelToken,
+    ) -> Pin<Box<dyn Future<Output = LoadResult>>>;
 
     /// Whether the points may have Octopus's split of the car's import to compare, see ElectricityPoint::ev_comparison,
     /// for which the table has a column.
@@ -160,7 +192,6 @@ pub trait ElectricitySource {
     fn error(&self, error: &anyhow::Error) -> Element {
         rsx! { div { class: "error", ErrorText { error: format!("{error:#}"), message: "Failed to load the readings" } } }
     }
-
 }
 
 /// What a module gives the Electricity page of a range, which the app puts together with other modules', see

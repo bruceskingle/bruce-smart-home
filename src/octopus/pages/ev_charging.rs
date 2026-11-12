@@ -5,9 +5,9 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use dioxus::prelude::*;
 
+use super::charging_sessions::ChargingSessions;
 use crate::octopus::context::OctopusContext;
 use crate::octopus::smart_device::{SmartDevice, SmartDeviceDataSet};
-use super::charging_sessions::ChargingSessions;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct EvChargingPageProps {
@@ -22,7 +22,9 @@ pub fn EvChargingPage(props: EvChargingPageProps) -> Element {
         let context = context.clone();
         move || {
             let context = context.clone();
-            async move { SmartDeviceDataSet::new(&context.account_id, &context.cache_config, &*context.request_manager).await }
+            async move {
+                SmartDeviceDataSet::new(&context.account_id, &context.cache_config, &*context.request_manager).await
+            }
         }
     });
 
@@ -32,7 +34,12 @@ pub fn EvChargingPage(props: EvChargingPageProps) -> Element {
         },
         Some(Err(error)) => Err(anyhow!("Failed to load devices: {error:#}"))?,
         Some(Ok(device_list)) => {
-            let chargers: Vec<SmartDevice> = device_list.devices.iter().filter(|device| device.charging.is_some()).cloned().collect();
+            let chargers: Vec<SmartDevice> = device_list
+                .devices
+                .iter()
+                .filter(|device| device.charging.is_some())
+                .cloned()
+                .collect();
 
             // Are we looking at one charger? Its path is its ID.
             if let Some(device_id) = props.path.first() {
@@ -51,14 +58,12 @@ pub fn EvChargingPage(props: EvChargingPageProps) -> Element {
                         billing_timezone: context.billing_timezone,
                     }
                 }
-            }
-            else if chargers.is_empty() {
+            } else if chargers.is_empty() {
                 rsx! {
                     h1 { "EV Smart Charge Devices" }
                     p { "You don't seem to have an EV charger." }
                 }
-            }
-            else {
+            } else {
                 rsx! {
                     h1 { "EV Smart Charge Devices" }
                     table {
@@ -109,6 +114,6 @@ pub fn EvChargingPage(props: EvChargingPageProps) -> Element {
                     }
                 }
             }
-        },
+        }
     }
 }

@@ -36,7 +36,10 @@ pub struct PasswordRejected;
 
 impl std::fmt::Display for PasswordRejected {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "the gateway did not accept the email and password, check them before trying again, as repeated failures lock out the customer login for a while, for other programs such as Home Assistant too")
+        write!(
+            f,
+            "the gateway did not accept the email and password, check them before trying again, as repeated failures lock out the customer login for a while, for other programs such as Home Assistant too"
+        )
     }
 }
 
@@ -72,7 +75,13 @@ pub struct LocalClient {
 
 impl LocalClient {
     /// token is one the gateway gave before, if any, which is used until it is rejected.
-    pub fn new(host: String, email: String, password: String, token: Option<String>, verbose: bool) -> anyhow::Result<LocalClient> {
+    pub fn new(
+        host: String,
+        email: String,
+        password: String,
+        token: Option<String>,
+        verbose: bool,
+    ) -> anyhow::Result<LocalClient> {
         Ok(LocalClient {
             http: client_builder().build()?,
             host: Mutex::new(host),
@@ -108,19 +117,36 @@ impl LocalClient {
             return Err(anyhow!("the gateway rejected the token it gave when this logged in"));
         }
         crate::log_info!("Tesla gateway POST login/Basic");
-        let request = LoginRequest { username: "customer", email: &self.email, password: &self.password, force_sm_off: false };
+        let request = LoginRequest {
+            username: "customer",
+            email: &self.email,
+            password: &self.password,
+            force_sm_off: false,
+        };
         let response = self.http.post(self.url("login/Basic")).json(&request).send().await?;
         let status = response.status();
         let text = response.text().await?;
         match status {
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => return Err(PasswordRejected.into()),
-            StatusCode::TOO_MANY_REQUESTS => return Err(anyhow!("the gateway has locked out the customer login after too many attempts, wait before trying again")),
-            status if !status.is_success() => return Err(anyhow!("the gateway responded {status}: {}", crate::http::summary(&text))),
-            _ => {},
+            StatusCode::TOO_MANY_REQUESTS => {
+                return Err(anyhow!(
+                    "the gateway has locked out the customer login after too many attempts, wait before trying again"
+                ));
+            }
+            status if !status.is_success() => {
+                return Err(anyhow!(
+                    "the gateway responded {status}: {}",
+                    crate::http::summary(&text)
+                ));
+            }
+            _ => {}
         }
         let json: serde_json::Value = serde_json::from_str(&text)?;
         crate::http::print_response(self.verbose, "Tesla gateway login/Basic", &json);
-        let token = json.get("token").and_then(|token| token.as_str()).ok_or_else(|| anyhow!("the gateway's login response has no token"))?;
+        let token = json
+            .get("token")
+            .and_then(|token| token.as_str())
+            .ok_or_else(|| anyhow!("the gateway's login response has no token"))?;
         *self.token.lock().unwrap() = Some(token.to_string());
         Ok(())
     }
@@ -128,13 +154,17 @@ impl LocalClient {
     /// GETs one of the ENDPOINTS, logging in first if there is no token, or again if the token is rejected.
     pub async fn get(&self, endpoint: &str) -> anyhow::Result<serde_json::Value> {
         if !ENDPOINTS.contains(&endpoint) {
-            return Err(anyhow!("{endpoint} is not one of the gateway's endpoints which only read"));
+            return Err(anyhow!(
+                "{endpoint} is not one of the gateway's endpoints which only read"
+            ));
         }
         if self.token().is_none() {
             self.login().await?;
         }
         let mut response = self.send_get(endpoint).await?;
-        if matches!(response.status(), StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) && !self.logged_in.load(Ordering::SeqCst) {
+        if matches!(response.status(), StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
+            && !self.logged_in.load(Ordering::SeqCst)
+        {
             crate::log_info!("The Tesla gateway did not accept the saved token, logging in again");
             self.login().await?;
             response = self.send_get(endpoint).await?;
@@ -142,7 +172,10 @@ impl LocalClient {
         let status = response.status();
         let text = response.text().await?;
         if !status.is_success() {
-            return Err(anyhow!("the gateway responded {status} to {endpoint}: {}", crate::http::summary(&text)));
+            return Err(anyhow!(
+                "the gateway responded {status} to {endpoint}: {}",
+                crate::http::summary(&text)
+            ));
         }
         let json: serde_json::Value = serde_json::from_str(&text)?;
         crate::http::print_response(self.verbose, &format!("Tesla gateway {endpoint}"), &json);
@@ -173,7 +206,14 @@ fn local_ipv4() -> anyhow::Result<Ipv4Addr> {
 /// Whether there is a gateway at host, by its status, which needs no login, and is the gateway with the serial number
 /// din, if given.
 async fn is_gateway(http: &reqwest::Client, host: &str, din: Option<&str>) -> Option<serde_json::Value> {
-    let status: serde_json::Value = http.get(format!("https://{host}/api/status")).send().await.ok()?.json().await.ok()?;
+    let status: serde_json::Value = http
+        .get(format!("https://{host}/api/status"))
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
     let is_gateway = status.get("device_type").and_then(|value| value.as_str()) == Some("teg");
     let is_din = din.is_none_or(|din| status.get("din").and_then(|value| value.as_str()) == Some(din));
     (is_gateway && is_din).then_some(status)
@@ -182,7 +222,10 @@ async fn is_gateway(http: &reqwest::Client, host: &str, din: Option<&str>) -> Op
 /// Finds a gateway on the home network, the one with the serial number din if given, by asking every address in a /24
 /// subnet for its status: first the subnet of near, e.g. where the gateway was last, as it may be on another network
 /// than this computer, e.g. one for IoT devices, then this computer's. Returns its address and status.
-pub async fn find_gateway(din: Option<&str>, near: Option<&str>) -> anyhow::Result<Option<(String, serde_json::Value)>> {
+pub async fn find_gateway(
+    din: Option<&str>,
+    near: Option<&str>,
+) -> anyhow::Result<Option<(String, serde_json::Value)>> {
     let mut subnets = Vec::new();
     if let Some(address) = near.and_then(|near| near.parse::<Ipv4Addr>().ok()) {
         subnets.push(address);

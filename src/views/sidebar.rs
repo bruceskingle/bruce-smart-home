@@ -1,12 +1,20 @@
 use dioxus::prelude::*;
-use dioxus_free_icons::{Icon, icons::ld_icons::{LdPanelLeftClose, LdPanelLeftOpen}};
+use dioxus_free_icons::{
+    Icon,
+    icons::ld_icons::{LdPanelLeftClose, LdPanelLeftOpen},
+};
 
 use crate::PageInfo;
 
 /// A page with the list of pages beside it, e.g. a module's or Home's, which can be hidden. active is the path of the
 /// page shown, and on_select is given the path of a page chosen from the list.
 #[component]
-pub fn SidebarLayout(pages: Vec<PageInfo>, active: String, on_select: EventHandler<&'static str>, children: Element) -> Element {
+pub fn SidebarLayout(
+    pages: Vec<PageInfo>,
+    active: String,
+    on_select: EventHandler<&'static str>,
+    children: Element,
+) -> Element {
     let mut sidebar_open = use_signal(|| true);
     // Hidden while a screenshot is taken, unless the shot is about it, see screenshots.rs.
     let sidebar_shown = *sidebar_open.read() && !crate::screenshots::PAGE_LIST_HIDDEN();

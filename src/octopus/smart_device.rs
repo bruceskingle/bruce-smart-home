@@ -35,7 +35,11 @@ pub struct SmartDeviceDataSet {
 }
 
 impl SmartDeviceDataSet {
-    pub async fn new(account_number: &String, config: &Arc<CacheConfig>, request_manager: &impl GraphQLCaller) -> anyhow::Result<Self> {
+    pub async fn new(
+        account_number: &String,
+        config: &Arc<CacheConfig>,
+        request_manager: &impl GraphQLCaller,
+    ) -> anyhow::Result<Self> {
         // Version 2 has the details of charging devices, which earlier cached responses do not.
         let hash_key = format!("{}#SmartDevices2", account_number);
         let query_provider = || {
@@ -48,12 +52,16 @@ impl SmartDeviceDataSet {
             Duration::from_hours(24),
             query_provider,
             config,
-            request_manager
-        ).await?;
+            request_manager,
+        )
+        .await?;
 
         // The enums display as JSON strings, so without their quotes.
         let enum_name = |json: String| json.trim_matches('"').to_string();
-        let devices = data_set.data.devices_.iter()
+        let devices = data_set
+            .data
+            .devices_
+            .iter()
             .map(|device| {
                 let (charging, make, model, battery_size, power) = match device {
                     meter::smart_devices::SmartFlexDeviceInterface::SmartFlexChargePoint(charge_point) => (

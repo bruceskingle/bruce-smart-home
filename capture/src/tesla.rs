@@ -9,6 +9,14 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use bruce_embedded_std::config::ConfigSpec;
+use bruce_embedded_std::config::ConfigSpecValue;
+use bruce_embedded_std::config::FeatureConfig;
+use bruce_embedded_std::config::TypedValue;
+use bruce_embedded_std::feature::FeatureDescriptor;
+use bruce_embedded_std::platform::PlatformInitializer;
+use bruce_embedded_std::task::scheduler::ScheduledTask;
+use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
 use chrono::{DateTime, TimeDelta, Utc};
 use croner::Cron;
 use embedded_svc::http::client::Client;
@@ -18,22 +26,14 @@ use esp_idf_svc::http::client::{Configuration, EspHttpConnection};
 use log::{info, warn};
 use serde::Deserialize;
 use serde_json::json;
-use bruce_embedded_std::config::ConfigSpec;
-use bruce_embedded_std::config::ConfigSpecValue;
-use bruce_embedded_std::config::FeatureConfig;
-use bruce_embedded_std::config::TypedValue;
-use bruce_embedded_std::feature::FeatureDescriptor;
-use bruce_embedded_std::platform::PlatformInitializer;
-use bruce_embedded_std::task::scheduler::ScheduledTask;
-use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
 
 use crate::connections::KeptConnection;
-use crate::graph::Sample;
-use crate::device::{Device, captured_by};
-use crate::slots::Slots;
 use crate::db::Db;
+use crate::device::{Device, captured_by};
+use crate::graph::Sample;
 use crate::records::{ENDPOINTS, Record, Response, Snapshots, format_time};
 use crate::screen::{Line, Panel};
+use crate::slots::Slots;
 
 /// The feature's name, which is also its NVS namespace, so at most 15 characters.
 const FEATURE_NAME: &str = "TeslaCapture";
@@ -75,7 +75,12 @@ pub struct TeslaConfig {
 const PANEL_ORDER: u8 = crate::screen::METERS_SECTION + 1;
 
 /// The meters, as named by the gateway, and as shown on the screen.
-const METERS: &[(&str, &str)] = &[("site", "Grid"), ("solar", "Solar"), ("battery", "Battery"), ("load", "House")];
+const METERS: &[(&str, &str)] = &[
+    ("site", "Grid"),
+    ("solar", "Solar"),
+    ("battery", "Battery"),
+    ("load", "House"),
+];
 
 pub struct TeslaCapture {
     panel: Arc<Panel>,
@@ -151,16 +156,24 @@ impl Feature for TeslaCapture {
 /// not be.
 fn fill_graph(panel: &Panel, db: &Db) {
     let Some(store) = db.store() else { return };
-    let from = crate::device_kinds::second_key(bruce_db::Micros((Utc::now() - crate::graph::HISTORY).timestamp_micros()));
+    let from = crate::device_kinds::second_key(bruce_db::Micros(
+        (Utc::now() - crate::graph::HISTORY).timestamp_micros(),
+    ));
     let mut added = 0;
     let result = crate::device_kinds::tesla_snapshot_key(&store).and_then(|hk| {
         store.query(&hk, from.as_str()..bruce_db::ALL.end, &mut |item| {
-            let Some(json) = item.attributes else { return Ok(bruce_db::Flow::Continue) };
+            let Some(json) = item.attributes else {
+                return Ok(bruce_db::Flow::Continue);
+            };
             let time = crate::device_kinds::tesla_time(&json).and_then(|time| DateTime::from_timestamp_micros(time.0));
             let meters = &json["responses"]["meters/aggregates"];
-            let power = crate::graph::SERIES.map(|(name, _)| meters[name]["instant_power"].as_f64().map(|power| power as f32));
+            let power =
+                crate::graph::SERIES.map(|(name, _)| meters[name]["instant_power"].as_f64().map(|power| power as f32));
             if let (Some(time), [Some(grid), Some(solar), Some(battery), Some(house)]) = (time, power) {
-                panel.add_sample(Sample { time, power: [grid, solar, battery, house] });
+                panel.add_sample(Sample {
+                    time,
+                    power: [grid, solar, battery, house],
+                });
                 added += 1;
             }
             Ok(bruce_db::Flow::Continue)
@@ -183,7 +196,10 @@ fn set_panel(panel: &Panel, store: &Snapshots) {
         }
         let power = crate::graph::SERIES.map(|(name, _)| record.meter(name).map(|meter| meter.instant_power));
         if let [Some(grid), Some(solar), Some(battery), Some(house)] = power {
-            panel.add_sample(Sample { time: record.time(), power: [grid, solar, battery, house] });
+            panel.add_sample(Sample {
+                time: record.time(),
+                power: [grid, solar, battery, house],
+            });
         }
     }
     panel.set(crate::screen::METERS_SECTION, meters);
@@ -197,11 +213,16 @@ fn panel_lines(store: &Snapshots) -> Vec<Line> {
     if let Some(record) = store.latest() {
         // As the gateway says them, which the Tesla app shows less the 5% it keeps in reserve.
         let charge = match record.response("system_status/soe") {
-            Some(Response::Soe { percentage: Some(percentage) }) => format!("{percentage:.0}%"),
+            Some(Response::Soe {
+                percentage: Some(percentage),
+            }) => format!("{percentage:.0}%"),
             _ => "?".to_string(),
         };
         let reserve = match record.response("operation") {
-            Some(Response::Operation { backup_reserve_percent: Some(reserve), .. }) => format!("{reserve:.0}%"),
+            Some(Response::Operation {
+                backup_reserve_percent: Some(reserve),
+                ..
+            }) => format!("{reserve:.0}%"),
             _ => "?".to_string(),
         };
         lines.push((format!("Charge {charge}  min {reserve}"), false));
@@ -227,7 +248,10 @@ struct PasswordRejected;
 
 impl std::fmt::Display for PasswordRejected {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "the gateway did not accept the email and password, which have been removed, set them again")
+        write!(
+            f,
+            "the gateway did not accept the email and password, which have been removed, set them again"
+        )
     }
 }
 
@@ -276,7 +300,10 @@ impl Gateway {
             "force_sm_off": false,
         }))?;
         let length = body.len().to_string();
-        let headers = [("Content-Type", "application/json"), ("Content-Length", length.as_str())];
+        let headers = [
+            ("Content-Type", "application/json"),
+            ("Content-Length", length.as_str()),
+        ];
         let url = self.url("login/Basic");
         let mut request = client.post(&url, &headers)?;
         request.write_all(&body)?;
@@ -313,7 +340,12 @@ impl Gateway {
     }
 
     /// GETs endpoint, logging in again if the token is rejected, unless this poll has already logged in, see poll.
-    fn get(&mut self, client: &mut Client<EspHttpConnection>, endpoint: &str, logged_in: &mut bool) -> anyhow::Result<Vec<u8>> {
+    fn get(
+        &mut self,
+        client: &mut Client<EspHttpConnection>,
+        endpoint: &str,
+        logged_in: &mut bool,
+    ) -> anyhow::Result<Vec<u8>> {
         let (mut status, mut body) = self.send_get(client, endpoint)?;
         if matches!(status, 401 | 403) && !*logged_in {
             info!("The Tesla gateway did not accept the token, logging in again");
@@ -323,7 +355,11 @@ impl Gateway {
             (status, body) = self.send_get(client, endpoint)?;
         }
         if !(200..300).contains(&status) {
-            return Err(StatusError(format!("the gateway responded {status} to {endpoint}: {}", summary(&body))).into());
+            return Err(StatusError(format!(
+                "the gateway responded {status} to {endpoint}: {}",
+                summary(&body)
+            ))
+            .into());
         }
         Ok(body)
     }
@@ -422,8 +458,12 @@ impl PollTask {
         Ok(record)
     }
 
-    fn fetch_on(&mut self, client: &mut Client<EspHttpConnection>, slot: Option<DateTime<Utc>>, requested: DateTime<Utc>)
-        -> anyhow::Result<Record> {
+    fn fetch_on(
+        &mut self,
+        client: &mut Client<EspHttpConnection>,
+        slot: Option<DateTime<Utc>>,
+        requested: DateTime<Utc>,
+    ) -> anyhow::Result<Record> {
         let mut logged_in = false;
         if self.gateway.token.is_none() {
             logged_in = true;
@@ -446,7 +486,12 @@ impl PollTask {
                 Err(error) => return Err(error),
             }
         }
-        Ok(Record { slot, requested, received: Utc::now(), responses })
+        Ok(Record {
+            slot,
+            requested,
+            received: Utc::now(),
+            responses,
+        })
     }
 }
 

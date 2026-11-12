@@ -33,7 +33,11 @@ pub(crate) fn shown_date_time(time: &str) -> String {
 #[component]
 pub fn PollingPage() -> Element {
     let statuses = use_context::<PollStatuses>();
-    let rows: Vec<_> = statuses.read().iter().map(|(module_id, status)| (module_id.clone(), status.clone())).collect();
+    let rows: Vec<_> = statuses
+        .read()
+        .iter()
+        .map(|(module_id, status)| (module_id.clone(), status.clone()))
+        .collect();
     // They change as the modules are polled, which is when statuses changes, so reading it above shows them afresh.
     let devices = crate::capture_device::device_statuses();
 
@@ -85,7 +89,7 @@ pub fn KeptOn(device: RecordsDevice) -> Element {
             Some(card) => {
                 let low = card.free_bytes < card.total_bytes / 10;
                 rsx! { span { class: if low { "invalid" }, "SD card, {gb(card.free_bytes)} free of {gb(card.total_bytes)}" } }
-            },
+            }
             None => rsx! { "SD card" },
         },
         (Some("ram"), problem) => {
@@ -95,7 +99,9 @@ pub fn KeptOn(device: RecordsDevice) -> Element {
             };
             let why = match problem.as_deref() {
                 // What ESP-IDF says when there is no card in the slot, or one it cannot read.
-                Some(problem) if problem.contains("ESP_ERR_TIMEOUT") => format!("Not on an SD card, as its slot is empty, or the card cannot be read, {problem}"),
+                Some(problem) if problem.contains("ESP_ERR_TIMEOUT") => {
+                    format!("Not on an SD card, as its slot is empty, or the card cannot be read, {problem}")
+                }
                 Some(problem) => format!("Not on an SD card, {problem}"),
                 None => String::new(),
             };
@@ -104,7 +110,7 @@ pub fn KeptOn(device: RecordsDevice) -> Element {
             } else {
                 rsx! { span { title: "{why}", "RAM{kept}" } }
             }
-        },
+        }
         (Some(other), _) => rsx! { "{other}" },
         (None, _) => rsx! {},
     }

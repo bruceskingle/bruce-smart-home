@@ -1,8 +1,8 @@
 //! A line graph of values over one year from 1 January, with a line for each year so that years can be compared.
 
 use anyhow::anyhow;
-use dioxus::prelude::*;
 use bruce_graphql::types::{Currency, Date, DateTime};
+use dioxus::prelude::*;
 use time_tz::{OffsetDateTimeExt, Tz};
 
 use crate::components::stacked_bar_graph::{StackedBarMode, axis_label, axis_unit, format_money, nice_step};
@@ -14,9 +14,13 @@ const BOTTOM: f64 = 32.0;
 const Y_TICKS: f64 = 4.0;
 const LEGEND_SPACING: f64 = 150.0;
 const LEGEND_SAMPLE_LENGTH: f64 = 24.0;
-const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 /// The day of the year each month starts on, in a year which is not a leap year.
-const MONTH_START_DAYS: [f64; 12] = [0.0, 31.0, 59.0, 90.0, 120.0, 151.0, 181.0, 212.0, 243.0, 273.0, 304.0, 334.0];
+const MONTH_START_DAYS: [f64; 12] = [
+    0.0, 31.0, 59.0, 90.0, 120.0, 151.0, 181.0, 212.0, 243.0, 273.0, 304.0, 334.0,
+];
 
 /// How the values in the trend graph are smoothed, all except None are worked out from daily totals.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -91,7 +95,10 @@ const TOOLTIP_ROW_HEIGHT: f64 = 14.0;
 
 /// A label for a day of a year which is not a leap year, from 0 for 1 January, e.g. "14 Jun".
 fn day_label(day: usize) -> String {
-    let month = MONTH_START_DAYS.iter().rposition(|start| *start <= day as f64).unwrap_or(0);
+    let month = MONTH_START_DAYS
+        .iter()
+        .rposition(|start| *start <= day as f64)
+        .unwrap_or(0);
     format!("{} {}", day + 1 - MONTH_START_DAYS[month] as usize, MONTHS[month])
 }
 
@@ -103,14 +110,21 @@ fn value_near(points: &[(f64, f64)], position: f64) -> Option<f64> {
     let nearest = [after.checked_sub(1), (after < points.len()).then_some(after)]
         .into_iter()
         .flatten()
-        .min_by(|a, b| (points[*a].0 - position).abs().total_cmp(&(points[*b].0 - position).abs()))?;
-    let spacing = [nearest.checked_sub(1), (nearest + 1 < points.len()).then_some(nearest + 1)]
-        .into_iter()
-        .flatten()
-        .map(|other| (points[other].0 - points[nearest].0).abs())
-        .reduce(f64::min)
-        .unwrap_or_default()
-        .max(1.0 / DAYS as f64);
+        .min_by(|a, b| {
+            (points[*a].0 - position)
+                .abs()
+                .total_cmp(&(points[*b].0 - position).abs())
+        })?;
+    let spacing = [
+        nearest.checked_sub(1),
+        (nearest + 1 < points.len()).then_some(nearest + 1),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|other| (points[other].0 - points[nearest].0).abs())
+    .reduce(f64::min)
+    .unwrap_or_default()
+    .max(1.0 / DAYS as f64);
     ((points[nearest].0 - position).abs() <= spacing).then_some(points[nearest].1)
 }
 
@@ -125,17 +139,28 @@ pub fn range_years(start: &DateTime, end: &DateTime) -> Vec<i32> {
 
 /// The year of the middle of each period, given as its start and end unix timestamps, and the position of the middle in
 /// that year, from 0 at the start of 1 January to 1 at the end of 31 December.
-pub fn year_positions(periods: impl IntoIterator<Item = (i64, i64)>, tz: &'static Tz) -> anyhow::Result<Vec<(i32, f64)>> {
-    periods.into_iter()
+pub fn year_positions(
+    periods: impl IntoIterator<Item = (i64, i64)>,
+    tz: &'static Tz,
+) -> anyhow::Result<Vec<(i32, f64)>> {
+    periods
+        .into_iter()
         .map(|(start, end)| {
             let middle = start + (end - start) / 2;
             let year = time::OffsetDateTime::from_unix_timestamp(middle)
                 .map_err(|error| anyhow!(error))?
                 .to_timezone(tz)
                 .year();
-            let year_start = Date::from_calendar_date(year, time::Month::January, 1)?.at_midnight(tz).unix_timestamp();
-            let next_year_start = Date::from_calendar_date(year + 1, time::Month::January, 1)?.at_midnight(tz).unix_timestamp();
-            Ok((year, (middle - year_start) as f64 / (next_year_start - year_start) as f64))
+            let year_start = Date::from_calendar_date(year, time::Month::January, 1)?
+                .at_midnight(tz)
+                .unix_timestamp();
+            let next_year_start = Date::from_calendar_date(year + 1, time::Month::January, 1)?
+                .at_midnight(tz)
+                .unix_timestamp();
+            Ok((
+                year,
+                (middle - year_start) as f64 / (next_year_start - year_start) as f64,
+            ))
         })
         .collect()
 }
@@ -172,7 +197,8 @@ pub fn TrendGraph(
     /// The unit of consumption, e.g. kwh
     unit: String,
     /// What the values are per, for the y axis labels, e.g. "/h" or "/day".
-    #[props(default)] suffix: String,
+    #[props(default)]
+    suffix: String,
 ) -> Element {
     let mut dimensions = use_signal(|| None::<(f64, f64)>);
     // The day of the year the mouse is over.
@@ -187,7 +213,8 @@ pub fn TrendGraph(
     let plot_height = (height - TOP - BOTTOM).max(1.0);
     let x = |position: f64| LEFT + position * plot_width;
 
-    let max_value = lines.iter()
+    let max_value = lines
+        .iter()
         .flat_map(|line| line.points.iter().map(|(_, value)| *value))
         .fold(0.0, f64::max);
     let (step, decimals) = nice_step(max_value / Y_TICKS);
@@ -202,7 +229,8 @@ pub fn TrendGraph(
     let y_unit = axis_unit(mode, currency, &unit, &suffix);
 
     // A tick at the start of each month, with the name of the month in the middle of it.
-    let month_ticks: Vec<(f64, f64, &str)> = MONTHS.iter()
+    let month_ticks: Vec<(f64, f64, &str)> = MONTHS
+        .iter()
         .zip(MONTH_START_DAYS)
         .enumerate()
         .map(|(index, (name, start_day))| {
@@ -211,10 +239,13 @@ pub fn TrendGraph(
         })
         .collect();
 
-    let paths: Vec<(String, String, String)> = lines.iter()
+    let paths: Vec<(String, String, String)> = lines
+        .iter()
         .filter(|line| !line.points.is_empty())
         .map(|line| {
-            let points = line.points.iter()
+            let points = line
+                .points
+                .iter()
                 .map(|(position, value)| format!("{:.1},{:.1}", x(*position), y(*value)))
                 .collect::<Vec<_>>()
                 .join(" ");
@@ -222,7 +253,8 @@ pub fn TrendGraph(
         })
         .collect();
 
-    let legend: Vec<(f64, TrendLegendItem)> = legend.into_iter()
+    let legend: Vec<(f64, TrendLegendItem)> = legend
+        .into_iter()
         .enumerate()
         .map(|(index, item)| (LEFT + index as f64 * LEGEND_SPACING, item))
         .collect();
@@ -236,13 +268,27 @@ pub fn TrendGraph(
     let tooltip = hovered().map(|day| {
         let position = (day as f64 + 0.5) / DAYS as f64;
         let line_x = x(position);
-        let tooltip_x = if line_x > width / 2.0 { line_x - TOOLTIP_WIDTH - 10.0 } else { line_x + 10.0 }
-            .clamp(LEFT, (width - TOOLTIP_WIDTH - RIGHT).max(LEFT));
+        let tooltip_x = if line_x > width / 2.0 {
+            line_x - TOOLTIP_WIDTH - 10.0
+        } else {
+            line_x + 10.0
+        }
+        .clamp(LEFT, (width - TOOLTIP_WIDTH - RIGHT).max(LEFT));
         // The value of each line on that day, leaving out lines with no value or a value of zero.
-        let rows: Vec<(String, String, String, String)> = lines.iter()
-            .filter_map(|line| value_near(&line.points, position)
-                .filter(|value| *value != 0.0)
-                .map(|value| (line.label.clone(), line.color.clone(), line.dash.clone(), format_value(value))))
+        let rows: Vec<(String, String, String, String)> = lines
+            .iter()
+            .filter_map(|line| {
+                value_near(&line.points, position)
+                    .filter(|value| *value != 0.0)
+                    .map(|value| {
+                        (
+                            line.label.clone(),
+                            line.color.clone(),
+                            line.dash.clone(),
+                            format_value(value),
+                        )
+                    })
+            })
             .collect();
         (line_x, tooltip_x, day_label(day), rows)
     });

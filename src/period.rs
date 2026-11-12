@@ -82,20 +82,25 @@ pub fn calendar_bounds(date: Date, period: Period, tz: &'static Tz) -> (i64, i64
         Period::Week => {
             let monday = *date - time::Duration::days(date.weekday().number_days_from_monday() as i64);
             (monday, monday + time::Duration::days(7))
-        },
+        }
         Period::Month => {
             let first = date.replace_day(1).unwrap_or(*date);
             let next = if first.month() == time::Month::December {
-                first.replace_year(first.year() + 1).and_then(|date| date.replace_month(time::Month::January))
-            }
-            else {
+                first
+                    .replace_year(first.year() + 1)
+                    .and_then(|date| date.replace_month(time::Month::January))
+            } else {
                 first.replace_month(first.month().next())
-            }.unwrap_or(first);
+            }
+            .unwrap_or(first);
             (first, next)
-        },
+        }
         _ => (*date, *date + time::Duration::days(1)),
     };
-    (Date::from(start).at_midnight(tz).unix_timestamp(), Date::from(end).at_midnight(tz).unix_timestamp())
+    (
+        Date::from(start).at_midnight(tz).unix_timestamp(),
+        Date::from(end).at_midnight(tz).unix_timestamp(),
+    )
 }
 
 /// The start and end of the period containing time, all as unix timestamps, in the timezone for days, weeks and months.
@@ -104,7 +109,7 @@ pub fn period_bounds(time: i64, period: Period, tz: &'static Tz) -> (i64, i64) {
         Some(seconds) => {
             let start = time - time.rem_euclid(seconds);
             (start, start + seconds)
-        },
+        }
         None => match DateTime::from_unix_timestamp(time) {
             Ok(time) => calendar_bounds(time.to_timezone(tz).to_date(), period, tz),
             Err(_) => (time, time),

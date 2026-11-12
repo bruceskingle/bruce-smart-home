@@ -35,11 +35,11 @@ mod site;
 pub use site::SitePage;
 
 mod live;
-pub use live::LivePage;
 pub use devices::Devices;
+pub use live::LivePage;
 
 mod climate;
 pub use climate::ClimatePage;
 
-pub mod log_panel;
 pub mod help_panel;
+pub mod log_panel;

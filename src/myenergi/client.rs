@@ -46,7 +46,11 @@ impl Device {
                         Some(serde_json::Value::String(text)) => text.clone(),
                         _ => continue,
                     };
-                    devices.push(Device { kind: kind.clone(), letter, serial });
+                    devices.push(Device {
+                        kind: kind.clone(),
+                        letter,
+                        serial,
+                    });
                 }
             }
         }
@@ -67,7 +71,12 @@ pub struct MyenergiClient {
 
 impl MyenergiClient {
     /// host is the server the director said has the hub's data, if known, see host.
-    pub fn new(hub_serial: String, api_key: String, host: Option<String>, verbose: bool) -> anyhow::Result<MyenergiClient> {
+    pub fn new(
+        hub_serial: String,
+        api_key: String,
+        host: Option<String>,
+        verbose: bool,
+    ) -> anyhow::Result<MyenergiClient> {
         Ok(MyenergiClient {
             http: crate::http::client_builder().build()?,
             hub_serial,
@@ -90,21 +99,31 @@ impl MyenergiClient {
         crate::log_info!("myenergi GET {path}");
         let response = self.http.get(&url).send().await?;
         let response = if response.status() == StatusCode::UNAUTHORIZED {
-            let challenge = response.headers().get(reqwest::header::WWW_AUTHENTICATE)
+            let challenge = response
+                .headers()
+                .get(reqwest::header::WWW_AUTHENTICATE)
                 .and_then(|header| header.to_str().ok())
                 .and_then(digest::parse_challenge)
                 .ok_or_else(|| anyhow!("myenergi asked for authentication, but not digest authentication"))?;
             let nc = self.count.fetch_add(1, Ordering::SeqCst) + 1;
             let cnonce = format!("{:016x}", rand::random::<u64>());
-            let authorization = digest::authorization(&challenge, &self.hub_serial, &self.api_key, "GET", path, nc, &cnonce);
-            self.http.get(&url).header(reqwest::header::AUTHORIZATION, authorization).send().await?
-        }
-        else {
+            let authorization =
+                digest::authorization(&challenge, &self.hub_serial, &self.api_key, "GET", path, nc, &cnonce);
+            self.http
+                .get(&url)
+                .header(reqwest::header::AUTHORIZATION, authorization)
+                .send()
+                .await?
+        } else {
             response
         };
 
         let status = response.status();
-        if let Some(asn) = response.headers().get(ASN_HEADER).and_then(|header| header.to_str().ok()) {
+        if let Some(asn) = response
+            .headers()
+            .get(ASN_HEADER)
+            .and_then(|header| header.to_str().ok())
+        {
             let asn = asn.trim();
             if !asn.is_empty() && asn != *self.host.lock().unwrap() {
                 crate::log_info!("myenergi data is on {asn}");
@@ -118,8 +137,12 @@ impl MyenergiClient {
         if !status.is_success() {
             return Err(anyhow!("myenergi responded {status}: {}", crate::http::summary(&text)));
         }
-        let json: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|error| anyhow!("myenergi responded with something which is not JSON, {error}: {}", crate::http::summary(&text)))?;
+        let json: serde_json::Value = serde_json::from_str(&text).map_err(|error| {
+            anyhow!(
+                "myenergi responded with something which is not JSON, {error}: {}",
+                crate::http::summary(&text)
+            )
+        })?;
         Ok(json)
     }
 
@@ -135,20 +158,46 @@ impl MyenergiClient {
     /// {"U12345678": [{"yr": 2026, "mon": 10, "dom": 27, "hr": 0, "min": 1, "imp": 6120, ...}]}. Energy is in joules
     /// in the minute, imp imported, exp exported, gep generated, h1d, h2d and h3d used by the device on each phase.
     pub async fn day(&self, device: &Device, date: Date) -> anyhow::Result<serde_json::Value> {
-        self.records(&format!("/cgi-jday-{}{}-{}-{}-{}", device.letter, device.serial, date.year(), u8::from(date.month()), date.day())).await
+        self.records(&format!(
+            "/cgi-jday-{}{}-{}-{}-{}",
+            device.letter,
+            device.serial,
+            date.year(),
+            u8::from(date.month()),
+            date.day()
+        ))
+        .await
     }
 
     /// The device's records of count minutes of the UTC day date from hour:minute, as day does for the whole day.
-    pub async fn part_of_day(&self, device: &Device, date: Date, hour: u8, minute: u8, count: u16) -> anyhow::Result<serde_json::Value> {
-        self.records(&format!("/cgi-jday-{}{}-{}-{}-{}-{hour}-{minute}-{count}",
-            device.letter, device.serial, date.year(), u8::from(date.month()), date.day())).await
+    pub async fn part_of_day(
+        &self,
+        device: &Device,
+        date: Date,
+        hour: u8,
+        minute: u8,
+        count: u16,
+    ) -> anyhow::Result<serde_json::Value> {
+        self.records(&format!(
+            "/cgi-jday-{}{}-{}-{}-{}-{hour}-{minute}-{count}",
+            device.letter,
+            device.serial,
+            date.year(),
+            u8::from(date.month()),
+            date.day()
+        ))
+        .await
     }
 
     async fn records(&self, path: &str) -> anyhow::Result<serde_json::Value> {
         let json = self.get(path).await?;
         // Only how many records, as a day's are too many to read in the verbose output.
         if self.verbose {
-            let records = json.as_object().and_then(|object| object.values().next()).and_then(|records| records.as_array()).map_or(0, Vec::len);
+            let records = json
+                .as_object()
+                .and_then(|object| object.values().next())
+                .and_then(|records| records.as_array())
+                .map_or(0, Vec::len);
             println!("myenergi {path}: {records} records");
         }
         Ok(json)
@@ -167,9 +216,20 @@ mod tests {
             {"harvi": [{"sno": "87654321"}]},
             {"asn": "s18.myenergi.net", "fwv": "3401S5.041"}
         ]);
-        assert_eq!(Device::from_status(&status), vec![
-            Device { kind: "zappi".to_string(), letter: 'Z', serial: "12345678".to_string() },
-            Device { kind: "harvi".to_string(), letter: 'H', serial: "87654321".to_string() },
-        ]);
+        assert_eq!(
+            Device::from_status(&status),
+            vec![
+                Device {
+                    kind: "zappi".to_string(),
+                    letter: 'Z',
+                    serial: "12345678".to_string()
+                },
+                Device {
+                    kind: "harvi".to_string(),
+                    letter: 'H',
+                    serial: "87654321".to_string()
+                },
+            ]
+        );
     }
 }

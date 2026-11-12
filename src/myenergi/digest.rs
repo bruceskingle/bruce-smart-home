@@ -25,10 +25,15 @@ pub fn parse_challenge(header: &str) -> Option<Challenge> {
             "nonce" => nonce = Some(value),
             "opaque" => opaque = Some(value),
             "qop" => qop = Some(value),
-            _ => {},
+            _ => {}
         }
     }
-    Some(Challenge { realm: realm.unwrap_or_default(), nonce: nonce?, opaque, qop })
+    Some(Challenge {
+        realm: realm.unwrap_or_default(),
+        nonce: nonce?,
+        opaque,
+        qop,
+    })
 }
 
 /// The name=value pairs of a header, separated by commas, where values may be quoted and contain commas.
@@ -45,8 +50,7 @@ fn parse_params(text: &str) -> Vec<(String, String)> {
             let value = std::iter::from_fn(|| chars.next_if(|c| *c != '"')).collect();
             chars.next();
             value
-        }
-        else {
+        } else {
             std::iter::from_fn(|| chars.next_if(|c| *c != ',')).collect()
         };
         params.push((name.trim().to_string(), value.trim().to_string()));
@@ -60,21 +64,39 @@ fn md5_hex(text: &str) -> String {
 
 /// The Authorization header answering challenge for a request with method to uri, the path and query of its URL.
 /// nc counts the requests made with the challenge's nonce, from 1, and cnonce is a random string chosen by the client.
-pub fn authorization(challenge: &Challenge, username: &str, password: &str, method: &str, uri: &str, nc: u32, cnonce: &str) -> String {
+pub fn authorization(
+    challenge: &Challenge,
+    username: &str,
+    password: &str,
+    method: &str,
+    uri: &str,
+    nc: u32,
+    cnonce: &str,
+) -> String {
     let ha1 = md5_hex(&format!("{username}:{}:{password}", challenge.realm));
     let ha2 = md5_hex(&format!("{method}:{uri}"));
     // Only auth is supported, which is all that servers which offer a choice are known to need.
-    let qop = challenge.qop.as_deref().map(|qop| qop.split(',').map(str::trim).find(|qop| *qop == "auth").unwrap_or("auth"));
-    let mut header = format!("Digest username=\"{username}\", realm=\"{}\", nonce=\"{}\", uri=\"{uri}\"", challenge.realm, challenge.nonce);
+    let qop = challenge.qop.as_deref().map(|qop| {
+        qop.split(',')
+            .map(str::trim)
+            .find(|qop| *qop == "auth")
+            .unwrap_or("auth")
+    });
+    let mut header = format!(
+        "Digest username=\"{username}\", realm=\"{}\", nonce=\"{}\", uri=\"{uri}\"",
+        challenge.realm, challenge.nonce
+    );
     match qop {
         Some(qop) => {
             let response = md5_hex(&format!("{ha1}:{}:{nc:08x}:{cnonce}:{qop}:{ha2}", challenge.nonce));
-            header.push_str(&format!(", qop={qop}, nc={nc:08x}, cnonce=\"{cnonce}\", response=\"{response}\""));
-        },
+            header.push_str(&format!(
+                ", qop={qop}, nc={nc:08x}, cnonce=\"{cnonce}\", response=\"{response}\""
+            ));
+        }
         None => {
             let response = md5_hex(&format!("{ha1}:{}:{ha2}", challenge.nonce));
             header.push_str(&format!(", response=\"{response}\""));
-        },
+        }
     }
     if let Some(opaque) = &challenge.opaque {
         header.push_str(&format!(", opaque=\"{opaque}\""));
@@ -89,13 +111,17 @@ mod tests {
 
     #[test]
     fn a_challenge_is_parsed_with_quoted_values_containing_commas() {
-        let challenge = parse_challenge(r#"Digest realm="MyEnergi Telemetry", qop="auth,auth-int", nonce="abc,def", opaque="xyz""#);
-        assert_eq!(challenge, Some(Challenge {
-            realm: "MyEnergi Telemetry".to_string(),
-            nonce: "abc,def".to_string(),
-            opaque: Some("xyz".to_string()),
-            qop: Some("auth,auth-int".to_string()),
-        }));
+        let challenge =
+            parse_challenge(r#"Digest realm="MyEnergi Telemetry", qop="auth,auth-int", nonce="abc,def", opaque="xyz""#);
+        assert_eq!(
+            challenge,
+            Some(Challenge {
+                realm: "MyEnergi Telemetry".to_string(),
+                nonce: "abc,def".to_string(),
+                opaque: Some("xyz".to_string()),
+                qop: Some("auth,auth-int".to_string()),
+            })
+        );
         assert_eq!(parse_challenge("Basic realm=\"x\""), None);
     }
 
@@ -108,8 +134,19 @@ mod tests {
             opaque: Some("5ccc069c403ebaf9f0171e9517f40e41".to_string()),
             qop: Some("auth,auth-int".to_string()),
         };
-        let header = authorization(&challenge, "Mufasa", "Circle Of Life", "GET", "/dir/index.html", 1, "0a4f113b");
-        assert!(header.contains("response=\"6629fae49393a05397450978507c4ef1\""), "{header}");
+        let header = authorization(
+            &challenge,
+            "Mufasa",
+            "Circle Of Life",
+            "GET",
+            "/dir/index.html",
+            1,
+            "0a4f113b",
+        );
+        assert!(
+            header.contains("response=\"6629fae49393a05397450978507c4ef1\""),
+            "{header}"
+        );
         assert!(header.contains("nc=00000001"), "{header}");
     }
 }

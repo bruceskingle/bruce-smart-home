@@ -18,15 +18,27 @@ const SHORT_LENGTH: usize = 40;
 pub fn short_error(error: &str) -> String {
     let lower = error.to_lowercase();
     let known = [
-        (["tcp connect", "connection refused", "client error (connect)"].as_slice(), "Not reachable"),
-        (&["deadline has elapsed", "timed out", "operation timed out"], "Timed out"),
+        (
+            ["tcp connect", "connection refused", "client error (connect)"].as_slice(),
+            "Not reachable",
+        ),
+        (
+            &["deadline has elapsed", "timed out", "operation timed out"],
+            "Timed out",
+        ),
         (&["dns error", "failed to lookup address"], "Not found on the network"),
-        (&["connection reset", "connection closed", "broken pipe"], "Connection lost"),
+        (
+            &["connection reset", "connection closed", "broken pipe"],
+            "Connection lost",
+        ),
         (&["error decoding response body", "invalid chunk"], "Bad response"),
         (&["(401)", "(403)", "unauthorized", "unauthorised"], "Refused"),
         (&["certificate"], "Certificate problem"),
     ];
-    if let Some((_, short)) = known.iter().find(|(patterns, _)| patterns.iter().any(|pattern| lower.contains(pattern))) {
+    if let Some((_, short)) = known
+        .iter()
+        .find(|(patterns, _)| patterns.iter().any(|pattern| lower.contains(pattern)))
+    {
         return short.to_string();
     }
     // Up to the first cause.
@@ -43,9 +55,19 @@ mod tests {
 
     #[test]
     fn usual_errors_are_a_few_words() {
-        assert_eq!(short_error("error sending request for url (http://192.168.4.97/api/capture/tesla/records?since=2026-10-30T06%3A55%3A50Z&limit=500): client error (Connect): tcp connect error: deadline has elapsed: deadline has elapsed"),
-            "Not reachable");
-        assert_eq!(short_error("error decoding response body: request or response body error: operation timed out"), "Timed out");
-        assert_eq!(short_error("the gateway said no, try again later"), "the gateway said no");
+        assert_eq!(
+            short_error(
+                "error sending request for url (http://192.168.4.97/api/capture/tesla/records?since=2026-10-30T06%3A55%3A50Z&limit=500): client error (Connect): tcp connect error: deadline has elapsed: deadline has elapsed"
+            ),
+            "Not reachable"
+        );
+        assert_eq!(
+            short_error("error decoding response body: request or response body error: operation timed out"),
+            "Timed out"
+        );
+        assert_eq!(
+            short_error("the gateway said no, try again later"),
+            "the gateway said no"
+        );
     }
 }

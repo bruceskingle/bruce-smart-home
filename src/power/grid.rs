@@ -89,7 +89,10 @@ pub struct GridPoint {
 /// before, and usually covers a reading which is missing too, but not always, so it is only used when there are no
 /// register readings, e.g. for the first reading, or the register goes down, e.g. if the meter is replaced.
 pub fn energy_since(previous: Option<&impl GridSample>, reading: &impl GridSample) -> f64 {
-    match (previous.and_then(|previous| previous.consumption()), reading.consumption()) {
+    match (
+        previous.and_then(|previous| previous.consumption()),
+        reading.consumption(),
+    ) {
         (Some(before), Some(after)) if after >= before => after - before,
         _ => reading.consumption_delta().unwrap_or_default(),
     }
@@ -117,7 +120,9 @@ fn reading_points<R: GridSample>(readings: &[R], start: i64, end: i64) -> Vec<Gr
             continue;
         }
         points.push(GridPoint {
-            start: since.map(|since| since.read_at()).unwrap_or(reading.read_at() - READING_SECONDS),
+            start: since
+                .map(|since| since.read_at())
+                .unwrap_or(reading.read_at() - READING_SECONDS),
             end: reading.read_at(),
             energy: energy_since(since, reading),
             export: export_since(since, reading),
@@ -131,7 +136,13 @@ fn reading_points<R: GridSample>(readings: &[R], start: i64, end: i64) -> Vec<Gr
 /// The periods from start to end, as unix timestamps, including ones with no readings, with the readings, which are in
 /// time order, totalled in each. Readings before start are not counted, but the last of them gives the energy of the
 /// first reading from start. For 10 seconds there is a period for each reading, see reading_points.
-pub fn aggregate<R: GridSample>(readings: &[R], start: i64, end: i64, period: Period, tz: &'static Tz) -> Vec<GridPoint> {
+pub fn aggregate<R: GridSample>(
+    readings: &[R],
+    start: i64,
+    end: i64,
+    period: Period,
+    tz: &'static Tz,
+) -> Vec<GridPoint> {
     if period == Period::TenSeconds {
         return reading_points(readings, start, end);
     }
@@ -154,7 +165,14 @@ pub fn aggregate<R: GridSample>(readings: &[R], start: i64, end: i64, period: Pe
                 Err(_) => break,
             },
         };
-        let mut point = GridPoint { start: period_start, end: period_end, energy: 0.0, export: 0.0, demand: None, readings: 0 };
+        let mut point = GridPoint {
+            start: period_start,
+            end: period_end,
+            energy: 0.0,
+            export: 0.0,
+            demand: None,
+            readings: 0,
+        };
         let mut demand_total = 0.0;
         let mut demand_readings = 0;
         while let Some(reading) = readings.next_if(|reading| reading.read_at() < period_end) {

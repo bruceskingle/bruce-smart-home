@@ -4,14 +4,14 @@
 use std::time::Duration;
 
 use bruce_graphql::types::{Date, DateTime};
-use time_tz::Tz;
 use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder, ProgressMonitor};
+use time_tz::Tz;
 
-use crate::CacheConfig;
-use crate::data_set::{CancelToken, MonthlyDataSet};
 use super::decimal::Decimal;
 use super::graphql::meter::charging_sessions;
+use crate::CacheConfig;
 use crate::components::stacked_bar_graph::{StackedBarPeriod, StackedBarPoint, StackedBarSeries};
+use crate::data_set::{CancelToken, MonthlyDataSet};
 
 /// The most sessions asked for in one request, if this many are returned the rest are asked for in another.
 const PAGE_SIZE: i32 = 100;
@@ -77,7 +77,9 @@ impl Problem {
                 "FAILURE_CAUSE_ERROR" => String::from("Charger error"),
                 other => readable(other),
             },
-            Problem::Truncation(cause, reached, possible) => format!("Cut short ({}), reached {reached}% of {possible}%", readable(cause)),
+            Problem::Truncation(cause, reached, possible) => {
+                format!("Cut short ({}), reached {reached}% of {possible}%", readable(cause))
+            }
         }
     }
 }
@@ -96,7 +98,10 @@ pub fn energy_unit(name: &str) -> String {
 pub fn readable(name: &str) -> String {
     let words = name.replace('_', " ").to_lowercase();
     let mut chars = words.chars();
-    chars.next().map(|first| first.to_uppercase().chain(chars).collect()).unwrap_or_default()
+    chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
 }
 
 /// An enum from the server as its name, it displays as a JSON string.
@@ -112,12 +117,15 @@ impl ChargingSession {
                 end: session.device_charging_session_.end_,
                 kind: enum_name(&session.type_),
                 target: Some(enum_name(&session.target_type_)),
-                energy: session.energy_added_
+                energy: session
+                    .energy_added_
                     .and_then(|energy| energy.value_.map(|value| (value, enum_name(&energy.unit_)))),
                 cost: session.cost_.map(|cost| (cost.amount_, cost.currency_)),
                 state_of_charge_change: session.state_of_charge_change_,
                 state_of_charge_final: session.state_of_charge_final_,
-                dispatches: session.dispatches_.into_iter()
+                dispatches: session
+                    .dispatches_
+                    .into_iter()
                     .map(|dispatch| Dispatch {
                         start: dispatch.start_,
                         end: dispatch.end_,
@@ -125,15 +133,20 @@ impl ChargingSession {
                         energy_kwh: dispatch.energy_added_kwh_,
                     })
                     .collect(),
-                problems: session.problems_.into_iter()
+                problems: session
+                    .problems_
+                    .into_iter()
                     .map(|problem| match problem {
-                        charging_sessions::SmartFlexChargingProblem::SmartFlexChargingError(error) =>
-                            Problem::Error(enum_name(&error.cause_)),
-                        charging_sessions::SmartFlexChargingProblem::SmartFlexChargingTruncation(truncation) => Problem::Truncation(
-                            enum_name(&truncation.truncation_cause_),
-                            truncation.achievable_state_of_charge_,
-                            truncation.original_achievable_state_of_charge_,
-                        ),
+                        charging_sessions::SmartFlexChargingProblem::SmartFlexChargingError(error) => {
+                            Problem::Error(enum_name(&error.cause_))
+                        }
+                        charging_sessions::SmartFlexChargingProblem::SmartFlexChargingTruncation(truncation) => {
+                            Problem::Truncation(
+                                enum_name(&truncation.truncation_cause_),
+                                truncation.achievable_state_of_charge_,
+                                truncation.original_achievable_state_of_charge_,
+                            )
+                        }
                     })
                     .collect(),
                 location: None,
@@ -144,7 +157,8 @@ impl ChargingSession {
                 end: session.device_charging_session_.end_,
                 kind: String::from("PUBLIC"),
                 target: None,
-                energy: session.energy_added_
+                energy: session
+                    .energy_added_
                     .and_then(|energy| energy.value_.map(|value| (value, enum_name(&energy.unit_)))),
                 cost: session.cost_.map(|cost| (cost.amount_, cost.currency_)),
                 state_of_charge_change: None,
@@ -159,10 +173,16 @@ impl ChargingSession {
 
 /// The sessions in a response, as the server returns them.
 fn response_sessions(response: &charging_sessions::Response) -> Vec<&charging_sessions::DeviceChargingSession> {
-    response.devices_.iter()
+    response
+        .devices_
+        .iter()
         .filter_map(|device| match device {
-            charging_sessions::SmartFlexDeviceInterface::SmartFlexChargePoint(charge_point) => charge_point.charging_sessions_.as_ref(),
-            charging_sessions::SmartFlexDeviceInterface::SmartFlexVehicle(vehicle) => vehicle.charging_sessions_.as_ref(),
+            charging_sessions::SmartFlexDeviceInterface::SmartFlexChargePoint(charge_point) => {
+                charge_point.charging_sessions_.as_ref()
+            }
+            charging_sessions::SmartFlexDeviceInterface::SmartFlexVehicle(vehicle) => {
+                vehicle.charging_sessions_.as_ref()
+            }
             _ => None,
         })
         .flat_map(|connection| connection.edges_.iter().filter_map(|edge| edge.node_.as_ref()))
@@ -172,33 +192,46 @@ fn response_sessions(response: &charging_sessions::Response) -> Vec<&charging_se
 /// The start and end of a session as the server returns it.
 fn session_times(session: &charging_sessions::DeviceChargingSession) -> (DateTime, DateTime) {
     match session {
-        charging_sessions::DeviceChargingSession::SmartFlexChargingSession(session) =>
-            (session.device_charging_session_.start_, session.device_charging_session_.end_),
-        charging_sessions::DeviceChargingSession::PublicChargingSession(session) =>
-            (session.device_charging_session_.start_, session.device_charging_session_.end_),
+        charging_sessions::DeviceChargingSession::SmartFlexChargingSession(session) => (
+            session.device_charging_session_.start_,
+            session.device_charging_session_.end_,
+        ),
+        charging_sessions::DeviceChargingSession::PublicChargingSession(session) => (
+            session.device_charging_session_.start_,
+            session.device_charging_session_.end_,
+        ),
     }
 }
 
 /// The charging sessions of the charge point or vehicle device_id which start from start up to end, in time order. They
 /// are cached a month at a time, see MonthlyDataSet. The months which reload covers are fetched again whatever is
 /// cached, in case it is wrong. If cancel is set the months not yet loaded are left out.
-pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end: &DateTime, reload: Option<(DateTime, DateTime)>,
-    tz: &'static Tz, config: &CacheConfig, request_manager: &impl GraphQLCaller, progress: &(impl ProgressMonitor + ?Sized),
-    cancel: &CancelToken) -> anyhow::Result<Vec<ChargingSession>>
-{
+pub async fn fetch(
+    account_number: &str,
+    device_id: &str,
+    start: &DateTime,
+    end: &DateTime,
+    reload: Option<(DateTime, DateTime)>,
+    tz: &'static Tz,
+    config: &CacheConfig,
+    request_manager: &impl GraphQLCaller,
+    progress: &(impl ProgressMonitor + ?Sized),
+    cancel: &CancelToken,
+) -> anyhow::Result<Vec<ChargingSession>> {
     let hash_key = format!("{account_number}#{device_id}#ChargingSessions");
-    let query = |after: DateTime, before: DateTime| charging_sessions::Query::builder()
-        .with_account_number(account_number.to_string())
-        .with_device_id(device_id.to_string())
-        .with_after(after)
-        .with_before(before)
-        .with_first(PAGE_SIZE)
-        .build();
+    let query = |after: DateTime, before: DateTime| {
+        charging_sessions::Query::builder()
+            .with_account_number(account_number.to_string())
+            .with_device_id(device_id.to_string())
+            .with_after(after)
+            .with_before(before)
+            .with_first(PAGE_SIZE)
+            .build()
+    };
     let month_end = |month: &Date| -> DateTime {
         let next = if month.month() == time::Month::December {
             Date::from_calendar_date(month.year() + 1, time::Month::January, 1)
-        }
-        else {
+        } else {
             Date::from_calendar_date(month.year(), month.month().next(), 1)
         };
         next.map(|next| next.at_midnight(tz)).unwrap_or(*end)
@@ -211,8 +244,14 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
         if cancel.is_cancelled() {
             break;
         }
-        progress.progress(format!("{} {}", if reload.is_some() { "Reloading" } else { "Loading" }, month.format(&month_format).unwrap_or_default()));
-        let force = reload.is_some_and(|(reload_start, reload_end)| month.at_midnight(tz) < reload_end && reload_start < month_end(&month));
+        progress.progress(format!(
+            "{} {}",
+            if reload.is_some() { "Reloading" } else { "Loading" },
+            month.format(&month_format).unwrap_or_default()
+        ));
+        let force = reload.is_some_and(|(reload_start, reload_end)| {
+            month.at_midnight(tz) < reload_end && reload_start < month_end(&month)
+        });
         let data_set = MonthlyDataSet::new(
             &hash_key,
             &month,
@@ -220,7 +259,9 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
             force,
             // From the last final session cached, or the start of the month.
             |month_start: &Date, last: Option<&charging_sessions::DeviceChargingSession>| {
-                let after = last.map(|last| session_times(last).0).unwrap_or_else(|| month_start.at_midnight(tz));
+                let after = last
+                    .map(|last| session_times(last).0)
+                    .unwrap_or_else(|| month_start.at_midnight(tz));
                 query(after, month_end(month_start))
             },
             // A full page may not be all of them. The server returns the earliest sessions, so the rest start after
@@ -231,14 +272,22 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
                 if (page.len() as i32) < PAGE_SIZE {
                     return None;
                 }
-                Some(DateTime::from_unix_timestamp(latest.unix_timestamp() + 1)
-                    .and_then(|after| query(after, month_end(month_start))))
+                Some(
+                    DateTime::from_unix_timestamp(latest.unix_timestamp() + 1)
+                        .and_then(|after| query(after, month_end(month_start))),
+                )
             },
             |response: charging_sessions::Response| {
-                response.devices_.into_iter()
+                response
+                    .devices_
+                    .into_iter()
                     .filter_map(|device| match device {
-                        charging_sessions::SmartFlexDeviceInterface::SmartFlexChargePoint(charge_point) => charge_point.charging_sessions_,
-                        charging_sessions::SmartFlexDeviceInterface::SmartFlexVehicle(vehicle) => vehicle.charging_sessions_,
+                        charging_sessions::SmartFlexDeviceInterface::SmartFlexChargePoint(charge_point) => {
+                            charge_point.charging_sessions_
+                        }
+                        charging_sessions::SmartFlexDeviceInterface::SmartFlexVehicle(vehicle) => {
+                            vehicle.charging_sessions_
+                        }
                         _ => None,
                     })
                     .flat_map(|connection| connection.edges_.into_iter().filter_map(|edge| edge.node_))
@@ -248,16 +297,24 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
             // there. A session may still change until a day after it ends.
             |session: &charging_sessions::DeviceChargingSession| {
                 let (start, end) = session_times(session);
-                (start.to_timezone(tz), *end < *DateTime::now(tz) - time::Duration::days(1))
+                (
+                    start.to_timezone(tz),
+                    *end < *DateTime::now(tz) - time::Duration::days(1),
+                )
             },
             config,
             request_manager,
             progress,
-        ).await?;
+        )
+        .await?;
 
-        sessions.extend(data_set.data.into_values()
-            .map(|(_, session)| ChargingSession::from(session))
-            .filter(|session| session.start >= *start && session.start < *end));
+        sessions.extend(
+            data_set
+                .data
+                .into_values()
+                .map(|(_, session)| ChargingSession::from(session))
+                .filter(|session| session.start >= *start && session.start < *end),
+        );
         month = Date::from(*month_end(&month).to_timezone(tz).to_date());
     }
     sessions.sort_by_key(|session| session.start);
@@ -285,12 +342,17 @@ impl ChargingSession {
     }
 
     fn has_problem(&self, cause: &str) -> bool {
-        self.problems.iter().any(|problem| matches!(problem, Problem::Error(error) if error == cause))
+        self.problems
+            .iter()
+            .any(|problem| matches!(problem, Problem::Error(error) if error == cause))
     }
 
     /// The energy added in kWh, 0 if it is not known.
     pub fn energy_kwh(&self) -> f64 {
-        self.energy.as_ref().and_then(|(value, _)| value.to_string().parse().ok()).unwrap_or_default()
+        self.energy
+            .as_ref()
+            .and_then(|(value, _)| value.to_string().parse().ok())
+            .unwrap_or_default()
     }
 
     /// Whether the session is shown, given which categories are.
@@ -308,46 +370,60 @@ fn period_bounds(date: Date, period: StackedBarPeriod, tz: &'static Tz) -> (Date
         StackedBarPeriod::Week => {
             let monday = *date - time::Duration::days(date.weekday().number_days_from_monday() as i64);
             (monday, monday + time::Duration::days(7))
-        },
+        }
         StackedBarPeriod::Month => {
             let first = date.replace_day(1).unwrap_or(*date);
             let next = if first.month() == time::Month::December {
-                first.replace_year(first.year() + 1).and_then(|date| date.replace_month(time::Month::January))
-            }
-            else {
+                first
+                    .replace_year(first.year() + 1)
+                    .and_then(|date| date.replace_month(time::Month::January))
+            } else {
                 first.replace_month(first.month().next())
-            }.unwrap_or(first);
+            }
+            .unwrap_or(first);
             (first, next)
-        },
+        }
         _ => (*date, *date + time::Duration::days(1)),
     };
     (Date::from(start).at_midnight(tz), Date::from(end).at_midnight(tz))
 }
 
 /// The colours of the sessions in the graph, in turn.
-const SESSION_COLORS: [&str; 8] = ["#06b6d4", "#f2c94c", "#bb6bd9", "#46ee43", "#f6671f", "#4c8ef2", "#ef5da8", "#a3e635"];
+const SESSION_COLORS: [&str; 8] = [
+    "#06b6d4", "#f2c94c", "#bb6bd9", "#46ee43", "#f6671f", "#4c8ef2", "#ef5da8", "#a3e635",
+];
 
 /// A graph of the energy added by sessions from start to end, with a series for each session, in turn in each of
 /// SESSION_COLORS, so that all the parts of a session are the same colour. For Raw each session is a bar, otherwise
 /// there is a bar for each period, including ones with no sessions, with a part for each session in it. A session
 /// which crosses the end of a period is split, its energy shared by the time in each, as when in the session the
 /// energy was added is not known.
-pub fn graph_points(sessions: &[&ChargingSession], start: &DateTime, end: &DateTime, period: StackedBarPeriod, tz: &'static Tz)
-    -> (Vec<StackedBarSeries>, Vec<StackedBarPoint>)
-{
+pub fn graph_points(
+    sessions: &[&ChargingSession],
+    start: &DateTime,
+    end: &DateTime,
+    period: StackedBarPeriod,
+    tz: &'static Tz,
+) -> (Vec<StackedBarSeries>, Vec<StackedBarPoint>) {
     let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
     let day_format = time::format_description::parse("[day] [month repr:short]").unwrap();
     let time_format = time::format_description::parse("[hour]:[minute]").unwrap();
     let month_format = time::format_description::parse("[month repr:short] [year]").unwrap();
     let long_month_format = time::format_description::parse("[month repr:long] [year]").unwrap();
-    let session_format = time::format_description::parse("[weekday repr:short] [day] [month repr:short] [hour]:[minute]").unwrap();
+    let session_format =
+        time::format_description::parse("[weekday repr:short] [day] [month repr:short] [hour]:[minute]").unwrap();
 
-    let series: Vec<StackedBarSeries> = sessions.iter()
+    let series: Vec<StackedBarSeries> = sessions
+        .iter()
         .enumerate()
         .map(|(index, session)| StackedBarSeries {
             label: format!(
                 "{}{}",
-                session.start.to_timezone(tz).format(&session_format).unwrap_or_default(),
+                session
+                    .start
+                    .to_timezone(tz)
+                    .format(&session_format)
+                    .unwrap_or_default(),
                 if session.is_public() { " (Public)" } else { "" },
             ),
             color: String::from(SESSION_COLORS[index % SESSION_COLORS.len()]),
@@ -356,12 +432,14 @@ pub fn graph_points(sessions: &[&ChargingSession], start: &DateTime, end: &DateT
 
     if matches!(period, StackedBarPeriod::Raw | StackedBarPeriod::Rate) {
         let mut last_date = None;
-        let points = sessions.iter()
+        let points = sessions
+            .iter()
             .enumerate()
             .map(|(index, session)| {
                 let (session_start, session_end) = (session.start.to_timezone(tz), session.end.to_timezone(tz));
                 let date = session_start.to_date();
-                let tick_label = (last_date != Some(date)).then(|| session_start.format(&day_format).unwrap_or_default());
+                let tick_label =
+                    (last_date != Some(date)).then(|| session_start.format(&day_format).unwrap_or_default());
                 last_date = Some(date);
                 let mut values = vec![0.0; sessions.len()];
                 values[index] = session.energy_kwh();
@@ -389,16 +467,15 @@ pub fn graph_points(sessions: &[&ChargingSession], start: &DateTime, end: &DateT
     while bucket_start < *end {
         let (_, bucket_end) = period_bounds(bucket_start.to_date(), period, tz);
         let (from, to) = (bucket_start.unix_timestamp(), bucket_end.unix_timestamp());
-        let values = sessions.iter()
+        let values = sessions
+            .iter()
             .map(|session| {
                 let (session_start, session_end) = (session.start.unix_timestamp(), session.end.unix_timestamp());
                 let share = if session_end > session_start {
                     (session_end.min(to) - session_start.max(from)).max(0) as f64 / (session_end - session_start) as f64
-                }
-                else if session_start >= from && session_start < to {
+                } else if session_start >= from && session_start < to {
                     1.0
-                }
-                else {
+                } else {
                     0.0
                 };
                 session.energy_kwh() * share
@@ -437,11 +514,16 @@ mod tests {
     use bruce_graphql::types::DateTime;
 
     use super::{ChargingSession, ERROR, FULL, NO_CHARGE, PUBLIC, Problem, SMART, graph_points};
-    use crate::octopus::decimal::Decimal;
     use crate::components::stacked_bar_graph::StackedBarPeriod;
+    use crate::octopus::decimal::Decimal;
 
     fn time(text: &str) -> DateTime {
-        DateTime::from_unix_timestamp(time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339).unwrap().unix_timestamp()).unwrap()
+        DateTime::from_unix_timestamp(
+            time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339)
+                .unwrap()
+                .unix_timestamp(),
+        )
+        .unwrap()
     }
 
     fn session(kind: &str, start: &str, end: &str, kwh: i64, problems: &[&str]) -> ChargingSession {
@@ -462,12 +544,31 @@ mod tests {
 
     #[test]
     fn a_session_is_shown_if_its_kind_is_unless_it_is_in_a_hidden_category() {
-        let full = session("SMART", "2026-10-01T21:00:00Z", "2026-10-02T07:00:00Z", 30, &["FULL_CHARGE"]);
-        let plugged_in = session("SMART", "2026-10-02T07:03:00Z", "2026-10-02T15:00:00Z", 0, &["NO_SCHEDULED_CHARGE"]);
-        let error = session("SMART", "2026-10-03T21:00:00Z", "2026-10-04T07:00:00Z", 39, &["FAILURE_CAUSE_ERROR"]);
+        let full = session(
+            "SMART",
+            "2026-10-01T21:00:00Z",
+            "2026-10-02T07:00:00Z",
+            30,
+            &["FULL_CHARGE"],
+        );
+        let plugged_in = session(
+            "SMART",
+            "2026-10-02T07:03:00Z",
+            "2026-10-02T15:00:00Z",
+            0,
+            &["NO_SCHEDULED_CHARGE"],
+        );
+        let error = session(
+            "SMART",
+            "2026-10-03T21:00:00Z",
+            "2026-10-04T07:00:00Z",
+            39,
+            &["FAILURE_CAUSE_ERROR"],
+        );
         let public = session("PUBLIC", "2026-10-05T15:00:00Z", "2026-10-05T15:30:00Z", 28, &[]);
         let shown = |hidden: &[&str]| {
-            [&full, &plugged_in, &error, &public].iter()
+            [&full, &plugged_in, &error, &public]
+                .iter()
                 .filter(|session| session.shown(|category| !hidden.contains(&category)))
                 .count()
         };

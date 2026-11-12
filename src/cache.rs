@@ -32,6 +32,8 @@ impl CacheConfig {
 
     /// The profile's store.
     pub fn store(&self) -> anyhow::Result<&std::sync::Arc<bruce_db::Store>> {
-        self.store.as_ref().ok_or_else(|| anyhow::anyhow!("The cache has no store"))
+        self.store
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("The cache has no store"))
     }
 }

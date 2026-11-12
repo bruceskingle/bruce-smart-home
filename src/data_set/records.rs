@@ -28,7 +28,11 @@ pub struct Records {
 
 /// The kind of a DataSet's hash key, e.g. octopus.measurementsconsumption, from its last part.
 fn kind_of(hash_key: &str) -> anyhow::Result<String> {
-    let name: String = hash_key.rsplit('#').next().unwrap_or_default().chars()
+    let name: String = hash_key
+        .rsplit('#')
+        .next()
+        .unwrap_or_default()
+        .chars()
         .filter(|character| character.is_ascii_alphanumeric())
         .map(|character| character.to_ascii_lowercase())
         .collect();
@@ -70,7 +74,10 @@ impl Records {
 
     /// When the record sk was last put, from its version, None if there is none.
     pub fn fetched_at(&self, sk: &str) -> anyhow::Result<Option<time::OffsetDateTime>> {
-        Ok(self.store.get(&self.hk, sk)?.and_then(|item| item.version.time.to_datetime().ok()))
+        Ok(self
+            .store
+            .get(&self.hk, sk)?
+            .and_then(|item| item.version.time.to_datetime().ok()))
     }
 
     /// Records that the DataSet has been fetched now.
@@ -84,13 +91,15 @@ impl Records {
 
     /// Puts a record, a new version written by the app, see store::version_now.
     pub fn put(&self, sk: &str, value: Value) -> anyhow::Result<()> {
-        self.store.put(&Item::new(&self.hk, sk, crate::store::version_now(), value))?;
+        self.store
+            .put(&Item::new(&self.hk, sk, crate::store::version_now(), value))?;
         Ok(())
     }
 
     /// Deletes a record, e.g. one the server no longer has.
     pub fn delete(&self, sk: &str) -> anyhow::Result<()> {
-        self.store.put(&Item::tombstone(&self.hk, sk, crate::store::version_now()))?;
+        self.store
+            .put(&Item::tombstone(&self.hk, sk, crate::store::version_now()))?;
         Ok(())
     }
 
@@ -98,9 +107,12 @@ impl Records {
     /// `2026/October#<hash key>`, the first time it is asked to, giving put each of its lines, so that a profile made
     /// before the store keeps its data, see convert.rs. Returns whether there was a file to import. A file is imported
     /// once, which its `#imported/<file>` record says, and is left as it was.
-    pub fn import_legacy(&self, config: &CacheConfig, relative: &str, put: &mut dyn FnMut(&Records, Value) -> anyhow::Result<()>)
-        -> anyhow::Result<bool>
-    {
+    pub fn import_legacy(
+        &self,
+        config: &CacheConfig,
+        relative: &str,
+        put: &mut dyn FnMut(&Records, Value) -> anyhow::Result<()>,
+    ) -> anyhow::Result<bool> {
         let marker = format!("#imported/{relative}");
         let path = config.dir_path().join(relative);
         // An offline profile's are imported too, as it only shows what it has, which is in the store.
@@ -118,8 +130,10 @@ impl Records {
                     Ok(value) => {
                         put(self, value)?;
                         count += 1;
-                    },
-                    Err(error) => crate::log_warning!("Skipping a line of {} which is not JSON, {error}", path.display()),
+                    }
+                    Err(error) => {
+                        crate::log_warning!("Skipping a line of {} which is not JSON, {error}", path.display())
+                    }
                 }
             }
             Ok(())
@@ -158,7 +172,10 @@ mod tests {
 
     #[test]
     fn a_data_sets_kind_is_its_keys_last_part_and_its_key_is_kept_hashed() {
-        assert_eq!(kind_of("A-1#123#MeasurementsConsumption").unwrap(), "octopus.measurementsconsumption");
+        assert_eq!(
+            kind_of("A-1#123#MeasurementsConsumption").unwrap(),
+            "octopus.measurementsconsumption"
+        );
         assert_eq!(kind_of("A-1#Bills").unwrap(), "octopus.bills");
         assert!(kind_of("A-1#").is_err());
 
@@ -173,8 +190,16 @@ mod tests {
         assert_eq!(records.fetched_age().unwrap(), None);
         records.put("2026-10-01#1", serde_json::json!({"n": 1})).unwrap();
         records.mark_fetched().unwrap();
-        assert!(records.fetched_age().unwrap().is_some_and(|age| age < Duration::from_secs(60)));
-        assert_eq!(records.all().unwrap(), vec![("2026-10-01#1".to_string(), serde_json::json!({"n": 1}))]);
+        assert!(
+            records
+                .fetched_age()
+                .unwrap()
+                .is_some_and(|age| age < Duration::from_secs(60))
+        );
+        assert_eq!(
+            records.all().unwrap(),
+            vec![("2026-10-01#1".to_string(), serde_json::json!({"n": 1}))]
+        );
         records.delete("2026-10-01#1").unwrap();
         assert!(records.all().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
@@ -185,20 +210,30 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("bruce-smart-home-legacy-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("cache/2026")).unwrap();
-        std::fs::write(dir.join("cache/2026/October#A-1#Bills"), "{\"n\": 1}\n\n{\"n\": 2}\nnot json\n").unwrap();
+        std::fs::write(
+            dir.join("cache/2026/October#A-1#Bills"),
+            "{\"n\": 1}\n\n{\"n\": 2}\nnot json\n",
+        )
+        .unwrap();
         let site = Id::of(&serde_json::json!({"site": "legacy test"})).unwrap();
         let store = Arc::new(Store::open(&format!("file://{}", dir.join("store").display()), &site).unwrap());
         let config = CacheConfig::new(dir.join("cache"), false).with_store(store.clone());
         let records = Records::open(&config, "A-1#Bills").unwrap();
         let import = |records: &Records| {
             let mut place = 0;
-            records.import_legacy(&config, "2026/October#A-1#Bills", &mut |records, value| {
-                place += 1;
-                records.put(&format!("{place}"), value)
-            }).unwrap()
+            records
+                .import_legacy(&config, "2026/October#A-1#Bills", &mut |records, value| {
+                    place += 1;
+                    records.put(&format!("{place}"), value)
+                })
+                .unwrap()
         };
         assert!(import(&records));
-        assert_eq!(records.all().unwrap().len(), 2, "the line which is not JSON is left out");
+        assert_eq!(
+            records.all().unwrap().len(),
+            2,
+            "the line which is not JSON is left out"
+        );
         assert!(!import(&records), "imported once");
         assert!(dir.join("cache/2026/October#A-1#Bills").exists());
         let _ = std::fs::remove_dir_all(&dir);

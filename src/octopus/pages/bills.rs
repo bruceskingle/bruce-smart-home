@@ -7,10 +7,10 @@ use time_tz::Tz;
 
 use crate::components::app::MAIN_CSS;
 use crate::components::child_windows;
-use crate::views::help_panel::HelpPanel;
-use dioxus_free_icons::{Icon, icons::ld_icons::LdCircleHelp};
 use crate::octopus::bill::{AbstractBill, BillDataSet, BillTransactionBreakDown};
 use crate::octopus::context::OctopusContext;
+use crate::views::help_panel::HelpPanel;
+use dioxus_free_icons::{Icon, icons::ld_icons::LdCircleHelp};
 
 /// Where the bills' windows open in the main window, just right of the column of bill references, so that the others
 /// can still be clicked, and below the navigation bar: the right of the column and the top of the page area.
@@ -40,30 +40,44 @@ pub fn BillsPage(props: BillsPageProps) -> Element {
         let context = context.clone();
         move || {
             let context = context.clone();
-            async move { BillDataSet::new(&context.account_id, &context.cache_config, &*context.request_manager).await.map(Arc::new) }
+            async move {
+                BillDataSet::new(&context.account_id, &context.cache_config, &*context.request_manager)
+                    .await
+                    .map(Arc::new)
+            }
         }
     });
 
     let open_bill = use_callback({
         let context = context.clone();
         move |bill_id: String| {
-            let Some(Ok(bills)) = &*bills_resource.peek() else { return };
+            let Some(Ok(bills)) = &*bills_resource.peek() else {
+                return;
+            };
             let title = match find_bill(&bill_id, bills) {
                 Some(bill) => {
                     let bill = bill.as_bill_interface();
                     format!("Bill {} ({} to {})", bill.id_, bill.from_date_, bill.to_date_)
-                },
+                }
                 None => format!("Bill {bill_id}"),
             };
             let (context, bills) = (context.clone(), bills.clone());
             spawn(async move {
-                let anchor = document::eval(ANCHOR).join::<(f64, f64)>().await.ok()
+                let anchor = document::eval(ANCHOR)
+                    .join::<(f64, f64)>()
+                    .await
+                    .ok()
                     .map(|(x, y)| LogicalPosition::new(x + ANCHOR_GAP, y));
-                child_windows::open(&bill_id, title, anchor, || VirtualDom::new_with_props(BillWindow, BillWindowProps {
-                    context,
-                    bill_id: bill_id.clone(),
-                    bills,
-                }));
+                child_windows::open(&bill_id, title, anchor, || {
+                    VirtualDom::new_with_props(
+                        BillWindow,
+                        BillWindowProps {
+                            context,
+                            bill_id: bill_id.clone(),
+                            bills,
+                        },
+                    )
+                });
             });
         }
     });
@@ -83,7 +97,7 @@ pub fn BillsPage(props: BillsPageProps) -> Element {
                     }
                 }
             }
-        },
+        }
     }
 }
 
@@ -112,7 +126,9 @@ fn BillWindow(props: BillWindowProps) -> Element {
     let mut show_help = crate::help::use_help_shown();
 
     use_future(|| async {
-        let mut keys = document::eval("document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { dioxus.send(true); } });");
+        let mut keys = document::eval(
+            "document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { dioxus.send(true); } });",
+        );
         while keys.recv::<bool>().await.is_ok() {
             dioxus::desktop::window().close();
         }
@@ -190,8 +206,14 @@ fn BillDetail(props: BillDetailProps) -> Element {
             let props = props.clone();
             let context = context.clone();
             async move {
-                BillTransactionBreakDown::for_statement(props.account_id, props.bill_id,
-                    props.billing_timezone, &context.cache_config, &*context.request_manager).await
+                BillTransactionBreakDown::for_statement(
+                    props.account_id,
+                    props.bill_id,
+                    props.billing_timezone,
+                    &context.cache_config,
+                    &*context.request_manager,
+                )
+                .await
             }
         }
     });
@@ -206,7 +228,10 @@ fn BillDetail(props: BillDetailProps) -> Element {
         None => rsx! {
             {format!("Loading transactions for bill {}...", props.bill_id)}
         },
-        Some(Err(error)) => Err(anyhow!("Failed to load transactions for bill {}: {error:#}", props.bill_id))?,
+        Some(Err(error)) => Err(anyhow!(
+            "Failed to load transactions for bill {}: {error:#}",
+            props.bill_id
+        ))?,
         Some(Ok(bill_transactions)) => bill.gui_display(bill_transactions),
     }
 }

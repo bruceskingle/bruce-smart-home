@@ -1,9 +1,12 @@
 //! A button showing a date range, which opens a dialog to change it.
 //! Times are selected in half hour slots in a given timezone.
 
-use dioxus::prelude::*;
-use dioxus_free_icons::{Icon, icons::ld_icons::{LdCalendar, LdChevronLeft, LdChevronRight}};
 use bruce_graphql::types::{Date, DateTime};
+use dioxus::prelude::*;
+use dioxus_free_icons::{
+    Icon,
+    icons::ld_icons::{LdCalendar, LdChevronLeft, LdChevronRight},
+};
 use time_tz::{OffsetDateTimeExt, PrimitiveDateTimeExt, Tz};
 
 /// The number of half hour slots in a day.
@@ -29,15 +32,24 @@ impl LocalSlot {
 
     /// The slot containing the time, as a unix timestamp, in the timezone.
     pub fn from_unix_timestamp(timestamp: i64, tz: &Tz) -> Option<Self> {
-        let local = time::OffsetDateTime::from_unix_timestamp(timestamp).ok()?.to_timezone(tz);
-        Some(LocalSlot { date: local.date(), slot: local.hour() * 2 + local.minute() / 30 })
+        let local = time::OffsetDateTime::from_unix_timestamp(timestamp)
+            .ok()?
+            .to_timezone(tz);
+        Some(LocalSlot {
+            date: local.date(),
+            slot: local.hour() * 2 + local.minute() / 30,
+        })
     }
 
     /// None if this wall clock time does not exist in the timezone, i.e. when the clocks go forward.
     /// When the clocks go back the earlier of the two possible times is used.
     pub fn to_date_time(&self, tz: &Tz) -> Option<DateTime> {
-        let offset_date_time = time::PrimitiveDateTime::new(self.date, self.time()).assume_timezone(tz).take_first()?;
-        DateTime::from_unix_timestamp(offset_date_time.unix_timestamp()).ok().map(|date_time| date_time.to_timezone(tz))
+        let offset_date_time = time::PrimitiveDateTime::new(self.date, self.time())
+            .assume_timezone(tz)
+            .take_first()?;
+        DateTime::from_unix_timestamp(offset_date_time.unix_timestamp())
+            .ok()
+            .map(|date_time| date_time.to_timezone(tz))
     }
 }
 
@@ -59,7 +71,10 @@ impl RangeSelection {
     pub fn current_month(tz: &Tz) -> Self {
         let today = crate::clock::today(tz);
         RangeSelection {
-            start: LocalSlot { date: today.replace_day(1).unwrap_or(today), slot: 0 },
+            start: LocalSlot {
+                date: today.replace_day(1).unwrap_or(today),
+                slot: 0,
+            },
             end: None,
         }
     }
@@ -77,7 +92,10 @@ impl RangeSelection {
         let date = LocalSlot::from_unix_timestamp(timestamp, tz)?.date;
         Some(RangeSelection {
             start: LocalSlot { date, slot: 0 },
-            end: Some(LocalSlot { date: date.next_day()?, slot: 0 }),
+            end: Some(LocalSlot {
+                date: date.next_day()?,
+                slot: 0,
+            }),
         })
     }
 
@@ -111,7 +129,12 @@ enum RangeLength {
 /// The date the given number of months after date, which is the 1st of a month.
 fn add_months(date: time::Date, months: i32) -> Option<time::Date> {
     let index = date.year() * 12 + date.month() as i32 - 1 + months;
-    time::Date::from_calendar_date(index.div_euclid(12), time::Month::try_from((index.rem_euclid(12) + 1) as u8).ok()?, 1).ok()
+    time::Date::from_calendar_date(
+        index.div_euclid(12),
+        time::Month::try_from((index.rem_euclid(12) + 1) as u8).ok()?,
+        1,
+    )
+    .ok()
 }
 
 /// The number of months from the month of start to the month of end.
@@ -129,24 +152,23 @@ impl RangeSelection {
             Some(end) if start.slot == 0 && end.slot == 0 => {
                 if start.date.day() == 1 && end.date.day() == 1 {
                     RangeLength::Months(months_between(start.date, end.date))
-                }
-                else {
+                } else {
                     RangeLength::Days((end.date - start.date).whole_days())
                 }
-            },
-            Some(end) => RangeLength::Seconds(end.to_date_time(tz)?.unix_timestamp() - start.to_date_time(tz)?.unix_timestamp()),
+            }
+            Some(end) => {
+                RangeLength::Seconds(end.to_date_time(tz)?.unix_timestamp() - start.to_date_time(tz)?.unix_timestamp())
+            }
             None if start.slot == 0 => {
                 let days = (today - start.date).whole_days();
                 if start.date.day() == 1 {
                     RangeLength::Months(months_between(start.date, today) + 1)
-                }
-                else if start.date.weekday() == time::Weekday::Monday && days < 7 {
+                } else if start.date.weekday() == time::Weekday::Monday && days < 7 {
                     RangeLength::Days(7)
-                }
-                else {
+                } else {
                     RangeLength::Days(days.max(1))
                 }
-            },
+            }
             None => RangeLength::Seconds(now.unix_timestamp() - start.to_date_time(tz)?.unix_timestamp()),
         })
     }
@@ -163,11 +185,22 @@ impl RangeSelection {
     fn previous(&self, today: time::Date, now: &DateTime, tz: &'static Tz) -> Option<RangeSelection> {
         let start = self.start;
         let new_start = match self.length(today, now, tz)? {
-            RangeLength::Months(months) => LocalSlot { date: add_months(start.date, -months)?, slot: 0 },
-            RangeLength::Days(days) => LocalSlot { date: start.date - time::Duration::days(days), slot: start.slot },
-            RangeLength::Seconds(seconds) => LocalSlot::from_unix_timestamp(start.to_date_time(tz)?.unix_timestamp() - seconds, tz)?,
+            RangeLength::Months(months) => LocalSlot {
+                date: add_months(start.date, -months)?,
+                slot: 0,
+            },
+            RangeLength::Days(days) => LocalSlot {
+                date: start.date - time::Duration::days(days),
+                slot: start.slot,
+            },
+            RangeLength::Seconds(seconds) => {
+                LocalSlot::from_unix_timestamp(start.to_date_time(tz)?.unix_timestamp() - seconds, tz)?
+            }
         };
-        Some(RangeSelection { start: new_start, end: Some(start) })
+        Some(RangeSelection {
+            start: new_start,
+            end: Some(start),
+        })
     }
 
     /// The range of the same length immediately after this one, which is up to now if it would reach now. None if this
@@ -178,12 +211,23 @@ impl RangeSelection {
             return None;
         }
         let new_end = match self.length(today, now, tz)? {
-            RangeLength::Months(months) => LocalSlot { date: add_months(end.date, months)?, slot: 0 },
-            RangeLength::Days(days) => LocalSlot { date: end.date + time::Duration::days(days), slot: end.slot },
-            RangeLength::Seconds(seconds) => LocalSlot::from_unix_timestamp(end.to_date_time(tz)?.unix_timestamp() + seconds, tz)?,
+            RangeLength::Months(months) => LocalSlot {
+                date: add_months(end.date, months)?,
+                slot: 0,
+            },
+            RangeLength::Days(days) => LocalSlot {
+                date: end.date + time::Duration::days(days),
+                slot: end.slot,
+            },
+            RangeLength::Seconds(seconds) => {
+                LocalSlot::from_unix_timestamp(end.to_date_time(tz)?.unix_timestamp() + seconds, tz)?
+            }
         };
         let reaches_now = new_end.to_date_time(tz).is_none_or(|new_end| new_end >= *now);
-        Some(RangeSelection { start: end, end: if reaches_now { None } else { Some(new_end) } })
+        Some(RangeSelection {
+            start: end,
+            end: if reaches_now { None } else { Some(new_end) },
+        })
     }
 }
 
@@ -212,8 +256,18 @@ enum QuickRange {
 impl QuickRange {
     /// The buttons in two rows, the current periods above the previous ones.
     const ROWS: [[QuickRange; 4]; 2] = [
-        [QuickRange::ThisWeek, QuickRange::SevenDays, QuickRange::ThisMonth, QuickRange::ThirtyDays],
-        [QuickRange::LastWeek, QuickRange::PrevSevenDays, QuickRange::LastMonth, QuickRange::PrevThirtyDays],
+        [
+            QuickRange::ThisWeek,
+            QuickRange::SevenDays,
+            QuickRange::ThisMonth,
+            QuickRange::ThirtyDays,
+        ],
+        [
+            QuickRange::LastWeek,
+            QuickRange::PrevSevenDays,
+            QuickRange::LastMonth,
+            QuickRange::PrevThirtyDays,
+        ],
     ];
 
     fn label(&self) -> &'static str {
@@ -234,7 +288,9 @@ impl QuickRange {
         let days_ago = |days: i64| today - time::Duration::days(days);
         let this_week = days_ago(today.weekday().number_days_from_monday() as i64);
         let this_month = today.replace_day(1).unwrap_or(today);
-        let last_month = this_month.previous_day().map_or(this_month, |day| day.replace_day(1).unwrap_or(day));
+        let last_month = this_month
+            .previous_day()
+            .map_or(this_month, |day| day.replace_day(1).unwrap_or(day));
 
         let (start, end) = match self {
             QuickRange::ThisWeek => (this_week, None),
@@ -247,7 +303,10 @@ impl QuickRange {
             QuickRange::PrevThirtyDays => (days_ago(60), Some(days_ago(30))),
         };
         let midnight = |date| LocalSlot { date, slot: 0 };
-        RangeSelection { start: midnight(start), end: end.map(midnight) }
+        RangeSelection {
+            start: midnight(start),
+            end: end.map(midnight),
+        }
     }
 }
 
@@ -287,12 +346,22 @@ impl RangeDraft {
         let start_date = self.start_date.ok_or_else(|| String::from("Select a from date"))?;
         let end = if self.to_now {
             None
-        }
-        else {
-            let end_date = self.end_date.ok_or_else(|| String::from("Select a to date, or tick Up to now"))?;
-            Some(LocalSlot { date: end_date, slot: self.end_slot })
+        } else {
+            let end_date = self
+                .end_date
+                .ok_or_else(|| String::from("Select a to date, or tick Up to now"))?;
+            Some(LocalSlot {
+                date: end_date,
+                slot: self.end_slot,
+            })
         };
-        let selection = RangeSelection { start: LocalSlot { date: start_date, slot: self.start_slot }, end };
+        let selection = RangeSelection {
+            start: LocalSlot {
+                date: start_date,
+                slot: self.start_slot,
+            },
+            end,
+        };
 
         // Check that the times exist and are in the right order.
         selection.to_date_times(tz)?;
@@ -325,8 +394,7 @@ pub struct DateRangePickerProps {
 
 impl PartialEq for DateRangePickerProps {
     fn eq(&self, other: &Self) -> bool {
-        self.range == other.range
-            && std::ptr::eq(self.timezone, other.timezone)
+        self.range == other.range && std::ptr::eq(self.timezone, other.timezone)
     }
 }
 
@@ -445,8 +513,7 @@ pub fn DateRangePicker(props: DateRangePickerProps) -> Element {
                 }
             }
         }
-    }
-    else {
+    } else {
         rsx! {}
     };
 
@@ -520,65 +587,121 @@ mod tests {
         let end = datetime!(2026-09-07 23:00 UTC).unix_timestamp();
 
         let range = RangeSelection::from_unix_timestamps(start, end, london).unwrap();
-        assert!(range.start == LocalSlot { date: date!(2026-09-01), slot: 0 });
-        assert!(range.end == Some(LocalSlot { date: date!(2026-09-08), slot: 0 }));
+        assert!(
+            range.start
+                == LocalSlot {
+                    date: date!(2026 - 09 - 01),
+                    slot: 0
+                }
+        );
+        assert!(
+            range.end
+                == Some(LocalSlot {
+                    date: date!(2026 - 09 - 08),
+                    slot: 0
+                })
+        );
 
         // 2026-09-01 15:30 BST is in the 31st half hour slot of the day.
         let afternoon = datetime!(2026-09-01 14:30 UTC).unix_timestamp();
-        assert!(LocalSlot::from_unix_timestamp(afternoon, london) == Some(LocalSlot { date: date!(2026-09-01), slot: 31 }));
+        assert!(
+            LocalSlot::from_unix_timestamp(afternoon, london)
+                == Some(LocalSlot {
+                    date: date!(2026 - 09 - 01),
+                    slot: 31
+                })
+        );
         let day = RangeSelection::day_containing(afternoon, london).unwrap();
-        assert!(day.start == LocalSlot { date: date!(2026-09-01), slot: 0 });
-        assert!(day.end == Some(LocalSlot { date: date!(2026-09-02), slot: 0 }));
+        assert!(
+            day.start
+                == LocalSlot {
+                    date: date!(2026 - 09 - 01),
+                    slot: 0
+                }
+        );
+        assert!(
+            day.end
+                == Some(LocalSlot {
+                    date: date!(2026 - 09 - 02),
+                    slot: 0
+                })
+        );
     }
 
     #[test]
     fn quick_ranges_start_at_midnight_and_run_up_to_now() {
         // A Wednesday.
-        let today = date!(2026-10-21);
+        let today = date!(2026 - 10 - 21);
         let start = |quick: QuickRange| {
             let selection = quick.selection(today);
             assert!(selection.end.is_none());
             assert_eq!(selection.start.slot, 0);
             selection.start.date
         };
-        assert_eq!(start(QuickRange::ThisWeek), date!(2026-10-19));
-        assert_eq!(start(QuickRange::SevenDays), date!(2026-10-14));
-        assert_eq!(start(QuickRange::ThisMonth), date!(2026-10-01));
-        assert_eq!(start(QuickRange::ThirtyDays), date!(2026-09-21));
+        assert_eq!(start(QuickRange::ThisWeek), date!(2026 - 10 - 19));
+        assert_eq!(start(QuickRange::SevenDays), date!(2026 - 10 - 14));
+        assert_eq!(start(QuickRange::ThisMonth), date!(2026 - 10 - 01));
+        assert_eq!(start(QuickRange::ThirtyDays), date!(2026 - 09 - 21));
 
         // On a Monday this week starts today.
-        assert_eq!(QuickRange::ThisWeek.selection(date!(2026-10-19)).start.date, date!(2026-10-19));
+        assert_eq!(
+            QuickRange::ThisWeek.selection(date!(2026 - 10 - 19)).start.date,
+            date!(2026 - 10 - 19)
+        );
     }
 
     #[test]
     fn previous_quick_ranges_end_where_the_current_ones_start() {
-        let today = date!(2026-10-21);
+        let today = date!(2026 - 10 - 21);
         let range = |quick: QuickRange| {
             let selection = quick.selection(today);
             (selection.start.date, selection.end.map(|end| end.date))
         };
-        assert_eq!(range(QuickRange::LastWeek), (date!(2026-10-12), Some(date!(2026-10-19))));
-        assert_eq!(range(QuickRange::PrevSevenDays), (date!(2026-10-07), Some(date!(2026-10-14))));
-        assert_eq!(range(QuickRange::LastMonth), (date!(2026-09-01), Some(date!(2026-10-01))));
-        assert_eq!(range(QuickRange::PrevThirtyDays), (date!(2026-08-22), Some(date!(2026-09-21))));
+        assert_eq!(
+            range(QuickRange::LastWeek),
+            (date!(2026 - 10 - 12), Some(date!(2026 - 10 - 19)))
+        );
+        assert_eq!(
+            range(QuickRange::PrevSevenDays),
+            (date!(2026 - 10 - 07), Some(date!(2026 - 10 - 14)))
+        );
+        assert_eq!(
+            range(QuickRange::LastMonth),
+            (date!(2026 - 09 - 01), Some(date!(2026 - 10 - 01)))
+        );
+        assert_eq!(
+            range(QuickRange::PrevThirtyDays),
+            (date!(2026 - 08 - 22), Some(date!(2026 - 09 - 21)))
+        );
 
         // Last month from January is December of the year before.
-        assert_eq!(QuickRange::LastMonth.selection(date!(2027-01-15)).start.date, date!(2026-12-01));
+        assert_eq!(
+            QuickRange::LastMonth.selection(date!(2027 - 01 - 15)).start.date,
+            date!(2026 - 12 - 01)
+        );
     }
 
     #[test]
     fn paging_moves_by_the_same_period_and_stops_at_now() {
         let london = time_tz::timezones::db::europe::LONDON;
         // Wednesday 21 October 2026, 15:00 BST.
-        let today = date!(2026-10-21);
+        let today = date!(2026 - 10 - 21);
         let now = DateTime::from_unix_timestamp(datetime!(2026-10-21 14:00 UTC).unix_timestamp()).unwrap();
         let slot = |date| LocalSlot { date, slot: 0 };
-        let range = |start, end: Option<time::Date>| RangeSelection { start: slot(start), end: end.map(slot) };
+        let range = |start, end: Option<time::Date>| RangeSelection {
+            start: slot(start),
+            end: end.map(slot),
+        };
         let previous = |selection: RangeSelection| selection.previous(today, &now, london).unwrap();
         let next = |selection: RangeSelection| selection.next(today, &now, london);
 
         // Before the up to now ranges are the same as the Last and Prev buttons.
-        for quick in [QuickRange::ThisWeek, QuickRange::SevenDays, QuickRange::ThisMonth, QuickRange::ThirtyDays] {
+        for quick in [
+            QuickRange::ThisWeek,
+            QuickRange::SevenDays,
+            QuickRange::ThisMonth,
+            QuickRange::ThirtyDays,
+        ] {
             assert!(next(quick.selection(today)).is_none());
         }
         assert!(previous(QuickRange::ThisWeek.selection(today)) == QuickRange::LastWeek.selection(today));
@@ -587,12 +710,24 @@ mod tests {
         assert!(previous(QuickRange::ThirtyDays.selection(today)) == QuickRange::PrevThirtyDays.selection(today));
 
         // Months page by calendar month, including across a year.
-        assert!(previous(range(date!(2026-01-01), Some(date!(2026-02-01)))) == range(date!(2025-12-01), Some(date!(2026-01-01))));
-        assert!(next(range(date!(2026-01-01), Some(date!(2026-02-01)))) == Some(range(date!(2026-02-01), Some(date!(2026-03-01)))));
+        assert!(
+            previous(range(date!(2026 - 01 - 01), Some(date!(2026 - 02 - 01))))
+                == range(date!(2025 - 12 - 01), Some(date!(2026 - 01 - 01)))
+        );
+        assert!(
+            next(range(date!(2026 - 01 - 01), Some(date!(2026 - 02 - 01))))
+                == Some(range(date!(2026 - 02 - 01), Some(date!(2026 - 03 - 01))))
+        );
 
         // Days page by whole days, across the clock change on 25 October.
-        assert!(next(range(date!(2026-10-01), Some(date!(2026-10-03)))) == Some(range(date!(2026-10-03), Some(date!(2026-10-05)))));
-        assert!(previous(range(date!(2026-10-26), Some(date!(2026-10-27)))) == range(date!(2026-10-25), Some(date!(2026-10-26))));
+        assert!(
+            next(range(date!(2026 - 10 - 01), Some(date!(2026 - 10 - 03))))
+                == Some(range(date!(2026 - 10 - 03), Some(date!(2026 - 10 - 05))))
+        );
+        assert!(
+            previous(range(date!(2026 - 10 - 26), Some(date!(2026 - 10 - 27))))
+                == range(date!(2026 - 10 - 25), Some(date!(2026 - 10 - 26)))
+        );
 
         // After last week is this week, up to now.
         assert!(next(QuickRange::LastWeek.selection(today)) == Some(QuickRange::ThisWeek.selection(today)));

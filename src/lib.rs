@@ -1,50 +1,49 @@
-
 mod ordered_map;
 pub use ordered_map::OrderedMap;
 
-mod octopus;
-mod myenergi;
-mod tesla;
-mod globird;
-pub mod period;
-pub mod power;
-mod http;
+mod cache_browser;
 pub mod capture_device;
 pub mod climate;
-mod cache_browser;
+pub mod components;
+mod globird;
+mod http;
+mod myenergi;
+mod octopus;
+pub mod period;
 pub mod polling;
+pub mod power;
+mod profile;
+mod tesla;
 pub mod util;
 mod views;
-pub mod components;
-mod profile;
 
-mod private_file;
-mod secrets;
-pub mod data_home;
-pub mod logging;
-pub mod help;
 pub mod clock;
-pub mod screenshots;
+pub mod data_home;
+pub mod help;
+pub mod logging;
+mod private_file;
 pub mod redact;
+pub mod screenshots;
+mod secrets;
 
 #[cfg(feature = "desktop")]
 pub mod window_state;
 
-mod data_set;
 mod cache;
-pub mod store;
+pub mod convert;
+mod data_set;
 /// The kinds capture devices write, shared with the firmware, see device_kinds.rs.
 pub mod device_kinds;
-pub mod convert;
+pub mod store;
 use cache::CacheConfig;
 
-use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 use anyhow::anyhow;
 use async_trait::async_trait;
+use clap::Parser;
 use dioxus::core::Element;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
-use clap::{Parser};
+use serde::de::DeserializeOwned;
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
 use crate::profile::ActiveProfile;
 
@@ -54,10 +53,10 @@ const NULL: &'static str = "Null";
 /*
  * It is important that the names of all args here do not contain hyphens or underscores
  * as these are used to separate module args from main args.
- * 
+ *
  * For example, to pass an arg to the octopus module, use --octopus-<arg_name> and in the corresponding Arg struct in the octopus module
  * all field names must begin with octopus_ so octopus_arg_name in this example.
- * 
+ *
  * Underscores in the names of fields on this struct are translated into hyphens on the command line automatically by clap.
  */
 #[derive(Parser, Debug, Clone, PartialEq)]
@@ -119,14 +118,8 @@ impl Args {
         // Only the name identifies the module, the value may contain hyphens, e.g. --home=/tmp/ms-test
         let s = s.trim_start_matches('-').split('=').next().unwrap_or_default();
         if let Some((module, _)) = s.split_once('-') {
-            if module.trim().is_empty() {
-                None
-            }
-            else {
-                Some(module)
-            }   
-        }
-        else {
+            if module.trim().is_empty() { None } else { Some(module) }
+        } else {
             None
         }
     }
@@ -146,12 +139,15 @@ impl Args {
                 }
             }
             if let Some(module) = &module_id {
-                    module_args
+                module_args
                     .entry(module.clone())
-                    .or_insert_with(|| { let mut v = Vec::new(); v.push(arg0.clone()); v})
+                    .or_insert_with(|| {
+                        let mut v = Vec::new();
+                        v.push(arg0.clone());
+                        v
+                    })
                     .push(arg);
-            }
-            else {
+            } else {
                 main_only_args.push(arg);
             }
         }
@@ -163,7 +159,8 @@ impl Args {
             // Only the names of the module args are shown as their values may be secrets, e.g. -o for an API key, which
             // modules show redacted once they are parsed.
             for (module_id, args) in &module_args {
-                let names: Vec<&str> = args.iter()
+                let names: Vec<&str> = args
+                    .iter()
                     .filter(|arg| arg.starts_with('-'))
                     .map(|arg| arg.split('=').next().unwrap_or_default())
                     .collect();
@@ -177,7 +174,7 @@ impl Args {
         }
     }
 
-    pub fn module_args(&self, module_name: &str) ->  Option<Vec<String>> {
+    pub fn module_args(&self, module_name: &str) -> Option<Vec<String>> {
         self.module_args.get(module_name).cloned()
     }
 
@@ -240,9 +237,13 @@ pub fn fetch_latest_data(args: Args) -> bool {
         Err(error) => {
             eprintln!("Unable to start: {error}");
             return false;
-        },
+        }
     };
-    println!("Bruce's Smart Home {} fetching the latest data at {} UTC", env!("CARGO_PKG_VERSION"), time::OffsetDateTime::now_utc());
+    println!(
+        "Bruce's Smart Home {} fetching the latest data at {} UTC",
+        env!("CARGO_PKG_VERSION"),
+        time::OffsetDateTime::now_utc()
+    );
     let verbose = args.marco_sparko_args.verbose;
     let result = runtime.block_on(async move {
         let context = MarcoSparkoContext::new(args)?;
@@ -250,7 +251,10 @@ pub fn fetch_latest_data(args: Args) -> bool {
         let module_ids: Vec<String> = context.profile.active_profile.modules.keys().cloned().collect();
         let devices = capture_device::adopted_devices(&context.profile.active_profile.name);
         if module_ids.is_empty() && devices.is_empty() {
-            return Err(anyhow!("Profile {} has no modules set up, open the app and log in first", context.profile.active_profile.name));
+            return Err(anyhow!(
+                "Profile {} has no modules set up, open the app and log in first",
+                context.profile.active_profile.name
+            ));
         }
         let mut all_ok = true;
         // What the capture devices on the store have captured, first, so that the modules see it, see
@@ -266,7 +270,7 @@ pub fn fetch_latest_data(args: Args) -> bool {
                         println!("Capture device {}: FAILED: {error:#}", device.id);
                         log_error!("Replicating the capture device {} failed: {error:#}", device.id);
                         all_ok = false;
-                    },
+                    }
                 }
             }
         }
@@ -279,17 +283,18 @@ pub fn fetch_latest_data(args: Args) -> bool {
                     return Err(anyhow!("Not logged in, open the app and log in first"));
                 }
                 factory.build().await?.fetch_latest_data().await
-            }.await;
+            }
+            .await;
             match fetched {
                 Ok(()) => {
                     println!("Module {module_id}: done");
                     log_info!("Fetched the latest data of {module_id}");
-                },
+                }
                 Err(error) => {
                     println!("Module {module_id}: FAILED: {error:#}");
                     log_error!("Fetching the latest data of {module_id} failed: {error:#}");
                     all_ok = false;
-                },
+                }
             }
         }
         anyhow::Ok(all_ok)
@@ -298,18 +303,17 @@ pub fn fetch_latest_data(args: Args) -> bool {
         Ok(all_ok) => {
             println!("Finished{}", if all_ok { "" } else { " with errors" });
             all_ok
-        },
+        }
         Err(error) => {
             println!("FAILED: {error:#}");
             log_error!("Fetching the latest data failed: {error:#}");
             false
-        },
+        }
     };
     // Any errors have been logged already, this says the fetch ended rather than crashed.
     log_info!("Terminating normally");
     all_ok
 }
-
 
 #[derive(Clone, PartialEq)]
 pub struct PageInfo {
@@ -324,7 +328,12 @@ pub const FETCH_DAYS: i64 = 30;
 /// The labels the modules give energy, e.g. Home Low Rate, with their default colours, in the order they are shown,
 /// each module's own, then the app's, see components::category_filter.
 pub fn known_labels() -> impl Iterator<Item = &'static (&'static str, &'static str)> {
-    octopus::LABELS.iter().chain(&power::combine::LABELS).chain(&globird::LABELS).chain(&power::LABELS).chain(&power::flows::LABELS)
+    octopus::LABELS
+        .iter()
+        .chain(&power::combine::LABELS)
+        .chain(&globird::LABELS)
+        .chain(&power::LABELS)
+        .chain(&power::flows::LABELS)
 }
 
 // Not Send, as fetch_latest_data is run on one thread, see fetch_latest_data, and the data sets' futures are not Send.
@@ -378,7 +387,8 @@ pub trait ModuleFactory: Send {
     async fn build(&self) -> anyhow::Result<Box<dyn Module + Send>>;
 }
 
-pub type ModuleFactoryConstructor = dyn Fn(Arc<MarcoSparkoContext>, Option<serde_json::Value>) -> anyhow::Result<Arc<dyn ModuleFactory>>;
+pub type ModuleFactoryConstructor =
+    dyn Fn(Arc<MarcoSparkoContext>, Option<serde_json::Value>) -> anyhow::Result<Arc<dyn ModuleFactory>>;
 
 pub struct ModuleRegistration {
     pub module_id: String,
@@ -395,10 +405,10 @@ impl std::fmt::Debug for ModuleRegistrations {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[")?;
         for k in self.0.keys() {
-             write!(f, "{}, ", k)?;
+            write!(f, "{}, ", k)?;
         }
-         write!(f, "]")?;
-         Ok(())
+        write!(f, "]")?;
+        Ok(())
     }
 }
 
@@ -433,16 +443,22 @@ impl ModuleRegistrations {
 
     /// Each module's converter, by its ID, see ModuleRegistration::convert.
     pub fn converters() -> Vec<(String, convert::Converter)> {
-        Self::all().into_iter().filter_map(|registration| Some((registration.module_id, registration.convert?))).collect()
+        Self::all()
+            .into_iter()
+            .filter_map(|registration| Some((registration.module_id, registration.convert?)))
+            .collect()
     }
 
-    pub async fn module_factory(&self, module_id: &str, context: &Arc<MarcoSparkoContext>) -> anyhow::Result<Arc<dyn ModuleFactory + Send>> {
+    pub async fn module_factory(
+        &self,
+        module_id: &str,
+        context: &Arc<MarcoSparkoContext>,
+    ) -> anyhow::Result<Arc<dyn ModuleFactory + Send>> {
         if let Some(module_registration) = self.0.get(module_id) {
             let constructor = module_registration.constructor.as_ref();
             let profile = if let Some(value) = context.profile.active_profile.modules.get(module_id) {
                 Some(value.clone())
-            }
-            else {
+            } else {
                 None
             };
 
@@ -451,20 +467,20 @@ impl ModuleRegistrations {
                 if let Some(value) = &mut redacted_profile {
                     bruce_graphql::redact::redact_secrets(value);
                 }
-                println!("Initializing module '{}' with profile '{:?}'", module_id, redacted_profile);
+                println!(
+                    "Initializing module '{}' with profile '{:?}'",
+                    module_id, redacted_profile
+                );
             }
             let builder = constructor(context.clone(), profile)?;
 
             Ok(builder)
-        }
-        else {
-            return Err(anyhow!(format!("Unknown module \"{}\"", module_id)))
+        } else {
+            return Err(anyhow!(format!("Unknown module \"{}\"", module_id)));
         }
     }
 
     fn new(verbose: bool) -> ModuleRegistrations {
-
-
         let dir = std::env::current_dir().unwrap();
 
         if verbose {
@@ -488,15 +504,19 @@ impl ModuleRegistrations {
         ModuleRegistrations(Arc::new(module_registrations))
     }
 
-    fn load_module(module_registrations: &mut HashMap<String, ModuleRegistration> , registration: ModuleRegistration, verbose: bool) {
+    fn load_module(
+        module_registrations: &mut HashMap<String, ModuleRegistration>,
+        registration: ModuleRegistration,
+        verbose: bool,
+    ) {
         if verbose {
             println!("Load module {}", &registration.module_id);
-        }   
+        }
         module_registrations.insert(registration.module_id.clone(), registration);
     }
 }
 
- pub struct MarcoSparkoContext {
+pub struct MarcoSparkoContext {
     pub args: Args,
     pub profile: ActiveProfile,
     /// The profile's site's store, opened the first time it is needed, see store.
@@ -528,8 +548,6 @@ impl MarcoSparkoContext {
     }
 
     pub fn new(args: Args) -> anyhow::Result<Arc<MarcoSparkoContext>> {
-
-       
         let profile = crate::profile::fetch_active_profile(&args.marco_sparko_args.profile)?;
         Ok(Self::for_profile(args, profile))
     }
@@ -539,8 +557,16 @@ impl MarcoSparkoContext {
         // An offline profile is shown as it was when its data was last fetched.
         clock::set_as_of(profile.active_profile.as_of.filter(|_| profile.active_profile.offline));
         help::start(&profile.active_profile.name, &profile.active_profile.settings.help);
-        let process = if args.fetch() { logging::Process::Fetch } else { logging::Process::App };
-        logging::start(&profile.active_profile.name, &profile.active_profile.settings.log, process);
+        let process = if args.fetch() {
+            logging::Process::Fetch
+        } else {
+            logging::Process::App
+        };
+        logging::start(
+            &profile.active_profile.name,
+            &profile.active_profile.settings.log,
+            process,
+        );
         Arc::new(MarcoSparkoContext {
             args,
             profile,
@@ -570,26 +596,29 @@ impl MarcoSparkoContext {
     }
 
     fn get_cache_data_dir_path(&self, module_id: &str) -> anyhow::Result<PathBuf> {
-        let profile_name =&self.profile.active_profile.name;
+        let profile_name = &self.profile.active_profile.name;
         Ok(Self::get_cache_dir_path()?.join(format!("{}-{}", profile_name, module_id)))
     }
-      
+
     fn create_cache_config(&self, module_id: &str) -> anyhow::Result<Arc<CacheConfig>> {
         // Only read, see get_cache_dir_path, so not made if it is not there.
         let dir_path = self.get_cache_data_dir_path(module_id)?;
 
-        Ok(Arc::new(CacheConfig::new(dir_path, self.profile.active_profile.offline).with_store(self.store()?)))
+        Ok(Arc::new(
+            CacheConfig::new(dir_path, self.profile.active_profile.offline).with_store(self.store()?),
+        ))
     }
 
     /// The module's tokens, decrypted, see secrets::unseal, or None if it has none, or they cannot be read, when it logs
     /// in again.
     pub fn read_cache<T>(&self, module_id: &str) -> Option<T>
     where
-        T: DeserializeOwned
-     {
+        T: DeserializeOwned,
+    {
         if let Ok(path) = self.get_cache_file_path(module_id) {
             if let Ok(reader) = fs::File::open(path) {
-                let result = serde_json::from_reader(reader).map_err(anyhow::Error::from)
+                let result = serde_json::from_reader(reader)
+                    .map_err(anyhow::Error::from)
                     .and_then(secrets::unseal)
                     .and_then(|value| Ok(serde_json::from_value(value)?));
                 match result {
@@ -598,17 +627,20 @@ impl MarcoSparkoContext {
                 }
             }
         }
-        return None
+        return None;
     }
 
     /// Saves the module's tokens, encrypted whole, see secrets::seal, as they are all secret.
     pub fn update_cache<T>(&self, module_id: &str, profile: &T) -> anyhow::Result<()>
     where
-        T: Serialize
+        T: Serialize,
     {
         let path = self.get_cache_file_path(module_id)?;
 
-        serde_json::to_writer_pretty(private_file::create_private_file(path)?, &secrets::seal(&serde_json::to_value(profile)?)?)?;
+        serde_json::to_writer_pretty(
+            private_file::create_private_file(path)?,
+            &secrets::seal(&serde_json::to_value(profile)?)?,
+        )?;
 
         Ok(())
     }

@@ -47,10 +47,7 @@ impl ViewerDataSet {
     }
 }
 
-fn select_account_id(
-    account_ids: &[String],
-    preferred_account_id: Option<&str>,
-) -> anyhow::Result<String> {
+fn select_account_id(account_ids: &[String], preferred_account_id: Option<&str>) -> anyhow::Result<String> {
     let preferred = preferred_account_id.and_then(|preferred| {
         let found = account_ids.iter().find(|account_id| account_id.as_str() == preferred);
         if found.is_none() {

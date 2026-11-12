@@ -5,11 +5,11 @@ pub struct OrderedMap<K, O, V> {
     order: BTreeSet<(O, K)>,
 }
 
-impl<K,O,V> OrderedMap<K,O,V> {
+impl<K, O, V> OrderedMap<K, O, V> {
     pub fn new() -> Self {
         OrderedMap {
             values: HashMap::new(),
-            order: BTreeSet::new()
+            order: BTreeSet::new(),
         }
     }
 
@@ -17,7 +17,7 @@ impl<K,O,V> OrderedMap<K,O,V> {
         self.values.clear();
         self.order.clear();
     }
-    
+
     pub fn len(&self) -> usize {
         self.values.len()
     }
@@ -38,8 +38,7 @@ impl<K: Eq + std::hash::Hash + Ord + Clone, O: Ord + Clone, V> OrderedMap<K, O, 
     pub fn last(&self) -> Option<(&K, &V)> {
         if let Some(key) = self.order.last().map(|(_, v)| v) {
             Some((key, self.values.get(key).map(|(_, v)| v).unwrap()))
-        }
-        else {
+        } else {
             None
         }
     }
@@ -57,7 +56,6 @@ impl<K: Eq + std::hash::Hash + Ord + Clone, O: Ord + Clone, V> OrderedMap<K, O, 
     // pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
     //     self.order.iter().map(|(_, k)| (k, &self.values[k].1))
     // }
-
 
     pub fn iter(&self) -> OrderedMapIter<'_, K, O, V> {
         OrderedMapIter {

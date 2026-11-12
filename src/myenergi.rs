@@ -101,7 +101,10 @@ impl MyenergiModule {
         }
     }
 
-    pub fn constructor(context: Arc<MarcoSparkoContext>, json_profile: Option<serde_json::Value>) -> anyhow::Result<Arc<dyn ModuleFactory>> {
+    pub fn constructor(
+        context: Arc<MarcoSparkoContext>,
+        json_profile: Option<serde_json::Value>,
+    ) -> anyhow::Result<Arc<dyn ModuleFactory>> {
         let args = MyenergiArgs::parse_from(context.args.module_args(MODULE_ID).unwrap_or_default());
         let mut profile: Profile = match json_profile {
             Some(json) => serde_json::from_value(json)?,
@@ -120,14 +123,25 @@ impl MyenergiModule {
             println!("myenergi Module Profile: {:?}", profile);
         }
         let cache_config = context.create_cache_config(MODULE_ID)?;
-        Ok(Arc::new(MyenergiModuleFactory { context, profile, cache_config, verbose }))
+        Ok(Arc::new(MyenergiModuleFactory {
+            context,
+            profile,
+            cache_config,
+            verbose,
+        }))
     }
 }
 
 #[async_trait(?Send)]
 impl Module for MyenergiModule {
     async fn fetch_latest_data(&self) -> anyhow::Result<()> {
-        fetch::fetch(&self.context.client, &self.context.store, self.context.cache_config.offline, &mut |message| println!("{message}")).await
+        fetch::fetch(
+            &self.context.client,
+            &self.context.store,
+            self.context.cache_config.offline,
+            &mut |message| println!("{message}"),
+        )
+        .await
     }
 
     fn poll_interval(&self) -> Option<std::time::Duration> {
@@ -143,14 +157,33 @@ impl Module for MyenergiModule {
     async fn poll(&self, slot: Option<time::OffsetDateTime>) -> anyhow::Result<String> {
         let (store, offline) = (&self.context.store, self.context.cache_config.offline);
         let devices = crate::capture_device::adopted_devices(&self.profile_name);
-        let captured = !offline && self.capture.read(store, &devices, fetch::latest_status_time(store),
-            &mut |device, record| fetch::save_status(store, record, Some(&device.id)), &mut |_| {}).await?;
-        fetch::poll(&self.context.client, store, offline, slot, &self.whole_days_fetched, captured).await
+        let captured = !offline
+            && self
+                .capture
+                .read(
+                    store,
+                    &devices,
+                    fetch::latest_status_time(store),
+                    &mut |device, record| fetch::save_status(store, record, Some(&device.id)),
+                    &mut |_| {},
+                )
+                .await?;
+        fetch::poll(
+            &self.context.client,
+            store,
+            offline,
+            slot,
+            &self.whole_days_fetched,
+            captured,
+        )
+        .await
     }
 
     /// What the zappis charged the car with, and their grid clamps, see electricity.rs.
     fn measurement_source(&self) -> Option<Arc<dyn crate::power::measured::MeasurementSource>> {
-        Some(Arc::new(electricity::ZappiMeasurementSource { store: self.context.store.clone() }))
+        Some(Arc::new(electricity::ZappiMeasurementSource {
+            store: self.context.store.clone(),
+        }))
     }
 
     fn channels(&self) -> Vec<crate::power::topology::Channel> {
@@ -168,9 +201,18 @@ impl Module for MyenergiModule {
 
     fn get_page_list(&self) -> Vec<PageInfo> {
         vec![
-            PageInfo { label: "Days", path: "days" },
-            PageInfo { label: "Samples", path: "samples" },
-            PageInfo { label: "Cache Files", path: "cache" },
+            PageInfo {
+                label: "Days",
+                path: "days",
+            },
+            PageInfo {
+                label: "Samples",
+                path: "samples",
+            },
+            PageInfo {
+                label: "Cache Files",
+                path: "cache",
+            },
         ]
     }
 
@@ -212,11 +254,21 @@ fn DaysPage(context: SharedProp<MyenergiContext>) -> Element {
                 messages.set(Vec::new());
                 let format = time::macros::format_description!("[year]-[month]-[day]");
                 let Ok(day) = time::Date::parse(&date(), &format) else {
-                    messages.write().push(format!("Choose a day to fetch, the date field says {:?}", date()));
+                    messages
+                        .write()
+                        .push(format!("Choose a day to fetch, the date field says {:?}", date()));
                     return;
                 };
                 busy.set(true);
-                if let Err(error) = fetch::fetch_date(&context.0.client, &context.0.store, context.0.cache_config.offline, day, &mut |message| messages.write().push(message)).await {
+                if let Err(error) = fetch::fetch_date(
+                    &context.0.client,
+                    &context.0.store,
+                    context.0.cache_config.offline,
+                    day,
+                    &mut |message| messages.write().push(message),
+                )
+                .await
+                {
                     messages.write().push(format!("Failed: {error:#}"));
                 }
                 busy.set(false);
@@ -229,7 +281,14 @@ fn DaysPage(context: SharedProp<MyenergiContext>) -> Element {
         spawn(async move {
             busy.set(true);
             messages.set(Vec::new());
-            if let Err(error) = fetch::fetch(&context.0.client, &context.0.store, context.0.cache_config.offline, &mut |message| messages.write().push(message)).await {
+            if let Err(error) = fetch::fetch(
+                &context.0.client,
+                &context.0.store,
+                context.0.cache_config.offline,
+                &mut |message| messages.write().push(message),
+            )
+            .await
+            {
                 messages.write().push(format!("Failed: {error:#}"));
             }
             busy.set(false);
@@ -323,7 +382,8 @@ fn SamplesPage(context: SharedProp<MyenergiContext>) -> Element {
 
 #[component]
 fn StatusRow(sample: fetch::StatusSample) -> Element {
-    let number = |value: Option<f64>, decimals: usize| value.map(|value| format!("{value:.decimals$}")).unwrap_or_default();
+    let number =
+        |value: Option<f64>, decimals: usize| value.map(|value| format!("{value:.decimals$}")).unwrap_or_default();
     rsx! {
         tr {
             td { {sample.time.map(crate::util::local_date_time).unwrap_or_default()} }
@@ -354,7 +414,8 @@ fn kilowatts(watts: Option<f64>) -> String {
 #[component]
 fn MinuteRow(minute: fetch::MinuteSample) -> Element {
     let format = time::macros::format_description!("[hour]:[minute]");
-    let optional = |value: Option<f64>, decimals: usize| value.map(|value| format!("{value:.decimals$}")).unwrap_or_default();
+    let optional =
+        |value: Option<f64>, decimals: usize| value.map(|value| format!("{value:.decimals$}")).unwrap_or_default();
     rsx! {
         tr { class: "minute-row",
             td { {format!("{} UTC minute", minute.time.format(&format).unwrap_or_default())} }
@@ -403,10 +464,19 @@ pub struct MyenergiModuleFactory {
 impl MyenergiModuleFactory {
     /// Checks the hub serial and API key by fetching the status, which also finds the server with the hub's data, and
     /// saves them in the profile.
-    async fn login(context: Arc<MarcoSparkoContext>, hub_serial: String, api_key: String, verbose: bool) -> anyhow::Result<()> {
+    async fn login(
+        context: Arc<MarcoSparkoContext>,
+        hub_serial: String,
+        api_key: String,
+        verbose: bool,
+    ) -> anyhow::Result<()> {
         let client = MyenergiClient::new(hub_serial.clone(), api_key.clone(), None, verbose)?;
         client.status().await?;
-        let profile = Profile { hub_serial: Some(hub_serial), api_key: Some(api_key), host: Some(client.host()) };
+        let profile = Profile {
+            hub_serial: Some(hub_serial),
+            api_key: Some(api_key),
+            host: Some(client.host()),
+        };
         crate::profile::update_profile(&context.profile.active_profile.name, MODULE_ID, &profile)?;
         crate::log_info!("Logged in to myenergi");
         Ok(())
@@ -417,7 +487,8 @@ impl MyenergiModuleFactory {
 impl ModuleFactory for MyenergiModuleFactory {
     async fn is_ready(&self) -> anyhow::Result<bool> {
         // An offline profile has no login, it only shows its cached data, see Profile::offline.
-        Ok(self.context.profile.active_profile.offline || (self.profile.hub_serial.is_some() && self.profile.api_key.is_some()))
+        Ok(self.context.profile.active_profile.offline
+            || (self.profile.hub_serial.is_some() && self.profile.api_key.is_some()))
     }
 
     fn init_page(&self) -> Element {
@@ -512,7 +583,11 @@ impl ModuleFactory for MyenergiModuleFactory {
             self.verbose,
         )?;
         Ok(Box::new(MyenergiModule {
-            context: Arc::new(MyenergiContext { client, cache_config: self.cache_config.clone(), store: self.context.store()? }),
+            context: Arc::new(MyenergiContext {
+                client,
+                cache_config: self.cache_config.clone(),
+                store: self.context.store()?,
+            }),
             whole_days_fetched: std::sync::Mutex::new(None),
             capture: crate::capture_device::CaptureReader::new("capture/myenergi/records"),
             profile_name: self.context.profile.active_profile.name.clone(),

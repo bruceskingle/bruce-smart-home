@@ -9,23 +9,21 @@ use crate::CacheConfig;
 /// The sort key of the record.
 const RECORD: &str = "-";
 
-pub struct SingleRecordDataSet<R: GraphQLResponse>
-{
+pub struct SingleRecordDataSet<R: GraphQLResponse> {
     pub data: R,
 }
 
-impl<R: GraphQLResponse> SingleRecordDataSet<R>
-{
+impl<R: GraphQLResponse> SingleRecordDataSet<R> {
     pub async fn new<Q, QP>(
-            hash_key: &str,
-            refresh_after: Duration,
-            query_provider: QP,
-            config: &CacheConfig,
-            request_manager: &impl GraphQLCaller
-        ) -> anyhow::Result<Self>
-        where
-            Q: GraphQLQuery<R>,
-            QP: FnOnce() -> Result<Q, bruce_graphql::Error>,
+        hash_key: &str,
+        refresh_after: Duration,
+        query_provider: QP,
+        config: &CacheConfig,
+        request_manager: &impl GraphQLCaller,
+    ) -> anyhow::Result<Self>
+    where
+        Q: GraphQLQuery<R>,
+        QP: FnOnce() -> Result<Q, bruce_graphql::Error>,
     {
         let records = super::records::Records::open(config, hash_key)?;
         records.import_legacy(config, hash_key, &mut |records, value| records.put(RECORD, value))?;
@@ -40,7 +38,7 @@ impl<R: GraphQLResponse> SingleRecordDataSet<R>
                 Some(Err(error)) => {
                     crate::log_warning!("Failed to read the cached {hash_key}, fetching it again: {error}");
                     refresh = true;
-                },
+                }
                 None => refresh = true,
             }
         }
@@ -54,8 +52,7 @@ impl<R: GraphQLResponse> SingleRecordDataSet<R>
         }
 
         Ok(Self {
-            data: data.ok_or_else(|| anyhow::anyhow!("{hash_key} is not in this offline profile's data"))?
+            data: data.ok_or_else(|| anyhow::anyhow!("{hash_key} is not in this offline profile's data"))?,
         })
-        
     }
 }

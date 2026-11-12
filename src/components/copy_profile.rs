@@ -22,13 +22,25 @@ pub fn CopyProfileDialog(name: String, on_close: EventHandler<()>) -> Element {
             copying.set(true);
             error.set(None);
             spawn(async move {
-                let result = tokio::task::spawn_blocking(move || crate::profile::copy_profile(&name, &to, offline)).await
+                let result = tokio::task::spawn_blocking(move || crate::profile::copy_profile(&name, &to, offline))
+                    .await
                     .map_err(anyhow::Error::from)
                     .and_then(|result| result);
-                let active_name = context_signal.read().as_ref().unwrap().profile.active_profile.name.clone();
+                let active_name = context_signal
+                    .read()
+                    .as_ref()
+                    .unwrap()
+                    .profile
+                    .active_profile
+                    .name
+                    .clone();
                 match result.and_then(|_| crate::profile::fetch_active_profile(&Some(active_name))) {
                     Ok(profile) => {
-                        context_signal.set(Some(Arc::new(MarcoSparkoContext { args: crate::Args::ms_parse(), profile, store: Default::default() })));
+                        context_signal.set(Some(Arc::new(MarcoSparkoContext {
+                            args: crate::Args::ms_parse(),
+                            profile,
+                            store: Default::default(),
+                        })));
                         on_close.call(());
                     }
                     Err(e) => error.set(Some(format!("{e:#}"))),

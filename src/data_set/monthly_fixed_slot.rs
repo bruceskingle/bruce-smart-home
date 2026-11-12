@@ -1,14 +1,16 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque}, pin::pin, time::{Duration, SystemTime, UNIX_EPOCH},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    pin::pin,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use futures::future::{Either, select};
 
-use serde::{Serialize, de::DeserializeOwned};
 use bruce_graphql::{
     GraphQLCaller, GraphQLQuery, GraphQLResponse, ProgressMonitor,
     types::{Date, DateTime},
 };
+use serde::{Serialize, de::DeserializeOwned};
 use time_tz::Tz;
 
 use crate::CacheConfig;
@@ -40,13 +42,13 @@ fn fetch_windows(cached: &[(i64, i64, bool)], start: i64, end: i64, month_bounda
         match run {
             Some((run_start, run_end, count)) if is_final && sample_start == run_end => {
                 run = Some((run_start, sample_end, count + 1));
-            },
+            }
             _ => {
                 close_run(&mut run);
                 if is_final {
                     run = Some((sample_start, sample_end, 1));
                 }
-            },
+            }
         }
     }
     close_run(&mut run);
@@ -136,7 +138,8 @@ const TOO_MANY_REQUESTS: &str = "KT-CT-1199";
 fn is_rate_limited(error: &bruce_graphql::Error) -> bool {
     match error {
         bruce_graphql::Error::HttpError(status, _) => status.as_u16() == 429,
-        bruce_graphql::Error::GraphQLError(errors) => errors.iter()
+        bruce_graphql::Error::GraphQLError(errors) => errors
+            .iter()
             .any(|error| error.extensions.get("errorCode").and_then(|code| code.as_str()) == Some(TOO_MANY_REQUESTS)),
         _ => false,
     }
@@ -204,12 +207,17 @@ fn minutes_and_seconds(seconds: i64) -> String {
 pub fn brief(error: &bruce_graphql::Error) -> String {
     match error {
         bruce_graphql::Error::GraphQLError(errors) => {
-            let messages: Vec<&str> = errors.iter()
+            let messages: Vec<&str> = errors
+                .iter()
                 .filter_map(|error| error.message.as_deref())
                 .map(|message| message.trim_end_matches('.'))
                 .collect();
-            if messages.is_empty() { String::from("Octopus returned an error") } else { messages.join(", ") }
-        },
+            if messages.is_empty() {
+                String::from("Octopus returned an error")
+            } else {
+                messages.join(", ")
+            }
+        }
         bruce_graphql::Error::IOError(_) => String::from("Could not connect to Octopus"),
         bruce_graphql::Error::HttpError(status, _) => format!("Octopus returned {status}"),
         _ => error.to_string(),
@@ -231,45 +239,80 @@ pub async fn call_unless_cancelled<Q: GraphQLQuery<R>, R: GraphQLResponse>(
     let request_progress = |message: String| progress.progress(format!("{prefix}: {message}"));
     // Sleeps for the duration, returning false if the fetch is cancelled first.
     let sleep = |duration: Duration| async move {
-        matches!(select(pin!(tokio::time::sleep(duration)), pin!(cancel.cancelled())).await, Either::Left(_))
+        matches!(
+            select(pin!(tokio::time::sleep(duration)), pin!(cancel.cancelled())).await,
+            Either::Left(_)
+        )
     };
     let mut delay = FIRST_RETRY_DELAY;
     let mut retries = 0;
     let mut rate_limit_waits = 0;
     loop {
-        let error = match select(pin!(request_manager.call3(query, None, &request_progress)), pin!(cancel.cancelled())).await {
+        let error = match select(
+            pin!(request_manager.call3(query, None, &request_progress)),
+            pin!(cancel.cancelled()),
+        )
+        .await
+        {
             Either::Right(_) => return Ok(None),
             Either::Left((Ok(response), _)) => return Ok(Some(response)),
             Either::Left((Err(error), _)) => error,
         };
-        let block = if rate_limit_waits < RATE_LIMIT_WAITS && is_rate_limited(&error) { rate_limit.blocked_until().await } else { None };
+        let block = if rate_limit_waits < RATE_LIMIT_WAITS && is_rate_limited(&error) {
+            rate_limit.blocked_until().await
+        } else {
+            None
+        };
         if let Some(block) = block {
             rate_limit_waits += 1;
-            let allowed = block.rate.as_deref().map(|rate| format!(", Octopus allows {}", rate_in_words(rate))).unwrap_or_default();
-            crate::log_warning!("{prefix}: {}{allowed}, waiting {} for it to continue", brief(&error),
-                minutes_and_seconds((block.until + RATE_LIMIT_MARGIN - SystemTime::now().duration_since(UNIX_EPOCH).map(|now| now.as_secs() as i64).unwrap_or_default()).max(0)));
+            let allowed = block
+                .rate
+                .as_deref()
+                .map(|rate| format!(", Octopus allows {}", rate_in_words(rate)))
+                .unwrap_or_default();
+            crate::log_warning!(
+                "{prefix}: {}{allowed}, waiting {} for it to continue",
+                brief(&error),
+                minutes_and_seconds(
+                    (block.until + RATE_LIMIT_MARGIN
+                        - SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map(|now| now.as_secs() as i64)
+                            .unwrap_or_default())
+                    .max(0)
+                )
+            );
             // Counts down to the end of the block, a second at a time.
             loop {
-                let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|now| now.as_secs() as i64).unwrap_or_default();
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|now| now.as_secs() as i64)
+                    .unwrap_or_default();
                 let left = block.until + RATE_LIMIT_MARGIN - now;
                 if left <= 0 {
                     break;
                 }
-                request_progress(format!("{}{allowed}, continuing in {}", brief(&error), minutes_and_seconds(left)));
+                request_progress(format!(
+                    "{}{allowed}, continuing in {}",
+                    brief(&error),
+                    minutes_and_seconds(left)
+                ));
                 if !sleep(Duration::from_secs(1)).await {
                     return Ok(None);
                 }
             }
-        }
-        else if retries < RETRIES && is_transient(&error) {
+        } else if retries < RETRIES && is_transient(&error) {
             retries += 1;
-            request_progress(format!("{}, trying again in {}s (retry {retries} of {RETRIES})", brief(&error), delay.as_secs()));
+            request_progress(format!(
+                "{}, trying again in {}s (retry {retries} of {RETRIES})",
+                brief(&error),
+                delay.as_secs()
+            ));
             if !sleep(delay).await {
                 return Ok(None);
             }
             delay *= 2;
-        }
-        else {
+        } else {
             return Err(error.into());
         }
     }
@@ -287,9 +330,15 @@ pub trait SlotSource {
     /// A query for the samples from start up to end. A source whose query has no end may return samples after it.
     fn initial_query(&mut self, start: &DateTime, end: &DateTime) -> anyhow::Result<Self::Query>;
     /// The query for the next page of the samples from start up to end, if there is one.
-    fn continuation_query(&mut self, start: &DateTime, end: &DateTime, resp: &Self::Response) -> anyhow::Result<Option<Self::Query>>;
+    fn continuation_query(
+        &mut self,
+        start: &DateTime,
+        end: &DateTime,
+        resp: &Self::Response,
+    ) -> anyhow::Result<Option<Self::Query>>;
     /// The samples of a response, as they are kept, see Stored.
-    fn items(&self, response: Self::Response) -> anyhow::Result<impl IntoIterator<Item = anyhow::Result<Self::Stored>>>;
+    fn items(&self, response: Self::Response)
+    -> anyhow::Result<impl IntoIterator<Item = anyhow::Result<Self::Stored>>>;
     /// The value of a sample as it is kept.
     fn value(&self, stored: &Self::Stored) -> anyhow::Result<Self::Value>;
     /// What to keep of a value from a DataSet's file in the old layout, which kept values rather than what the server
@@ -306,7 +355,6 @@ pub trait SlotSource {
         false
     }
 }
-
 
 pub struct Item<V> {
     pub end: DateTime,
@@ -335,7 +383,7 @@ pub struct MonthlyFixedSlotDataSet<S: SlotSource>
     pub is_complete: bool,
 }
 
-impl<S: SlotSource> MonthlyFixedSlotDataSet<S> 
+impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
 // where
 //     V: DeserializeOwned + Serialize + Clone,
 {
@@ -365,7 +413,7 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
             next_date,
             data,
             last_end,
-            is_complete
+            is_complete,
         }
     }
 
@@ -377,12 +425,16 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
         start_date: Date,
         next_date: Date,
         tz: &'static Tz,
-    ) -> anyhow::Result<Self>
-    {
+    ) -> anyhow::Result<Self> {
         let mut data: BTreeMap<DateTime, Item<<S as SlotSource>::Value>> = BTreeMap::new();
-        let (from, to) = ((*start_date - time::Duration::days(1)).to_string(), (*next_date + time::Duration::days(1)).to_string());
+        let (from, to) = (
+            (*start_date - time::Duration::days(1)).to_string(),
+            (*next_date + time::Duration::days(1)).to_string(),
+        );
         for (sk, stored) in records.range(from.as_str()..to.as_str())? {
-            let value = serde_json::from_value::<S::Stored>(stored.clone()).map_err(anyhow::Error::from).and_then(|kept| source.value(&kept));
+            let value = serde_json::from_value::<S::Stored>(stored.clone())
+                .map_err(anyhow::Error::from)
+                .and_then(|kept| source.value(&kept));
             match value {
                 Ok(value) => {
                     let (start, end, is_final) = source.index(&value)?;
@@ -390,8 +442,17 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
                     if date < start_date || date >= next_date {
                         continue;
                     }
-                    data.insert(start, Item { end, is_final, attributes: DataSetAttributes { cached: true, }, value, stored });
-                },
+                    data.insert(
+                        start,
+                        Item {
+                            end,
+                            is_final,
+                            attributes: DataSetAttributes { cached: true },
+                            value,
+                            stored,
+                        },
+                    );
+                }
                 Err(error) => crate::log_warning!("Unable to read the sample {sk} of {}, {error:#}", source.hash_key()),
             }
         }
@@ -406,10 +467,16 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
         while part_start < *end {
             let date = part_start.to_date();
             let next_month = Date::from_calendar_date(
-                if date.month() == time::Month::December { date.year() + 1 } else { date.year() },
+                if date.month() == time::Month::December {
+                    date.year() + 1
+                } else {
+                    date.year()
+                },
                 date.month().next(),
                 1,
-            ).map(|date| date.at_midnight(tz)).unwrap_or(*end);
+            )
+            .map(|date| date.at_midnight(tz))
+            .unwrap_or(*end);
             let part_end = std::cmp::min(next_month, *end);
             months.push((Self::key_for(&date), part_start, part_end));
             part_start = part_end;
@@ -435,8 +502,7 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
         reload: Option<(DateTime, DateTime)>,
         cancel: &CancelToken,
         progress: &(impl ProgressMonitor + ?Sized),
-    ) -> anyhow::Result<Vec<MonthlyFixedSlotDataSet<S>>>
-    {
+    ) -> anyhow::Result<Vec<MonthlyFixedSlotDataSet<S>>> {
         let mut result_keys = Vec::new();
         let mut result = Vec::new();
         let mut data_set_map = HashMap::new();
@@ -450,33 +516,37 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
             let mut start_date = match reload {
                 Some((reload_start, _)) => std::cmp::min(*start, reload_start),
                 None => *start,
-            }.to_date();
+            }
+            .to_date();
 
             progress.progress(String::from("Loading cached data"));
 
             // end is exclusive so a bucket starting at end is not needed
             while start_date.at_midnight(tz) < *end {
-                let open_data_set: OpenMonthlyFixedSlotDataSet<S> = OpenMonthlyFixedSlotDataSet::new(&source, &config, source.hash_key(), &start_date, tz)?;
-                
+                let open_data_set: OpenMonthlyFixedSlotDataSet<S> =
+                    OpenMonthlyFixedSlotDataSet::new(&source, &config, source.hash_key(), &start_date, tz)?;
+
                 let key = Self::key_for(&start_date);
                 result_keys.push(key);
 
-
                 start_date = open_data_set.data_set.next_date.clone();
                 data_set_map.insert(key, open_data_set);
-
             }
         }
 
         // At this point we have loaded all the required DataSets from local cache, if they are all complete or withing their refresh
         // duration then we can just return what we have.
         // This function returns the first missing start time unless all buckets are within their refresh duration
-        fn all_up_to_date<S: SlotSource>(refresh_after: &Duration, result_keys: &Vec<i32>, data_set_map: &HashMap<i32, OpenMonthlyFixedSlotDataSet<S>>) -> anyhow::Result<Option<DateTime>> {
+        fn all_up_to_date<S: SlotSource>(
+            refresh_after: &Duration,
+            result_keys: &Vec<i32>,
+            data_set_map: &HashMap<i32, OpenMonthlyFixedSlotDataSet<S>>,
+        ) -> anyhow::Result<Option<DateTime>> {
             let mut result = None;
             for key in result_keys {
                 let ods = data_set_map.get(key).unwrap();
                 let ds = &ods.data_set;
-                if ! ds.is_complete {
+                if !ds.is_complete {
                     if result.is_none() {
                         result = Some(ds.last_end);
                     }
@@ -492,7 +562,6 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
         // The period which was fetched, if any, and the months with windows in it.
         let mut attempted: Option<(DateTime, DateTime)> = None;
         let mut attempted_keys = HashSet::new();
-
 
         // The fetching is in a block of its own so that if it fails, the rows fetched before the failure are still
         // written to the cache below rather than being lost.
@@ -513,28 +582,45 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
                 }
                 windows.push_back((reload_start.unix_timestamp(), reload_end.unix_timestamp()));
                 attempted = Some((reload_start, reload_end));
-                attempted_keys.extend(data_set_map.iter()
-                    .filter(|(_, ods)| ods.data_set.start_date.at_midnight(tz) < reload_end && reload_start < ods.data_set.next_date.at_midnight(tz))
-                    .map(|(key, _)| *key));
-            }
-            else if let Some(refresh_start) = all_up_to_date(&refresh_after, &result_keys, &data_set_map)? {
+                attempted_keys.extend(
+                    data_set_map
+                        .iter()
+                        .filter(|(_, ods)| {
+                            ods.data_set.start_date.at_midnight(tz) < reload_end
+                                && reload_start < ods.data_set.next_date.at_midnight(tz)
+                        })
+                        .map(|(key, _)| *key),
+                );
+            } else if let Some(refresh_start) = all_up_to_date(&refresh_after, &result_keys, &data_set_map)? {
                 if &refresh_start < end {
-                    let refresh_start = if &refresh_start < start { start } else {&refresh_start};
+                    let refresh_start = if &refresh_start < start { start } else { &refresh_start };
                     attempted = Some((*refresh_start, *end));
 
                     // Fetch in windows which avoid the data we already have and cover at most one month each.
-                    let cached: Vec<(i64, i64, bool)> = result_keys.iter()
+                    let cached: Vec<(i64, i64, bool)> = result_keys
+                        .iter()
                         .flat_map(|key| data_set_map[key].data_set.data.iter())
-                        .map(|(sample_start, item)| (sample_start.unix_timestamp(), item.end.unix_timestamp(), item.is_final))
+                        .map(|(sample_start, item)| {
+                            (sample_start.unix_timestamp(), item.end.unix_timestamp(), item.is_final)
+                        })
                         .collect();
-                    let month_boundaries: Vec<i64> = result_keys.iter()
+                    let month_boundaries: Vec<i64> = result_keys
+                        .iter()
                         .map(|key| data_set_map[key].data_set.next_date.at_midnight(tz).unix_timestamp())
                         .collect();
                     // Months fetched within their refresh duration are left alone, e.g. empty months before the server
                     // has any data, which would otherwise be fetched again whenever a later month is refreshed.
-                    for window in fetch_windows(&cached, refresh_start.unix_timestamp(), end.unix_timestamp(), &month_boundaries) {
+                    for window in fetch_windows(
+                        &cached,
+                        refresh_start.unix_timestamp(),
+                        end.unix_timestamp(),
+                        &month_boundaries,
+                    ) {
                         let key = Self::key_for(&DateTime::from_unix_timestamp(window.0)?.to_timezone(tz).to_date());
-                        if data_set_map.get(&key).map_or(Ok(true), |data_set| data_set.is_stale(&refresh_after))? {
+                        if data_set_map
+                            .get(&key)
+                            .map_or(Ok(true), |data_set| data_set.is_stale(&refresh_after))?
+                        {
                             windows.push_back(window);
                             attempted_keys.insert(key);
                         }
@@ -557,18 +643,28 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
                 let window_count = window_number + windows.len();
                 let window_start = DateTime::from_unix_timestamp(window_start)?.to_timezone(tz);
                 let window_end = DateTime::from_unix_timestamp(window_end)?.to_timezone(tz);
-                let prefix = |requests: usize, rows: usize| format!(
-                    "Period {} of {} from {}, request {requests}, {rows} rows loaded",
-                    window_number,
-                    window_count,
-                    window_start.format(&date_format).unwrap_or_default(),
-                );
+                let prefix = |requests: usize, rows: usize| {
+                    format!(
+                        "Period {} of {} from {}, request {requests}, {rows} rows loaded",
+                        window_number,
+                        window_count,
+                        window_start.format(&date_format).unwrap_or_default(),
+                    )
+                };
                 // Whether a sample in the window is missing data which a request for each day may provide.
                 let mut partial = false;
 
                 requests += 1;
                 let query = source.initial_query(&window_start, &window_end)?;
-                let mut next_response = call_unless_cancelled(request_manager, &query, cancel, progress, &prefix(requests, rows), &NoRateLimitReset).await?;
+                let mut next_response = call_unless_cancelled(
+                    request_manager,
+                    &query,
+                    cancel,
+                    progress,
+                    &prefix(requests, rows),
+                    &NoRateLimitReset,
+                )
+                .await?;
 
                 while let Some(response) = next_response {
                     let cq = source.continuation_query(&window_start, &window_end, &response);
@@ -588,30 +684,37 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
 
                         let data_set = if let Some(data_set) = data_set_map.get_mut(&key) {
                             data_set
-                        }
-                        else {
-                            data_set_map.insert(key, OpenMonthlyFixedSlotDataSet::new(&source, &config, source.hash_key(), &start_date, tz)?);
+                        } else {
+                            data_set_map.insert(
+                                key,
+                                OpenMonthlyFixedSlotDataSet::new(&source, &config, source.hash_key(), &start_date, tz)?,
+                            );
                             data_set_map.get_mut(&key).unwrap()
                         };
 
                         // Whether the server gave something different, as it may revise a sample.
-                        let update = data_set.data_set.data.get(&start).is_none_or(|item| item.stored != stored);
+                        let update = data_set
+                            .data_set
+                            .data
+                            .get(&start)
+                            .is_none_or(|item| item.stored != stored);
 
                         if !update {
                             // Unchanged, but it may have been treated as not final to reload it.
                             if let Some(item) = data_set.data_set.data.get_mut(&start) {
                                 item.is_final = is_final;
                             }
-                        }
-                        else {
+                        } else {
                             data_set.changed.insert(start);
-                            data_set.data_set.data.insert(start, Item {
+                            data_set.data_set.data.insert(
+                                start,
+                                Item {
                                     end,
                                     is_final,
-                                    attributes:DataSetAttributes { cached: false},
+                                    attributes: DataSetAttributes { cached: false },
                                     value,
                                     stored,
-                                }
+                                },
                             );
                         }
                     }
@@ -619,21 +722,31 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
                     // A source whose query has no end keeps returning samples after the window, in no useful order,
                     // so stop once the window is complete rather than when a sample after the window arrives. Only
                     // a reload crosses a month boundary, so the window is complete when its part in each month is.
-                    let complete = Self::window_months(&window_start, &window_end, tz).iter()
-                        .all(|(key, part_start, part_end)| data_set_map.get(key)
-                            .is_some_and(|data_set| window_complete(&data_set.data_set.data, part_start, part_end)));
+                    let complete = Self::window_months(&window_start, &window_end, tz).iter().all(
+                        |(key, part_start, part_end)| {
+                            data_set_map
+                                .get(key)
+                                .is_some_and(|data_set| window_complete(&data_set.data_set.data, part_start, part_end))
+                        },
+                    );
                     if complete {
                         break;
                     }
 
                     if let Some(continuation_query) = cq? {
                         requests += 1;
-                        next_response = call_unless_cancelled(request_manager, &continuation_query, cancel, progress, &prefix(requests, rows), &NoRateLimitReset).await?;
-                    }
-                    else {
+                        next_response = call_unless_cancelled(
+                            request_manager,
+                            &continuation_query,
+                            cancel,
+                            progress,
+                            &prefix(requests, rows),
+                            &NoRateLimitReset,
+                        )
+                        .await?;
+                    } else {
                         break;
                     }
-
                 }
 
                 // The window was fetched, unless it was cancelled part way through.
@@ -656,7 +769,8 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
                 }
             }
             Ok(())
-        }.await;
+        }
+        .await;
 
         // If the fetch was cancelled or failed we keep what we have, but the months it was fetching may be missing data
         // so are marked stale. A month which was fetched is also marked stale if it still needs data from outside the
@@ -672,8 +786,15 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
                 Some((attempted_start, attempted_end)) if attempted_keys.contains(&key) => {
                     let month_start = ods.data_set.start_date.at_midnight(tz);
                     let month_end = std::cmp::min(ods.data_set.next_date.at_midnight(tz), now);
-                    cancelled || missing_outside(&ods.data_set.data, &month_start, &month_end, attempted_start, attempted_end)
-                },
+                    cancelled
+                        || missing_outside(
+                            &ods.data_set.data,
+                            &month_start,
+                            &month_end,
+                            attempted_start,
+                            attempted_end,
+                        )
+                }
                 _ => false,
             };
 
@@ -691,41 +812,36 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
 }
 
 /// A month of samples being read and fetched, see fetch, whose changes are put when it is flushed.
-struct OpenMonthlyFixedSlotDataSet<S: SlotSource>
-{
+struct OpenMonthlyFixedSlotDataSet<S: SlotSource> {
     records: super::records::Records,
     /// The sort key of the month's #fetched record, which says when it was last fetched, and whether it is stale.
     fetched_key: String,
     /// The starts of the samples new or changed, to put.
     changed: std::collections::BTreeSet<DateTime>,
-    fetched: bool,   // A fetch window in this month completed, so the cache is up to date even if nothing changed
-    data_set: MonthlyFixedSlotDataSet<S>
+    fetched: bool, // A fetch window in this month completed, so the cache is up to date even if nothing changed
+    data_set: MonthlyFixedSlotDataSet<S>,
 }
 
-impl<S: SlotSource> OpenMonthlyFixedSlotDataSet<S>
-{
+impl<S: SlotSource> OpenMonthlyFixedSlotDataSet<S> {
     /// The month containing date, with the samples kept of it.
-    fn new(
-        source: &S,
-        config: &CacheConfig,
-        hash_key: &str,
-        date: &Date,
-        tz: &'static Tz,
-    ) -> anyhow::Result<Self> 
-    {
+    fn new(source: &S, config: &CacheConfig, hash_key: &str, date: &Date, tz: &'static Tz) -> anyhow::Result<Self> {
         let (start, next) = super::month_bounds(date)?;
         let records = super::records::Records::open(config, hash_key)?;
         // An old file's lines are values, kept as the source says, see SlotSource::stored_from_value.
-        records.import_legacy(config, &super::legacy_month_file(hash_key, &start), &mut |records, json| {
-            let value: S::Value = serde_json::from_value(json.clone())?;
-            let (sample_start, _, _) = source.index(&value)?;
-            match source.stored_from_value(json) {
-                Some(stored) => records.put(&super::time_key(&sample_start), serde_json::to_value(stored)?),
-                None => Ok(()),
-            }
-        })?;
+        records.import_legacy(
+            config,
+            &super::legacy_month_file(hash_key, &start),
+            &mut |records, json| {
+                let value: S::Value = serde_json::from_value(json.clone())?;
+                let (sample_start, _, _) = source.index(&value)?;
+                match source.stored_from_value(json) {
+                    Some(stored) => records.put(&super::time_key(&sample_start), serde_json::to_value(stored)?),
+                    None => Ok(()),
+                }
+            },
+        )?;
         let data_set: MonthlyFixedSlotDataSet<S> = MonthlyFixedSlotDataSet::load(source, &records, start, next, tz)?;
-        Ok(Self{
+        Ok(Self {
             records,
             fetched_key: format!("#fetched/{}", &start.to_string()[..7]),
             changed: Default::default(),
@@ -738,10 +854,15 @@ impl<S: SlotSource> OpenMonthlyFixedSlotDataSet<S>
     /// was longer ago than refresh_after. An empty month, e.g. one before the server has any data, goes by its #fetched
     /// record like any other.
     fn is_stale(&self, refresh_after: &Duration) -> anyhow::Result<bool> {
-        let marked_stale = self.records.get(&self.fetched_key)?.map(|fetched| fetched.get("stale").and_then(|stale| stale.as_bool()) == Some(true));
+        let marked_stale = self
+            .records
+            .get(&self.fetched_key)?
+            .map(|fetched| fetched.get("stale").and_then(|stale| stale.as_bool()) == Some(true));
         Ok(match marked_stale {
             None | Some(true) => true,
-            Some(false) => self.records.fetched_at(&self.fetched_key)?
+            Some(false) => self
+                .records
+                .fetched_at(&self.fetched_key)?
                 .is_some_and(|at| time::OffsetDateTime::now_utc() - at > *refresh_after),
         })
     }
@@ -757,9 +878,9 @@ impl<S: SlotSource> OpenMonthlyFixedSlotDataSet<S>
             }
         }
         if is_stale {
-            self.records.put(&self.fetched_key, serde_json::json!({ "stale": true }))?;
-        }
-        else if self.fetched || !self.changed.is_empty() {
+            self.records
+                .put(&self.fetched_key, serde_json::json!({ "stale": true }))?;
+        } else if self.fetched || !self.changed.is_empty() {
             self.records.put(&self.fetched_key, serde_json::json!({}))?;
         }
         Ok(self.data_set)
@@ -774,7 +895,9 @@ mod tests {
 
     /// count consecutive final samples starting at slot first.
     fn run(first: i64, count: i64) -> Vec<(i64, i64, bool)> {
-        (first..first + count).map(|slot| (slot * SLOT, (slot + 1) * SLOT, true)).collect()
+        (first..first + count)
+            .map(|slot| (slot * SLOT, (slot + 1) * SLOT, true))
+            .collect()
     }
 
     #[test]
@@ -791,7 +914,10 @@ mod tests {
         // Days 0 and 3 of 6 are cached.
         let mut cached = run(0, 48);
         cached.extend(run(3 * 48, 48));
-        assert_eq!(fetch_windows(&cached, 0, 6 * DAY, &[]), [(DAY, 3 * DAY), (4 * DAY, 6 * DAY)]);
+        assert_eq!(
+            fetch_windows(&cached, 0, 6 * DAY, &[]),
+            [(DAY, 3 * DAY), (4 * DAY, 6 * DAY)]
+        );
     }
 
     #[test]
@@ -839,14 +965,20 @@ mod window_complete_tests {
 
     /// Samples for the given slots, final unless listed in not_final.
     fn samples(slots: &[i64], not_final: &[i64]) -> BTreeMap<DateTime, Item<()>> {
-        slots.iter()
-            .map(|slot| (time(*slot), Item {
-                end: time(slot + 1),
-                is_final: !not_final.contains(slot),
-                attributes: DataSetAttributes { cached: false },
-                value: (),
-                stored: serde_json::Value::Null,
-            }))
+        slots
+            .iter()
+            .map(|slot| {
+                (
+                    time(*slot),
+                    Item {
+                        end: time(slot + 1),
+                        is_final: !not_final.contains(slot),
+                        attributes: DataSetAttributes { cached: false },
+                        value: (),
+                        stored: serde_json::Value::Null,
+                    },
+                )
+            })
             .collect()
     }
 
@@ -856,7 +988,11 @@ mod window_complete_tests {
         assert!(window_complete(&samples(&all, &[]), &time(2), &time(8)));
 
         // Samples outside the window do not matter, even if they arrived first.
-        assert!(window_complete(&samples(&[2, 3, 4, 5, 6, 7, 40, 41], &[]), &time(2), &time(8)));
+        assert!(window_complete(
+            &samples(&[2, 3, 4, 5, 6, 7, 40, 41], &[]),
+            &time(2),
+            &time(8)
+        ));
 
         assert!(!window_complete(&samples(&[2, 3, 5, 6, 7], &[]), &time(2), &time(8)));
         assert!(!window_complete(&samples(&[3, 4, 5, 6, 7], &[]), &time(2), &time(8)));
@@ -879,7 +1015,13 @@ mod window_complete_tests {
         assert!(missing(&all, &[3]));
 
         // A fetch of slots 0 to 10 leaves the end of the month to fetch.
-        assert!(missing_outside(&samples(&(0..10).collect::<Vec<_>>(), &[]), &time(0), &time(20), &time(0), &time(10)));
+        assert!(missing_outside(
+            &samples(&(0..10).collect::<Vec<_>>(), &[]),
+            &time(0),
+            &time(20),
+            &time(0),
+            &time(10)
+        ));
     }
 }
 
@@ -899,9 +1041,14 @@ mod retry_tests {
         assert!(!is_transient(&http(400)));
         assert!(!is_transient(&http(401)));
         assert!(!is_transient(&Error::InternalError(String::from("bad"))));
-        let graphql = |code: &str| Error::GraphQLError(std::sync::Arc::new(vec![
-            serde_json::from_value(serde_json::json!({"message": "Too many requests.", "extensions": {"errorCode": code}})).unwrap(),
-        ]));
+        let graphql = |code: &str| {
+            Error::GraphQLError(std::sync::Arc::new(vec![
+                serde_json::from_value(
+                    serde_json::json!({"message": "Too many requests.", "extensions": {"errorCode": code}}),
+                )
+                .unwrap(),
+            ]))
+        };
         assert!(is_transient(&graphql("KT-CT-1199")));
         assert!(!is_transient(&graphql("KT-GB-4051")));
         assert_eq!(brief(&graphql("KT-CT-1199")), "Too many requests");
@@ -934,6 +1081,9 @@ mod day_windows_tests {
         );
 
         // A window within one day is not split.
-        assert_eq!(day_windows(&time(midnight_29), &time(midnight_30), tz), [(midnight_29, midnight_30)]);
+        assert_eq!(
+            day_windows(&time(midnight_29), &time(midnight_30), tz),
+            [(midnight_29, midnight_30)]
+        );
     }
 }

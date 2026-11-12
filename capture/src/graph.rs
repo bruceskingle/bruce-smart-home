@@ -6,13 +6,13 @@
 
 use std::collections::VecDeque;
 
+use bruce_embedded_std::graphics::DrawTargetResultExt;
 use chrono::{DateTime, Utc};
 use embedded_graphics::mono_font::{MonoFont, MonoTextStyle};
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Alignment, Baseline, Text, TextStyleBuilder};
 use rgb::RGB8;
-use bruce_embedded_std::graphics::DrawTargetResultExt;
 
 /// The gateway's meters which are graphed, in the order of Sample::power, with the colour of each: the grid, the solar,
 /// the battery and the house. Bright, as softer colours are too dark against the black on a small screen. The house is
@@ -99,15 +99,17 @@ impl History {
 /// Each of columns, if it has a sample, as the median of each series over the SMOOTHING columns around it which have.
 fn smooth(columns: &[Option<[f32; 4]>]) -> Vec<Option<[f32; 4]>> {
     let half = SMOOTHING / 2;
-    (0..columns.len()).map(|index| {
-        columns[index]?;
-        let around = &columns[index.saturating_sub(half)..(index + half + 1).min(columns.len())];
-        Some(std::array::from_fn(|series| {
-            let mut values: Vec<f32> = around.iter().flatten().map(|power| power[series]).collect();
-            values.sort_by(f32::total_cmp);
-            values[values.len() / 2]
-        }))
-    }).collect()
+    (0..columns.len())
+        .map(|index| {
+            columns[index]?;
+            let around = &columns[index.saturating_sub(half)..(index + half + 1).min(columns.len())];
+            Some(std::array::from_fn(|series| {
+                let mut values: Vec<f32> = around.iter().flatten().map(|power| power[series]).collect();
+                values.sort_by(f32::total_cmp);
+                values[values.len() / 2]
+            }))
+        })
+        .collect()
 }
 
 /// The colours the graph is drawn in, as the display has them, see DisplayManager::map_rgb8.
@@ -128,16 +130,24 @@ fn scale(columns: &[Option<[f32; 4]>]) -> (f32, f32, f32) {
     }
     // At least a kW, so that a quiet house is not all noise.
     high = high.max(low + 1.0);
-    let step = STEPS.into_iter().find(|step| (high - low) / step <= MAX_STEPS).unwrap_or(STEPS[STEPS.len() - 1]);
+    let step = STEPS
+        .into_iter()
+        .find(|step| (high - low) / step <= MAX_STEPS)
+        .unwrap_or(STEPS[STEPS.len() - 1]);
     ((low / step).floor() * step, (high / step).ceil() * step, step)
 }
 
 /// Draws the graph of history in area, the scale at its right.
 /// Draws the graph of history in area, the scale at its right, its labels in font.
-pub fn draw<D: DrawTarget>(display: &mut D, palette: &Palette<D::Color>, history: &History, area: Rectangle,
-    font: &MonoFont)
-    -> anyhow::Result<()> {
-    let scale_width = SCALE_GAP + SCALE_CHARACTERS * (font.character_size.width + font.character_spacing) + RIGHT_MARGIN;
+pub fn draw<D: DrawTarget>(
+    display: &mut D,
+    palette: &Palette<D::Color>,
+    history: &History,
+    area: Rectangle,
+    font: &MonoFont,
+) -> anyhow::Result<()> {
+    let scale_width =
+        SCALE_GAP + SCALE_CHARACTERS * (font.character_size.width + font.character_spacing) + RIGHT_MARGIN;
     let width = area.size.width.saturating_sub(scale_width) as usize;
     let height = area.size.height as usize;
     if width < 2 || height < 2 {
@@ -145,9 +155,15 @@ pub fn draw<D: DrawTarget>(display: &mut D, palette: &Palette<D::Color>, history
     }
     let columns = history.columns(width);
     let (low, high, step) = scale(&columns);
-    let y = |kw: f32| (((high - kw) / (high - low)) * (height - 1) as f32).round().clamp(0.0, (height - 1) as f32) as usize;
-    let lines: Vec<(f32, usize)> = (0..=((high - low) / step).round() as i32).map(|index| low + index as f32 * step)
-        .map(|kw| (kw, y(kw))).collect();
+    let y = |kw: f32| {
+        (((high - kw) / (high - low)) * (height - 1) as f32)
+            .round()
+            .clamp(0.0, (height - 1) as f32) as usize
+    };
+    let lines: Vec<(f32, usize)> = (0..=((high - low) / step).round() as i32)
+        .map(|index| low + index as f32 * step)
+        .map(|kw| (kw, y(kw)))
+        .collect();
 
     let mut pixels = vec![palette.background; height];
     for x in 0..width {
@@ -175,17 +191,28 @@ pub fn draw<D: DrawTarget>(display: &mut D, palette: &Palette<D::Color>, history
     }
 
     // The scale, a label at each line.
-    let scale_area = Rectangle::new(area.top_left + Point::new(width as i32, 0), Size::new(scale_width, height as u32));
-    scale_area.into_styled(PrimitiveStyle::with_fill(palette.background)).draw(display).anyhow()?;
+    let scale_area = Rectangle::new(
+        area.top_left + Point::new(width as i32, 0),
+        Size::new(scale_width, height as u32),
+    );
+    scale_area
+        .into_styled(PrimitiveStyle::with_fill(palette.background))
+        .draw(display)
+        .anyhow()?;
     let style = MonoTextStyle::new(font, palette.scale);
-    let text_style = TextStyleBuilder::new().alignment(Alignment::Right).baseline(Baseline::Middle).build();
+    let text_style = TextStyleBuilder::new()
+        .alignment(Alignment::Right)
+        .baseline(Baseline::Middle)
+        .build();
     let right = scale_area.top_left.x + (scale_width - RIGHT_MARGIN) as i32;
     for (kw, line) in &lines {
         let label = format!("{kw:.0}");
         // Kept inside the area, the top and bottom labels being half a line in.
         let half = font.character_size.height as i32 / 2;
         let line = (*line as i32).clamp(half, height as i32 - half);
-        Text::with_text_style(&label, Point::new(right, area.top_left.y + line), style, text_style).draw(display).anyhow()?;
+        Text::with_text_style(&label, Point::new(right, area.top_left.y + line), style, text_style)
+            .draw(display)
+            .anyhow()?;
     }
     Ok(())
 }
@@ -196,7 +223,12 @@ mod tests {
 
     #[test]
     fn smoothing_removes_a_spike() {
-        let columns = [Some([0.0, 0.0, 0.0, 500.0]), Some([0.0, 0.0, 0.0, 2500.0]), Some([0.0, 0.0, 0.0, 600.0]), None];
+        let columns = [
+            Some([0.0, 0.0, 0.0, 500.0]),
+            Some([0.0, 0.0, 0.0, 2500.0]),
+            Some([0.0, 0.0, 0.0, 600.0]),
+            None,
+        ];
         let smoothed = smooth(&columns);
         assert_eq!(smoothed[1].unwrap()[3], 600.0);
         assert!(smoothed[3].is_none());

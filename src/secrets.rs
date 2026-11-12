@@ -34,7 +34,13 @@ static KEY: Mutex<Option<[u8; 32]>> = Mutex::new(None);
 
 /// The name of the credential store the key is kept in, for messages.
 fn store_name() -> &'static str {
-    if cfg!(target_os = "macos") { "Keychain" } else if cfg!(windows) { "Credential Manager" } else { "Secret Service" }
+    if cfg!(target_os = "macos") {
+        "Keychain"
+    } else if cfg!(windows) {
+        "Credential Manager"
+    } else {
+        "Secret Service"
+    }
 }
 
 /// The key, from the credential store, or, if it has none and create is true, a new random one, saved there.
@@ -46,18 +52,29 @@ fn key(create: bool) -> anyhow::Result<[u8; 32]> {
     let entry = keyring::Entry::new(KEY_SERVICE, KEY_USER)
         .map_err(|error| anyhow!("Unable to use the {} for the key of the secrets: {error}", store_name()))?;
     let key = match entry.get_secret() {
-        Ok(secret) => secret.try_into()
+        Ok(secret) => secret
+            .try_into()
             .map_err(|_| anyhow!("The key of the secrets in the {} is not 32 bytes", store_name()))?,
         Err(keyring::Error::NoEntry) if create => {
             let key: [u8; 32] = rand::random();
-            entry.set_secret(&key)
+            entry
+                .set_secret(&key)
                 .map_err(|error| anyhow!("Unable to save the key of the secrets in the {}: {error}", store_name()))?;
             key
-        },
-        Err(keyring::Error::NoEntry) => return Err(anyhow!(
-            "The settings have encrypted secrets, but there is no key for them in the {}, e.g. as they were made on \
-             another computer", store_name())),
-        Err(error) => return Err(anyhow!("Unable to read the key of the secrets from the {}: {error}", store_name())),
+        }
+        Err(keyring::Error::NoEntry) => {
+            return Err(anyhow!(
+                "The settings have encrypted secrets, but there is no key for them in the {}, e.g. as they were made on \
+             another computer",
+                store_name()
+            ));
+        }
+        Err(error) => {
+            return Err(anyhow!(
+                "Unable to read the key of the secrets from the {}: {error}",
+                store_name()
+            ));
+        }
     };
     *cached = Some(key);
     Ok(key)
@@ -84,17 +101,24 @@ pub fn is_encrypted(text: &str) -> bool {
 fn encrypt(text: &str) -> anyhow::Result<String> {
     let cipher = XChaCha20Poly1305::new(&key(true)?.into());
     let nonce: [u8; NONCE_LEN] = rand::random();
-    let ciphertext = cipher.encrypt(&XNonce::from(nonce), text.as_bytes())
+    let ciphertext = cipher
+        .encrypt(&XNonce::from(nonce), text.as_bytes())
         .map_err(|_| anyhow!("Unable to encrypt a secret"))?;
     let mut bytes = nonce.to_vec();
     bytes.extend(ciphertext);
-    Ok(format!("{PREFIX}{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+    Ok(format!(
+        "{PREFIX}{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
 }
 
 /// The text of an encrypted value, see is_encrypted.
 fn decrypt(value: &str) -> anyhow::Result<String> {
-    let encoded = value.strip_prefix(PREFIX).ok_or_else(|| anyhow!("The value is not encrypted"))?;
-    let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)
+    let encoded = value
+        .strip_prefix(PREFIX)
+        .ok_or_else(|| anyhow!("The value is not encrypted"))?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
         .map_err(|error| anyhow!("An encrypted secret is not base64: {error}"))?;
     if bytes.len() < NONCE_LEN {
         return Err(anyhow!("An encrypted secret is too short"));
@@ -102,8 +126,12 @@ fn decrypt(value: &str) -> anyhow::Result<String> {
     let (nonce, ciphertext) = bytes.split_at(NONCE_LEN);
     let nonce: [u8; NONCE_LEN] = nonce.try_into()?;
     let cipher = XChaCha20Poly1305::new(&key(false)?.into());
-    let text = cipher.decrypt(&XNonce::from(nonce), ciphertext)
-        .map_err(|_| anyhow!("Unable to decrypt a secret, the key in the {} is not the one it was encrypted with", store_name()))?;
+    let text = cipher.decrypt(&XNonce::from(nonce), ciphertext).map_err(|_| {
+        anyhow!(
+            "Unable to decrypt a secret, the key in the {} is not the one it was encrypted with",
+            store_name()
+        )
+    })?;
     Ok(String::from_utf8(text)?)
 }
 
@@ -118,13 +146,13 @@ pub fn encrypt_secrets(value: &mut Value) -> anyhow::Result<()> {
                     _ => encrypt_secrets(field)?,
                 }
             }
-        },
+        }
         Value::Array(items) => {
             for item in items {
                 encrypt_secrets(item)?;
             }
-        },
-        _ => {},
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -137,13 +165,13 @@ pub fn decrypt_secrets(value: &mut Value) -> anyhow::Result<()> {
             for field in map.values_mut() {
                 decrypt_secrets(field)?;
             }
-        },
+        }
         Value::Array(items) => {
             for item in items {
                 decrypt_secrets(item)?;
             }
-        },
-        _ => {},
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -190,7 +218,9 @@ mod tests {
         assert_eq!(octopus["billingTimezone"], "Europe/London");
         assert!(octopus["accountNumber"].is_null());
         assert!(is_encrypted(value[0]["modules"]["globird"]["email"].as_str().unwrap()));
-        assert!(is_encrypted(value[0]["settings"]["captureDevices"][0]["key"].as_str().unwrap()));
+        assert!(is_encrypted(
+            value[0]["settings"]["captureDevices"][0]["key"].as_str().unwrap()
+        ));
         assert_eq!(value[0]["settings"]["captureDevices"][0]["address"], "192.168.4.97");
         assert!(!value.to_string().contains("hunter2"));
 

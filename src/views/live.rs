@@ -12,7 +12,7 @@ use std::time::Duration;
 use anyhow::anyhow;
 use dioxus::prelude::*;
 
-use super::site::{BOX_WIDTH, MARGIN, ROW_GAP, Placed, box_height, category_colours, column_x, place, use_colour};
+use super::site::{BOX_WIDTH, MARGIN, Placed, ROW_GAP, box_height, category_colours, column_x, place, use_colour};
 use crate::components::error_text::ErrorText;
 use crate::power::live::{Live, live};
 use crate::power::topology::{Circuit, Use};
@@ -47,7 +47,8 @@ pub fn LivePage() -> Element {
         let context = context_signal.read().clone();
         let registrations = registrations.clone();
         async move {
-            let found = super::electricity::find(context.ok_or_else(|| anyhow!("There is no profile"))?, registrations).await?;
+            let found =
+                super::electricity::find(context.ok_or_else(|| anyhow!("There is no profile"))?, registrations).await?;
             anyhow::Ok(Arc::new(found))
         }
     });
@@ -76,7 +77,9 @@ pub fn LivePage() -> Element {
         };
         let topology = settings.read().topology.clone();
         async move {
-            let (Some(found), Some(topology)) = (found, topology) else { return anyhow::Ok(None) };
+            let (Some(found), Some(topology)) = (found, topology) else {
+                return anyhow::Ok(None);
+            };
             let now = crate::clock::now_utc().unix_timestamp();
             let mut measurements = Vec::new();
             for source in &found.measurements {
@@ -112,7 +115,9 @@ fn clock_time(time: i64) -> String {
     use time_tz::OffsetDateTimeExt;
     let tz = time_tz::system::get_timezone().unwrap_or(time_tz::timezones::db::UTC);
     let format = time::macros::format_description!("[hour]:[minute]:[second]");
-    time::OffsetDateTime::from_unix_timestamp(time).map(|time| time.to_timezone(tz).format(&format).unwrap_or_default()).unwrap_or_default()
+    time::OffsetDateTime::from_unix_timestamp(time)
+        .map(|time| time.to_timezone(tz).format(&format).unwrap_or_default())
+        .unwrap_or_default()
 }
 
 /// When the power is of, and how long ago, e.g. As of 15:58:30, 2 minutes ago.
@@ -130,7 +135,9 @@ fn as_of(time: i64) -> String {
 /// A circuit's power, in whole W, so that the circuits' add up, to within the rounding, e.g. 1940 W, and what it is
 /// doing, e.g. charging, for a battery.
 fn describe(use_: &Use, top: bool, watts: Option<f64>) -> String {
-    let Some(watts) = watts else { return String::from("not known") };
+    let Some(watts) = watts else {
+        return String::from("not known");
+    };
     let shown = format!("{:.0} W", watts.abs());
     if watts.round() == 0.0 {
         return String::from("0 W");

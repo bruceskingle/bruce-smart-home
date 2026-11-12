@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use bruce_graphql::types::Date;
+use dioxus::prelude::*;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,14 +14,13 @@ use crate::util::as_decimal;
 use crate::{CacheConfig, NONE, NULL};
 
 use super::graphql::bill;
-use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder};
 use super::line_items::{LineItemDataSet, TariffLineItems};
 use super::meter::MeterType;
 use bill::get_statement_transactions::{Charge, TransactionType};
+use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder};
 
 // const one_hundred: Decimal = Decimal::new(100, 0);
 // const format: time::format_description = time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
-
 
 pub type BillType = super::graphql::BillTypeEnum;
 
@@ -39,11 +38,9 @@ impl BillType {
 
 pub type AbstractBill = crate::octopus::graphql::bill::get_bills::BillInterface;
 
-
 impl AbstractBill {
-
-     pub fn gui_summary_header() -> Element{
-        rsx!{
+    pub fn gui_summary_header() -> Element {
+        rsx! {
             tr {
 
                 th { colspan: 5, "" }
@@ -73,11 +70,11 @@ impl AbstractBill {
     /// A row of the bill list, whose id calls on_open with the bill's id when clicked.
     pub fn gui_summary_line(&self, attributes: &DataSetAttributes, on_open: EventHandler<String>) -> Element {
         let abstract_bill = self.as_bill_interface();
-        let row_class = if attributes.cached { "cached"} else {"fetched"};
+        let row_class = if attributes.cached { "cached" } else { "fetched" };
 
         let detail = match self {
             AbstractBill::StatementType(statement) => {
-                rsx!{
+                rsx! {
                     td { class: "numeric", "{as_decimal(statement.opening_balance_, 2)}" }
                     td { class: "numeric", "{as_decimal(statement.total_charges_.net_total_, 2)}" }
                     td { class: "numeric", "{as_decimal(statement.total_charges_.tax_total_, 2)}" }
@@ -87,11 +84,11 @@ impl AbstractBill {
                     td { class: "numeric", "{as_decimal(statement.total_credits_.gross_total_, 2)}" }
                     td { class: "numeric", "{as_decimal(statement.closing_balance_, 2)}" }
                 }
-            },
-            AbstractBill::PreKrakenBillType(_) => rsx!{},
-            AbstractBill::CollectiveBillType(_) => rsx!{},
+            }
+            AbstractBill::PreKrakenBillType(_) => rsx! {},
+            AbstractBill::CollectiveBillType(_) => rsx! {},
             AbstractBill::PeriodBasedDocumentType(period_based_document) => {
-                rsx!{
+                rsx! {
                     td {}
                     td { class: "numeric",
                         "{as_decimal(period_based_document.total_charges_.net_total_, 2)}"
@@ -113,9 +110,9 @@ impl AbstractBill {
                     }
                     td {}
                 }
-            },
+            }
             AbstractBill::InvoiceType(invoice) => {
-                rsx!{
+                rsx! {
                     td {}
                     td {}
                     td {}
@@ -125,7 +122,7 @@ impl AbstractBill {
                     td { class: "numeric", "{as_decimal(invoice.gross_amount_, 2)}" }
                     td {}
                 }
-            },
+            }
         };
 
         let id = abstract_bill.id_.clone();
@@ -134,7 +131,7 @@ impl AbstractBill {
         } else {
             "N/A".to_string()
         };
-        rsx!{
+        rsx! {
             tr { class: row_class,
                 td { "{issued_date}" }
                 // The bill's window opens to the right of this column, see BillsPage.
@@ -154,8 +151,6 @@ impl AbstractBill {
     }
 
     pub fn gui_display(&self, transactions: &Vec<BillTransactionBreakDown>) -> Element {
-
-
         println!("\n AbstractBill::gui_display: self={:#?}", self);
         println!("\n AbstractBill::gui_display: transactions={:#?}", transactions);
 
@@ -163,18 +158,17 @@ impl AbstractBill {
         let mut total_charges = TotalCharges::new();
         let mut parts = Vec::new();
 
-        let transaction_lines = rsx!{
+        let transaction_lines = rsx! {
             for txn in transactions {
                 {txn.gui_summary_line(&mut total_charges)}
             }
         };
 
-
         println!("\n AbstractBill::gui_display: total_charges={:#?}", total_charges);
 
         let totals = if total_charges.inputs() > 1 {
             let rate = Decimal::from(total_charges.gross_usage()) / total_charges.units();
-            rsx!{
+            rsx! {
                 tr {
                     td {}
                     td { "TOTALS" }
@@ -194,9 +188,8 @@ impl AbstractBill {
                 }
             }
         } else {
-            rsx!{}
+            rsx! {}
         };
-        
 
         let issued_date = if let Some(date) = &abstract_bill.issued_date_ {
             date.to_string()
@@ -248,9 +241,6 @@ impl AbstractBill {
             }
         });
 
-        
-
-
         rsx! {
             tr {
                 for item in parts {
@@ -261,11 +251,9 @@ impl AbstractBill {
     }
 }
 
-
 mod total_charges_module {
     use crate::octopus::decimal::Decimal;
 
-    
     #[derive(Debug)]
     pub struct TotalCharges {
         gross: i32,
@@ -277,7 +265,7 @@ mod total_charges_module {
 
     impl TotalCharges {
         pub fn new() -> Self {
-            TotalCharges{
+            TotalCharges {
                 gross: 0,
                 gross_usage: 0,
                 net: 0,
@@ -305,12 +293,13 @@ mod total_charges_module {
         pub fn inputs(&self) -> i32 {
             self.inputs
         }
-        
-        pub fn accumulate_line_item(&mut self, 
-            transaction: &crate::octopus::graphql::bill::get_statement_transactions::AbstractTransactionType, 
-            consumption: &crate::octopus::graphql::bill::get_statement_transactions::Consumption, 
-            net_factor: f64) {
-            
+
+        pub fn accumulate_line_item(
+            &mut self,
+            transaction: &crate::octopus::graphql::bill::get_statement_transactions::AbstractTransactionType,
+            consumption: &crate::octopus::graphql::bill::get_statement_transactions::Consumption,
+            net_factor: f64,
+        ) {
             self.gross += *&transaction.amounts_.gross_;
             self.gross_usage += consumption.usage_cost_;
 
@@ -324,16 +313,13 @@ mod total_charges_module {
 
 use total_charges_module::TotalCharges;
 
-impl AbstractTransactionType {
-}
+impl AbstractTransactionType {}
 
-impl Charge {
-}
+impl Charge {}
 
 impl TransactionType {
-
     pub fn gui_break_down_line_headers() -> Element {
-        rsx!{
+        rsx! {
             tr {
                 th { colspan: 2, "From" }
                 th { colspan: 2, "To" }
@@ -346,7 +332,7 @@ impl TransactionType {
     }
 
     pub fn gui_summary_headers() -> Element {
-        rsx!{
+        rsx! {
             tr {
                 th { colspan: 11, "" }
                 th { colspan: 3, class: "header", "Net" }
@@ -382,57 +368,71 @@ impl TransactionType {
     }
 }
 
-
 ///
-/// BillTransactionBreakDown represents a BillTransaction and its associated line items. 
+/// BillTransactionBreakDown represents a BillTransaction and its associated line items.
 /// It is an enum that can hold either a Charge and a non-zero length list of line items
 /// or an Abstract transaction type.
-/// 
+///
 /// Note that a Charge with no line items is represented as a BillTransactionBreakDown::Abstract with the Charge as the transaction type.
 #[derive(Debug)]
 pub enum BillTransactionBreakDown {
-    Charge{
+    Charge {
         // transaction: Charge,
         transaction: AbstractTransactionType,
         consumption: Consumption,
         is_export: bool,
         line_item_map: IndexMap<String, TariffLineItems>,
     },
-    Abstract{
+    Abstract {
         transaction: TransactionType,
     },
 }
 
 impl BillTransactionBreakDown {
     /// The transactions of a statement, with the line items making up each charge.
-    pub async fn for_statement(account_number: String, statement_id: String, billing_timezone: &time_tz::Tz,
-        cache_config: &Arc<CacheConfig>, request_manager: &impl GraphQLCaller)  -> anyhow::Result<Vec<BillTransactionBreakDown>> {
-
-
+    pub async fn for_statement(
+        account_number: String,
+        statement_id: String,
+        billing_timezone: &time_tz::Tz,
+        cache_config: &Arc<CacheConfig>,
+        request_manager: &impl GraphQLCaller,
+    ) -> anyhow::Result<Vec<BillTransactionBreakDown>> {
         let mut result = Vec::new();
-        let transactions = StatementTransactionDataSet::new(account_number.clone(), statement_id, cache_config, request_manager).await?;
-
+        let transactions =
+            StatementTransactionDataSet::new(account_number.clone(), statement_id, cache_config, request_manager)
+                .await?;
 
         for (_key, transaction) in transactions.data_set.data {
-            if let TransactionType::Charge(charge_ref) = &transaction && charge_ref.consumption_.is_some() {
-                        // print the line items making up this charge
-                        //println!("Get line items {:?} - {:?}",  &consumption.start_date_, &consumption.end_date_);
+            if let TransactionType::Charge(charge_ref) = &transaction
+                && charge_ref.consumption_.is_some()
+            {
+                // print the line items making up this charge
+                //println!("Get line items {:?} - {:?}",  &consumption.start_date_, &consumption.end_date_);
 
                 if let TransactionType::Charge(charge) = transaction {
                     if let Some(consumption) = &charge.consumption_ {
                         let meter_type = match charge.as_transaction_type().title_.as_str() {
                             "Gas" => MeterType::Gas,
                             "Electricity" => MeterType::Electricity,
-                            _ => panic!("Unknown consumption type")
+                            _ => panic!("Unknown consumption type"),
                         };
 
-                        let line_items = LineItemDataSet::new(&account_number, &meter_type, charge.is_export_, &consumption.start_date_, &consumption.end_date_, billing_timezone, cache_config, request_manager).await?;
+                        let line_items = LineItemDataSet::new(
+                            &account_number,
+                            &meter_type,
+                            charge.is_export_,
+                            &consumption.start_date_,
+                            &consumption.end_date_,
+                            billing_timezone,
+                            cache_config,
+                            request_manager,
+                        )
+                        .await?;
 
                         result.push(BillTransactionBreakDown::from_charge(charge, line_items.agreements));
                     }
                 }
-            }
-            else  {
+            } else {
                 result.push(BillTransactionBreakDown::from_abstract(transaction));
             }
         }
@@ -441,28 +441,33 @@ impl BillTransactionBreakDown {
     }
 
     pub fn from_charge(charge: Charge, line_item_map: IndexMap<String, TariffLineItems>) -> Self {
-        if !line_item_map.is_empty() && let Some(consumption) = charge.consumption_  {
+        if !line_item_map.is_empty()
+            && let Some(consumption) = charge.consumption_
+        {
             return BillTransactionBreakDown::Charge {
                 transaction: charge.transaction_type_,
                 consumption,
                 is_export: charge.is_export_,
                 line_item_map,
-            }
+            };
         }
-        return BillTransactionBreakDown::Abstract{
+        return BillTransactionBreakDown::Abstract {
             transaction: TransactionType::Charge(charge),
-        }
+        };
     }
 
     pub fn from_abstract(transaction: TransactionType) -> Self {
-        BillTransactionBreakDown::Abstract{
-            transaction,
-        }
+        BillTransactionBreakDown::Abstract { transaction }
     }
 
-    pub fn gui_summary_line(&self, total_charges: &mut TotalCharges) -> Element{
+    pub fn gui_summary_line(&self, total_charges: &mut TotalCharges) -> Element {
         match self {
-            BillTransactionBreakDown::Charge{transaction, consumption, is_export, line_item_map: _  } => {
+            BillTransactionBreakDown::Charge {
+                transaction,
+                consumption,
+                is_export,
+                line_item_map: _,
+            } => {
                 // transaction.gui_summary_line(total_charges)
 
                 let mut parts = Vec::new();
@@ -471,93 +476,92 @@ impl BillTransactionBreakDown {
                     td { class: "link", "{transaction.id_.as_str()}" }
 
                 )?);
-                parts.push(
-                    if *is_export {
-                        rsx!(
-                            td {
-                                {transaction.title_.as_str()}
-                                " Export"
-                            }
-                        )
-                    }
-                    else {
-                            rsx!(
-                                td { {transaction.title_.as_str()} }
-                            )
-                    }
-                ?);
+                parts.push(if *is_export {
+                    rsx!(
+                        td {
+                            {transaction.title_.as_str()}
+                            " Export"
+                        }
+                    )
+                } else {
+                    rsx!(
+                        td { {transaction.title_.as_str()} }
+                    )
+                }?);
                 parts.push(rsx!(
                     td { "{transaction.posted_date_}" }
                 )?);
 
-
                 let vat_rate = if transaction.amounts_.tax_ > 0 {
-                    10000 *transaction.amounts_.tax_ / transaction.amounts_.net_ 
+                    10000 * transaction.amounts_.tax_ / transaction.amounts_.net_
                 } else {
                     0
                 };
                 let net_factor = 1.0 + transaction.amounts_.tax_ as f64 / transaction.amounts_.net_ as f64;
 
-                    parts.push(rsx!(
-                        td { class: "numeric", {as_decimal(transaction.amounts_.net_, 2)} }
-                        td { class: "numeric derived", {as_decimal(vat_rate, 2)} }
-                        td { class: "numeric", {as_decimal(transaction.amounts_.tax_, 2)} }
-                        td { class: "numeric", {as_decimal(transaction.amounts_.gross_, 2)} }
-                        td { class: "numeric", {as_decimal(transaction.balance_carried_forward_, 2)} }
-                    )?);
-                        
-                    let net_supply_charge = (consumption.supply_charge_ as f64/ net_factor) as i32;
-                    let net_usage_cost = (consumption.usage_cost_ as f64 / net_factor) as i32;
+                parts.push(rsx!(
+                    td { class: "numeric", {as_decimal(transaction.amounts_.net_, 2)} }
+                    td { class: "numeric derived", {as_decimal(vat_rate, 2)} }
+                    td { class: "numeric", {as_decimal(transaction.amounts_.tax_, 2)} }
+                    td { class: "numeric", {as_decimal(transaction.amounts_.gross_, 2)} }
+                    td { class: "numeric", {as_decimal(transaction.balance_carried_forward_, 2)} }
+                )?);
 
-                    let (gross_unit_cost, net_unit_cost) = if consumption.quantity_.is_non_zero() {
-                        (
-                            format!("{:>12.4}", Decimal::from(transaction.amounts_.gross_ - consumption.supply_charge_) / consumption.quantity_), 
-                            format!("{:>12.4}", Decimal::from(transaction.amounts_.net_ - net_supply_charge) / consumption.quantity_)
-                        )
-                    } else {
-                        (String::new(), String::new())
-                    };
+                let net_supply_charge = (consumption.supply_charge_ as f64 / net_factor) as i32;
+                let net_usage_cost = (consumption.usage_cost_ as f64 / net_factor) as i32;
 
-                    parts.push(rsx!(
-                        td { {format!("{}", consumption.start_date_)} }
-                        td { {format!("{}", consumption.end_date_)} }
-                        td { class: "numeric", {format!("{:>12.4}", consumption.quantity_)} }
+                let (gross_unit_cost, net_unit_cost) = if consumption.quantity_.is_non_zero() {
+                    (
+                        format!(
+                            "{:>12.4}",
+                            Decimal::from(transaction.amounts_.gross_ - consumption.supply_charge_)
+                                / consumption.quantity_
+                        ),
+                        format!(
+                            "{:>12.4}",
+                            Decimal::from(transaction.amounts_.net_ - net_supply_charge) / consumption.quantity_
+                        ),
+                    )
+                } else {
+                    (String::new(), String::new())
+                };
 
-                        td { class: "numeric derived", {as_decimal(net_supply_charge, 2)} }
-                        td { class: "numeric derived", {as_decimal(net_usage_cost, 2)} }
-                        td { class: "numeric derived", {net_unit_cost} }
+                parts.push(rsx!(
+                    td { {format!("{}", consumption.start_date_)} }
+                    td { {format!("{}", consumption.end_date_)} }
+                    td { class: "numeric", {format!("{:>12.4}", consumption.quantity_)} }
 
-                        td { class: "numeric", {as_decimal(consumption.supply_charge_, 2)} }
-                        td { class: "numeric", {as_decimal(consumption.usage_cost_, 2)} }
-                        td { class: "numeric derived", {gross_unit_cost} }
-                    )?);
+                    td { class: "numeric derived", {as_decimal(net_supply_charge, 2)} }
+                    td { class: "numeric derived", {as_decimal(net_usage_cost, 2)} }
+                    td { class: "numeric derived", {net_unit_cost} }
 
-                    if *is_export {
-                        
+                    td { class: "numeric", {as_decimal(consumption.supply_charge_, 2)} }
+                    td { class: "numeric", {as_decimal(consumption.usage_cost_, 2)} }
+                    td { class: "numeric derived", {gross_unit_cost} }
+                )?);
+
+                if *is_export {
+                } else {
+                    if transaction.title_.eq("Electricity") {
+                        total_charges.accumulate_line_item(transaction, consumption, net_factor);
+                        // total_charges.gross += *&transaction.amounts_.gross_;
+                        // total_charges.gross_supply = consumption.supply_charge_;
+                        // total_charges.gross_usage += consumption.usage_cost_;
+
+                        // total_charges.net += (*&transaction.amounts_.gross_ as f64 / net_factor) as i32;
+                        // total_charges.net_supply = (consumption.supply_charge_ as f64 / net_factor) as i32;
+                        // total_charges.net_usage += (consumption.usage_cost_ as f64 / net_factor) as i32;
+
+                        // total_charges.units += consumption.quantity_;
                     }
-                    else {
-                            if transaction.title_.eq("Electricity") {
-
-                                total_charges.accumulate_line_item(transaction, consumption, net_factor);
-                                // total_charges.gross += *&transaction.amounts_.gross_;
-                                // total_charges.gross_supply = consumption.supply_charge_;
-                                // total_charges.gross_usage += consumption.usage_cost_;
-
-                                // total_charges.net += (*&transaction.amounts_.gross_ as f64 / net_factor) as i32;
-                                // total_charges.net_supply = (consumption.supply_charge_ as f64 / net_factor) as i32;
-                                // total_charges.net_usage += (consumption.usage_cost_ as f64 / net_factor) as i32;
-
-                                // total_charges.units += consumption.quantity_;
-                            }
-                        }
+                }
 
                 if let Some(note) = &transaction.note_ {
                     let note = note.trim();
                     parts.push(rsx!(
                         td { {note} }
                     )?);
-                }
-                else {
+                } else {
                     parts.push(rsx!(
                         td { "" }
                     )?);
@@ -569,9 +573,8 @@ impl BillTransactionBreakDown {
                         }
                     }
                 }
-    
-            },
-            BillTransactionBreakDown::Abstract{transaction} => {
+            }
+            BillTransactionBreakDown::Abstract { transaction } => {
                 // transaction.gui_summary_line(total_charges)
                 let abstract_txn = transaction.as_transaction_type();
                 let mut parts = Vec::new();
@@ -580,45 +583,42 @@ impl BillTransactionBreakDown {
                     td { class: "link", "{abstract_txn.id_.as_str()}" }
 
                 )?);
-                parts.push(
-                    rsx!(
-                        td { {abstract_txn.title_.as_str()} }
-                    )?);
+                parts.push(rsx!(
+                    td { {abstract_txn.title_.as_str()} }
+                )?);
                 parts.push(rsx!(
                     td { "{abstract_txn.posted_date_}" }
                 )?);
 
-
                 let vat_rate = if abstract_txn.amounts_.tax_ > 0 {
-                    10000 *abstract_txn.amounts_.tax_ / abstract_txn.amounts_.net_ 
+                    10000 * abstract_txn.amounts_.tax_ / abstract_txn.amounts_.net_
                 } else {
                     0
                 };
 
-                    parts.push(rsx!(
-                        td { class: "numeric", {as_decimal(-abstract_txn.amounts_.net_, 2)} }
-                        td { class: "numeric derived", {as_decimal(vat_rate, 2)} }
-                        td { class: "numeric", {as_decimal(-abstract_txn.amounts_.tax_, 2)} }
-                        td { class: "numeric", {as_decimal(-abstract_txn.amounts_.gross_, 2)} }
-                        td { class: "numeric",
-                            {as_decimal(abstract_txn.balance_carried_forward_, 2)}
-                        }
-                    )?);
-                    parts.push(rsx!(
-                        td { "" }
-                        td { "" }
-                        td { "" }
-                        td { "" }
-                        td { "" }
-                    )?);
-                    
+                parts.push(rsx!(
+                    td { class: "numeric", {as_decimal(-abstract_txn.amounts_.net_, 2)} }
+                    td { class: "numeric derived", {as_decimal(vat_rate, 2)} }
+                    td { class: "numeric", {as_decimal(-abstract_txn.amounts_.tax_, 2)} }
+                    td { class: "numeric", {as_decimal(-abstract_txn.amounts_.gross_, 2)} }
+                    td { class: "numeric",
+                        {as_decimal(abstract_txn.balance_carried_forward_, 2)}
+                    }
+                )?);
+                parts.push(rsx!(
+                    td { "" }
+                    td { "" }
+                    td { "" }
+                    td { "" }
+                    td { "" }
+                )?);
+
                 if let Some(note) = &abstract_txn.note_ {
                     let note = note.trim();
                     parts.push(rsx!(
                         td { {note} }
                     )?);
-                }
-                else {
+                } else {
                     parts.push(rsx!(
                         td { "" }
                     )?);
@@ -630,12 +630,12 @@ impl BillTransactionBreakDown {
                         }
                     }
                 }
-            },
+            }
         }
         // self.transaction.gui_summary_line(total_charges)
     }
 
-    pub fn gui_summary_headers() -> Element{
+    pub fn gui_summary_headers() -> Element {
         TransactionType::gui_summary_headers()
     }
 
@@ -649,27 +649,27 @@ impl BillTransactionBreakDown {
 
         println!("\nBillTransactionBreakDown::gui_display: transaction={:#?}", self);
 
-        match self{
-            BillTransactionBreakDown::Charge{transaction, consumption, is_export: _, line_item_map  }=> {
-                
+        match self {
+            BillTransactionBreakDown::Charge {
+                transaction,
+                consumption,
+                is_export: _,
+                line_item_map,
+            } => {
                 for (_agreement_id, TariffLineItems { tariff, line_items }) in line_item_map {
-
                     let mut amount_map = BTreeMap::new();
-                    let mut total_amount = Decimal::new(0,0);
-                    let mut total_units = Decimal::new(0,0);
+                    let mut total_amount = Decimal::new(0, 0);
+                    let mut total_units = Decimal::new(0, 0);
 
                     let txn = transaction.as_transaction_type();
 
                     println!();
-                    parts.push(
-                        rsx!{
-                            {tariff.gui_display()}
-                        }?
-                    );
-
+                    parts.push(rsx! {
+                        {tariff.gui_display()}
+                    }?);
 
                     let mut sub_parts = Vec::new();
-                    
+
                     sub_parts.push(TransactionType::gui_break_down_line_headers()?);
                     let mut prev = None;
                     for item in line_items {
@@ -678,37 +678,58 @@ impl BillTransactionBreakDown {
                         total_amount += amount;
                         total_units += item.number_of_units_;
 
-                        let unit_cost = (if item.number_of_units_.is_non_zero() {item.net_amount_ / item.number_of_units_} else { item.net_amount_ }).round_dp(2);
+                        let unit_cost = (if item.number_of_units_.is_non_zero() {
+                            item.net_amount_ / item.number_of_units_
+                        } else {
+                            item.net_amount_
+                        })
+                        .round_dp(2);
 
                         let (from_date, from_time) = if let Some(prev) = prev {
                             if prev == item.start_at_.date() {
                                 ("".to_string(), item.start_at_.format(&time_format).unwrap())
                             } else {
-                                (item.start_at_.format(&date_format).unwrap(), item.start_at_.format(&time_format).unwrap())
+                                (
+                                    item.start_at_.format(&date_format).unwrap(),
+                                    item.start_at_.format(&time_format).unwrap(),
+                                )
                             }
                         } else {
-                            (item.start_at_.format(&date_format).unwrap(), item.start_at_.format(&time_format).unwrap())
+                            (
+                                item.start_at_.format(&date_format).unwrap(),
+                                item.start_at_.format(&time_format).unwrap(),
+                            )
                         };
 
-                        let (to_date, to_time) = if item.end_at_.date() == item.start_at_.date() {("".to_string(), item.end_at_.format(&time_format).unwrap())} else {(item.end_at_.format(&date_format).unwrap(), item.end_at_.format(&time_format).unwrap())};
-
-                        
+                        let (to_date, to_time) = if item.end_at_.date() == item.start_at_.date() {
+                            ("".to_string(), item.end_at_.format(&time_format).unwrap())
+                        } else {
+                            (
+                                item.end_at_.format(&date_format).unwrap(),
+                                item.end_at_.format(&time_format).unwrap(),
+                            )
+                        };
 
                         if item.number_of_units_.is_positive() {
-
                             let key = unit_cost.round_dp(2);
                             let formatted_key = key.to_string();
-                            if let Some((_,total_amount, total_units)) = amount_map.get(&key) {
-                                amount_map.insert(key, (formatted_key, amount + *total_amount, item.number_of_units_ + *total_units));
-                            }
-                            else {
+                            if let Some((_, total_amount, total_units)) = amount_map.get(&key) {
+                                amount_map.insert(
+                                    key,
+                                    (
+                                        formatted_key,
+                                        amount + *total_amount,
+                                        item.number_of_units_ + *total_units,
+                                    ),
+                                );
+                            } else {
                                 amount_map.insert(key, (formatted_key, amount, item.number_of_units_));
                             }
                         }
-                        
+
                         prev = Some(item.start_at_.date());
 
-                        sub_parts.push(rsx!{
+                        sub_parts.push(rsx! {
                             tr {
                                 td { {from_date} }
                                 td { {from_time} }
@@ -724,7 +745,7 @@ impl BillTransactionBreakDown {
                         }?);
                     }
 
-                    sub_parts.push(rsx!{
+                    sub_parts.push(rsx! {
                         tr {
                             td { colspan: 4, "Total" }
                             td { class: "numeric derived", {format!("{:.3}", total_amount)} }
@@ -732,12 +753,10 @@ impl BillTransactionBreakDown {
                         }
                     }?);
 
-
                     let net_factor = 1.0 + transaction.amounts_.tax_ as f64 / transaction.amounts_.net_ as f64;
-                    let net_supply_charge = (consumption.supply_charge_ as f64/ net_factor) as i32;
+                    let net_supply_charge = (consumption.supply_charge_ as f64 / net_factor) as i32;
 
-
-                    sub_parts.push(rsx!{
+                    sub_parts.push(rsx! {
                         tr {
                             td { colspan: 4, "Total from Statement" }
                             td { class: "numeric derived",
@@ -755,8 +774,9 @@ impl BillTransactionBreakDown {
                         let days = end_date.to_julian_day() - start_date.to_julian_day();
 
                         if let Some(standing_charge_rate) = tariff.standing_charge() {
-                            let standing_charge = Decimal::new((standing_charge_rate * (10000 * days) as f64) as i64,6);
-                            sub_parts.push(rsx!{
+                            let standing_charge =
+                                Decimal::new((standing_charge_rate * (10000 * days) as f64) as i64, 6);
+                            sub_parts.push(rsx! {
                                 tr {
                                     td { colspan: 4,
                                         {
@@ -779,9 +799,8 @@ impl BillTransactionBreakDown {
                                 //     }
                                 // }
                             }?);
-                        }
-                        else {
-                            sub_parts.push(rsx!{
+                        } else {
+                            sub_parts.push(rsx! {
                                 tr {
                                     td { colspan: 4,
                                         {format!("Standing charge from Tariff ({} days @ ", days)}
@@ -792,14 +811,10 @@ impl BillTransactionBreakDown {
                                 }
                             }?);
                         }
-                                    
-                
 
-                
                         if !amount_map.is_empty() {
                             let standing_charge = Decimal::new(net_supply_charge as i64, 2);
-                            consumption_analysis = 
-                            Some(rsx!{
+                            consumption_analysis = Some(rsx! {
                                 h4 { "Consumption Analysis" }
                                 table { class: "display",
                                     tr {
@@ -845,18 +860,16 @@ impl BillTransactionBreakDown {
                                 }
                             }?);
                         }
-
                     }
 
-
-                    sub_parts.push(rsx!{
+                    sub_parts.push(rsx! {
                         tr {
                             td { colspan: 4, "Standing Charge from Statement" }
                             td { class: "numeric derived", {as_decimal(net_supply_charge, 2)} }
                         }
                     }?);
 
-                    parts.push(rsx!{
+                    parts.push(rsx! {
                         table {
                             for item in sub_parts {
                                 {item}
@@ -867,7 +880,6 @@ impl BillTransactionBreakDown {
                     if let Some(consumption_analysis) = consumption_analysis {
                         parts.push(consumption_analysis);
                     }
-                        
                 }
 
                 rsx! {
@@ -877,19 +889,15 @@ impl BillTransactionBreakDown {
                         }
                     }
                 }
-            },
+            }
             BillTransactionBreakDown::Abstract { transaction: _ } => {
                 rsx! {
                     tr {}
                 }
-            },
+            }
         }
-    
-        
     }
 }
-
-
 
 pub struct BillDataSet {
     pub data_set: OrderedListDataSet<String, Date, AbstractBill>,
@@ -921,9 +929,10 @@ impl BillDataSet {
             builder.build()
         };
 
-
         let continuation_query_provider = |last_response: &super::graphql::bill::get_bills::Response| {
-             if last_response.account_.bills_.page_info.has_previous_page && let Some(start_cursor) = &last_response.account_.bills_.page_info.start_cursor {
+            if last_response.account_.bills_.page_info.has_previous_page
+                && let Some(start_cursor) = &last_response.account_.bills_.page_info.start_cursor
+            {
                 Some(
                     super::graphql::bill::get_bills::Query::builder()
                         .with_account_number(account_number.clone())
@@ -931,17 +940,16 @@ impl BillDataSet {
                         .with_include_open_statements(true)
                         .with_last(20)
                         .with_before(start_cursor.clone())
-                        .build())
-            }
-            else {
+                        .build(),
+                )
+            } else {
                 None
             }
         };
-        let indexer  = |bill: &AbstractBill| {
+        let indexer = |bill: &AbstractBill| {
             let is_final = if let AbstractBill::StatementType(statement) = bill {
                 statement.status_ == AccountStatementStatus::Closed
-            }
-            else {
+            } else {
                 true
             };
 
@@ -955,7 +963,7 @@ impl BillDataSet {
 
         let data_set = OrderedListDataSet::new(
             &hash_key,
-            Duration::from_hours(24), 
+            Duration::from_hours(24),
             initial_query_provider,
             continuation_query_provider,
             response_iterator,
@@ -963,17 +971,18 @@ impl BillDataSet {
             // An open statement can be replaced by another, e.g. when its period is closed early, and the first is then
             // no longer returned.
             true,
-            config, request_manager).await?;
+            config,
+            request_manager,
+        )
+        .await?;
 
         Ok(Self { data_set })
     }
 }
 
-
 pub struct StatementTransactionDataSet {
     pub data_set: ListDataSet<String, TransactionType>,
 }
-
 
 impl StatementTransactionDataSet {
     pub async fn new(
@@ -986,42 +995,42 @@ impl StatementTransactionDataSet {
 
         let initial_query_provider = || {
             super::graphql::bill::get_statement_transactions::Query::builder()
-                        .with_account_number(account_number.clone())
-                        .with_statement_id(statement_id.clone())
-                        .with_transactions_last(20)
-                        .build()
+                .with_account_number(account_number.clone())
+                .with_statement_id(statement_id.clone())
+                .with_transactions_last(20)
+                .build()
         };
 
-
-        let continuation_query_provider = |last_response: &super::graphql::bill::get_statement_transactions::Response| {
-            if let bill::get_statement_transactions::BillInterface::StatementType(statement) = &last_response.account_.bill_ {
-                if statement.transactions_.page_info.has_previous_page && let Some(start_cursor) = &statement.transactions_.page_info.start_cursor {
-                    Some(
-                        super::graphql::bill::get_statement_transactions::Query::builder()
-                            .with_account_number(account_number.clone())
-                            .with_statement_id(statement_id.clone())
-                            .with_transactions_last(20)
-                            .with_transactions_before(start_cursor.clone())
-                            .build())
-                }
-                else {
+        let continuation_query_provider =
+            |last_response: &super::graphql::bill::get_statement_transactions::Response| {
+                if let bill::get_statement_transactions::BillInterface::StatementType(statement) =
+                    &last_response.account_.bill_
+                {
+                    if statement.transactions_.page_info.has_previous_page
+                        && let Some(start_cursor) = &statement.transactions_.page_info.start_cursor
+                    {
+                        Some(
+                            super::graphql::bill::get_statement_transactions::Query::builder()
+                                .with_account_number(account_number.clone())
+                                .with_statement_id(statement_id.clone())
+                                .with_transactions_last(20)
+                                .with_transactions_before(start_cursor.clone())
+                                .build(),
+                        )
+                    } else {
+                        None
+                    }
+                } else {
                     None
                 }
-            }
-            else {
-                None
-            }
-        };
-        let indexer  = |transaction: &TransactionType| {
-            transaction.as_transaction_type().id_.clone()
-        };
+            };
+        let indexer = |transaction: &TransactionType| transaction.as_transaction_type().id_.clone();
 
         let response_iterator = |response: super::graphql::bill::get_statement_transactions::Response| {
             if let bill::get_statement_transactions::BillInterface::StatementType(statement) = response.account_.bill_ {
                 let it = statement.transactions_.edges.into_iter().map(|edge| edge.node);
                 it
-            }
-            else {
+            } else {
                 panic!("Bill {} is not a statement", statement_id)
             }
             // response.account_.bills_.edges.into_iter().map(|edge| edge.node)
@@ -1029,17 +1038,19 @@ impl StatementTransactionDataSet {
 
         let data_set = ListDataSet::new(
             &hash_key,
-            None, 
+            None,
             initial_query_provider,
             continuation_query_provider,
             response_iterator,
-            indexer, config, request_manager).await?;
+            indexer,
+            config,
+            request_manager,
+        )
+        .await?;
 
         Ok(Self { data_set })
     }
 }
-
-
 
 // #[cfg(test)]
 // mod tests {

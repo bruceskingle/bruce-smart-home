@@ -12,10 +12,6 @@
 
 use std::sync::{Arc, Mutex};
 
-use chrono::{DateTime, TimeDelta, Utc};
-use croner::Cron;
-use log::warn;
-use serde_json::json;
 use bruce_embedded_std::config::ConfigSpec;
 use bruce_embedded_std::config::ConfigSpecValue;
 use bruce_embedded_std::config::FeatureConfig;
@@ -24,6 +20,10 @@ use bruce_embedded_std::feature::FeatureDescriptor;
 use bruce_embedded_std::platform::PlatformInitializer;
 use bruce_embedded_std::task::scheduler::ScheduledTask;
 use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
+use chrono::{DateTime, TimeDelta, Utc};
+use croner::Cron;
+use log::warn;
+use serde_json::json;
 
 use crate::db::Db;
 use crate::device::{Device, captured_by};
@@ -65,7 +65,10 @@ impl Feature for ClimateCapture {
 
     fn init(&self, initializer: &mut Esp32PlatformInitializer) -> anyhow::Result<FeatureDescriptor> {
         self.panel.start(initializer)?;
-        Ok(FeatureDescriptor { name: FEATURE_NAME.to_string(), config: ClimateConfig::to_config_spec()? })
+        Ok(FeatureDescriptor {
+            name: FEATURE_NAME.to_string(),
+            config: ClimateConfig::to_config_spec()?,
+        })
     }
 
     fn start(
@@ -84,10 +87,15 @@ impl Feature for ClimateCapture {
 
         let sample = SampleTask {
             sensor: sparko.shtc3(),
-            series: [Series::new("temperature", "°C", 0.1, 1), Series::new("humidity", "%", 1.0, 0)],
+            series: [
+                Series::new("temperature", "°C", 0.1, 1),
+                Series::new("humidity", "%", 1.0, 0),
+            ],
             // A step of 0.02 V, twice what is shown, so that its jitter of a hundredth does not make a period of each
             // reading.
-            battery: sparko.battery().map(|battery| (battery, Series::new("battery", "V", 0.02, 2))),
+            battery: sparko
+                .battery()
+                .map(|battery| (battery, Series::new("battery", "V", 0.02, 2))),
             store: store.clone(),
             db: self.db.clone(),
             panel: self.panel.clone(),
@@ -96,7 +104,9 @@ impl Feature for ClimateCapture {
         initializer.add_task(Box::new(sample), &schedule_spec)?;
 
         // For the app, at /api/store/info, see db.rs.
-        self.db.add_status("climate", move |db| device.to_json(db, store.lock().unwrap().last_poll.as_ref()));
+        self.db.add_status("climate", move |db| {
+            device.to_json(db, store.lock().unwrap().last_poll.as_ref())
+        });
         Ok(())
     }
 }
@@ -136,7 +146,13 @@ struct Series {
 
 impl Series {
     fn new(name: &'static str, unit: &'static str, step: f32, decimals: i32) -> Series {
-        Series { name, unit, step, decimals, open: None }
+        Series {
+            name,
+            unit,
+            step,
+            decimals,
+            open: None,
+        }
     }
 
     fn round(&self, reading: f32) -> f64 {
@@ -157,7 +173,12 @@ impl Series {
                     closed.end = time;
                     records.push((closed, false));
                 }
-                self.open = Some(Period { start: time, end: time, value: self.round(reading), written: None });
+                self.open = Some(Period {
+                    start: time,
+                    end: time,
+                    value: self.round(reading),
+                    written: None,
+                });
             }
         }
         if let Some(open) = &mut self.open
@@ -204,7 +225,7 @@ impl ScheduledTask<Esp32Platform> for SampleTask {
                     for (period, open) in series.add(time, reading.volts) {
                         put(&self.db, &series.to_json(&period, open, &self.captured_by));
                     }
-                },
+                }
                 Err(error) => warn!("Unable to read the battery, {error:#}"),
             }
         }
@@ -214,7 +235,8 @@ impl ScheduledTask<Esp32Platform> for SampleTask {
                 warn!("Unable to read the temperature and humidity, {error:#}");
                 let mut store = self.store.lock().unwrap();
                 store.last_poll = Some(LastPoll::failed(store.last_poll.as_ref(), time, format!("{error:#}")));
-                self.panel.set(PANEL_ORDER, vec![(format!("Temp/humidity: {error:#}"), true)]);
+                self.panel
+                    .set(PANEL_ORDER, vec![(format!("Temp/humidity: {error:#}"), true)]);
                 return Ok(());
             }
         };
@@ -225,7 +247,13 @@ impl ScheduledTask<Esp32Platform> for SampleTask {
             }
         }
         store.last_poll = Some(LastPoll::succeeded(time));
-        self.panel.set(PANEL_ORDER, vec![(format!("{:.1} C  {:.0}% humidity", reading.celsius, reading.humidity), false)]);
+        self.panel.set(
+            PANEL_ORDER,
+            vec![(
+                format!("{:.1} C  {:.0}% humidity", reading.celsius, reading.humidity),
+                false,
+            )],
+        );
         Ok(())
     }
 

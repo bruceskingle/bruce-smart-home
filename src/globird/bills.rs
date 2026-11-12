@@ -46,7 +46,9 @@ pub struct ListItem {
 impl ListItem {
     /// Whether it is a bill's email, e.g. "Your latest GloBird Energy bill is here", rather than e.g. a welcome letter.
     pub fn is_bill(&self) -> bool {
-        self.title.as_deref().is_some_and(|title| title.to_lowercase().contains("bill"))
+        self.title
+            .as_deref()
+            .is_some_and(|title| title.to_lowercase().contains("bill"))
     }
 
     /// The day it was sent.
@@ -113,7 +115,10 @@ impl Cached {
 
 /// A DataSet of the kind of the account, by the hash of its ID.
 fn account_key(store: &Store, kind: &str, account_id: i64) -> anyhow::Result<String> {
-    store.hash_key(kind, &[Part::Id(Id::of(&serde_json::json!({"globird-account": account_id}))?)])
+    store.hash_key(
+        kind,
+        &[Part::Id(Id::of(&serde_json::json!({"globird-account": account_id}))?)],
+    )
 }
 
 /// The sort key of a page of the list's record.
@@ -125,28 +130,50 @@ fn list_key(offset: usize) -> String {
 /// first is the reverse of their order.
 pub fn cached(cache_config: &CacheConfig) -> Cached {
     let mut result = Cached::default();
-    let (Ok(store), Some(account_id)) = (cache_config.store(), super::fetch::account(cache_config).as_ref().and_then(account_id)) else {
+    let (Ok(store), Some(account_id)) = (
+        cache_config.store(),
+        super::fetch::account(cache_config).as_ref().and_then(account_id),
+    ) else {
         return result;
     };
     if let Ok(hk) = account_key(store, MAIL_KIND, account_id) {
         if let Ok(Some(first)) = store.get(&hk, &list_key(0)) {
-            result.total_count = first.attributes.as_ref().and_then(|page| page.get("totalCount")?.as_u64()).map(|total| total as usize);
-            result.first_page_age = Micros::now().0.checked_sub(first.version.time.0).map(|age| Duration::from_micros(age.max(0) as u64));
+            result.total_count = first
+                .attributes
+                .as_ref()
+                .and_then(|page| page.get("totalCount")?.as_u64())
+                .map(|total| total as usize);
+            result.first_page_age = Micros::now()
+                .0
+                .checked_sub(first.version.time.0)
+                .map(|age| Duration::from_micros(age.max(0) as u64));
         }
         let items = store.query_all(&hk, "0".."\u{10FFFF}").unwrap_or_default();
-        result.items = items.into_iter().rev().filter_map(|item| serde_json::from_value(item.attributes?).ok()).collect();
+        result.items = items
+            .into_iter()
+            .rev()
+            .filter_map(|item| serde_json::from_value(item.attributes?).ok())
+            .collect();
     }
     if let Ok(hk) = account_key(store, DETAIL_KIND, account_id) {
         for item in store.all(&hk).unwrap_or_default() {
-            match (item.sk.parse::<i64>(), item.attributes.map(serde_json::from_value::<Detail>)) {
-                (Ok(email_id), Some(Ok(detail))) => { result.details.insert(email_id, detail); },
+            match (
+                item.sk.parse::<i64>(),
+                item.attributes.map(serde_json::from_value::<Detail>),
+            ) {
+                (Ok(email_id), Some(Ok(detail))) => {
+                    result.details.insert(email_id, detail);
+                }
                 _ => crate::log_warning!("Unable to read the GloBird email {}", item.sk),
             }
         }
     }
     if let Ok(hk) = account_key(store, DOCUMENT_KIND, account_id) {
         for item in store.all(&hk).unwrap_or_default() {
-            let blob = item.attributes.as_ref().and_then(|document| Id::parse(document.get("blob")?.as_str()?).ok());
+            let blob = item
+                .attributes
+                .as_ref()
+                .and_then(|document| Id::parse(document.get("blob")?.as_str()?).ok());
             if let (Ok(document_id), Some(blob)) = (item.sk.parse::<i64>(), blob) {
                 result.documents.insert(document_id, blob);
             }
@@ -157,8 +184,15 @@ pub fn cached(cache_config: &CacheConfig) -> Cached {
 
 /// The PDF of a cached document.
 pub fn document(cache_config: &CacheConfig, document_id: i64) -> anyhow::Result<Vec<u8>> {
-    let blob = cached(cache_config).documents.get(&document_id).cloned().ok_or_else(|| anyhow!("The bill's PDF has not been fetched"))?;
-    cache_config.store()?.get_blob(&blob)?.ok_or_else(|| anyhow!("The bill's PDF is missing from the store"))
+    let blob = cached(cache_config)
+        .documents
+        .get(&document_id)
+        .cloned()
+        .ok_or_else(|| anyhow!("The bill's PDF has not been fetched"))?;
+    cache_config
+        .store()?
+        .get_blob(&blob)?
+        .ok_or_else(|| anyhow!("The bill's PDF is missing from the store"))
 }
 
 /// The next request a Fetch makes, None if there is nothing to fetch: the account if it is not cached, then the first
@@ -175,10 +209,16 @@ pub fn next_request(cached: &Cached, account_cached: bool) -> Option<Request> {
         match cached.details.get(&bill.id) {
             None => return Some(Request::Detail { email_id: bill.id }),
             Some(detail) => {
-                if let Some(document) = detail.document_list.iter().find(|document| !cached.documents.contains_key(&document.document_id)) {
-                    return Some(Request::Document { document_id: document.document_id });
+                if let Some(document) = detail
+                    .document_list
+                    .iter()
+                    .find(|document| !cached.documents.contains_key(&document.document_id))
+                {
+                    return Some(Request::Document {
+                        document_id: document.document_id,
+                    });
                 }
-            },
+            }
         }
     }
     if cached.first_page_age.is_some_and(|age| age > LIST_REFRESH) {
@@ -194,16 +234,34 @@ pub fn describe(request: &Request, cached: &Cached) -> String {
     match request {
         Request::Account => String::from("the account"),
         Request::List { offset: 0 } => String::from("the newest emails"),
-        Request::List { offset } => format!("the emails from {} of {}", offset + 1, cached.total_count.unwrap_or_default()),
+        Request::List { offset } => format!(
+            "the emails from {} of {}",
+            offset + 1,
+            cached.total_count.unwrap_or_default()
+        ),
         Request::Detail { email_id } => {
-            let date = cached.items.iter().find(|item| item.id == *email_id).and_then(ListItem::date);
-            format!("the email of the bill of {}", date.map(|date| date.to_string()).unwrap_or_default())
-        },
+            let date = cached
+                .items
+                .iter()
+                .find(|item| item.id == *email_id)
+                .and_then(ListItem::date);
+            format!(
+                "the email of the bill of {}",
+                date.map(|date| date.to_string()).unwrap_or_default()
+            )
+        }
         Request::Document { document_id } => {
-            let name = cached.details.values().flat_map(|detail| detail.document_list.iter())
-                .find(|document| document.document_id == *document_id).and_then(|document| document.name.clone());
-            format!("the PDF of {}", name.unwrap_or_else(|| format!("document {document_id}")))
-        },
+            let name = cached
+                .details
+                .values()
+                .flat_map(|detail| detail.document_list.iter())
+                .find(|document| document.document_id == *document_id)
+                .and_then(|document| document.name.clone());
+            format!(
+                "the PDF of {}",
+                name.unwrap_or_else(|| format!("document {document_id}"))
+            )
+        }
     }
 }
 
@@ -217,10 +275,25 @@ pub fn account_id(user: &serde_json::Value) -> Option<i64> {
 fn save_list_page(store: &Store, account_id: i64, offset: usize, page: &serde_json::Value) -> anyhow::Result<()> {
     let hk = account_key(store, MAIL_KIND, account_id)?;
     for item in page.get("data").and_then(|data| data.as_array()).into_iter().flatten() {
-        let (Some(id), Some(created)) = (item.get("id").and_then(|id| id.as_i64()), item.get("createdDate").and_then(|date| date.as_str())) else { continue };
-        store.put(&Item::new(&hk, &format!("{created}#{id}"), crate::store::version_now(), item.clone()))?;
+        let (Some(id), Some(created)) = (
+            item.get("id").and_then(|id| id.as_i64()),
+            item.get("createdDate").and_then(|date| date.as_str()),
+        ) else {
+            continue;
+        };
+        store.put(&Item::new(
+            &hk,
+            &format!("{created}#{id}"),
+            crate::store::version_now(),
+            item.clone(),
+        ))?;
     }
-    store.put(&Item::new(&hk, &list_key(offset), crate::store::version_now(), serde_json::json!({ "totalCount": page.get("totalCount") })))?;
+    store.put(&Item::new(
+        &hk,
+        &list_key(offset),
+        crate::store::version_now(),
+        serde_json::json!({ "totalCount": page.get("totalCount") }),
+    ))?;
     Ok(())
 }
 
@@ -233,30 +306,44 @@ pub async fn fetch_next(client: &GlobirdClient, cache_config: &CacheConfig) -> a
     let store = cache_config.store()?;
     let user = super::fetch::account(cache_config);
     let cached = cached(cache_config);
-    let Some(request) = next_request(&cached, user.is_some()) else { return Ok(None) };
+    let Some(request) = next_request(&cached, user.is_some()) else {
+        return Ok(None);
+    };
     let description = describe(&request, &cached);
     if request == Request::Account {
         super::fetch::save_account(cache_config, &client.current_user().await?)?;
         return Ok(Some(description));
     }
-    let account_id = user.as_ref().and_then(account_id).ok_or_else(|| anyhow!("The GloBird account has no account ID"))?;
+    let account_id = user
+        .as_ref()
+        .and_then(account_id)
+        .ok_or_else(|| anyhow!("The GloBird account has no account ID"))?;
     let version = crate::store::version_now;
     match request {
-        Request::Account => {},
+        Request::Account => {}
         Request::List { offset } => {
             let page = client.correspondence_list(account_id, offset, PAGE_SIZE).await?;
             save_list_page(store, account_id, offset, &page)?;
-        },
+        }
         Request::Detail { email_id } => {
             let detail = client.correspondence_detail(account_id, email_id).await?;
-            store.put(&Item::new(&account_key(store, DETAIL_KIND, account_id)?, &email_id.to_string(), version(), detail))?;
-        },
+            store.put(&Item::new(
+                &account_key(store, DETAIL_KIND, account_id)?,
+                &email_id.to_string(),
+                version(),
+                detail,
+            ))?;
+        }
         Request::Document { document_id } => {
             let pdf = client.document(account_id, document_id).await?;
             let blob = store.put_blob(&pdf)?;
-            store.put(&Item::new(&account_key(store, DOCUMENT_KIND, account_id)?, &document_id.to_string(), version(),
-                serde_json::json!({ "documentId": document_id, "blob": blob.as_str(), "bytes": pdf.len() })))?;
-        },
+            store.put(&Item::new(
+                &account_key(store, DOCUMENT_KIND, account_id)?,
+                &document_id.to_string(),
+                version(),
+                serde_json::json!({ "documentId": document_id, "blob": blob.as_str(), "bytes": pdf.len() }),
+            ))?;
+        }
     }
     Ok(Some(description))
 }
@@ -308,7 +395,9 @@ fn bill_date(text: &str) -> Option<Date> {
     let day: u8 = parts.next()?.parse().ok()?;
     let month = parts.next()?.to_lowercase();
     let year: i32 = parts.next()?.parse().ok()?;
-    let months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    let months = [
+        "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+    ];
     let month = time::Month::try_from(months.iter().position(|name| month.starts_with(name))? as u8 + 1).ok()?;
     Date::from_calendar_date(year, month, day).ok()
 }
@@ -354,38 +443,57 @@ pub fn parse_bill(text: &str) -> Bill {
     let mut first_list_done = false;
     for line in text.lines() {
         let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
-        let first = |pattern: &Regex| pattern.captures(&line).and_then(|captures| captures.get(1)).map(|found| found.as_str().to_string());
+        let first = |pattern: &Regex| {
+            pattern
+                .captures(&line)
+                .and_then(|captures| captures.get(1))
+                .map(|found| found.as_str().to_string())
+        };
         if let Some(captures) = patterns.line.captures(&line) {
             let description = captures[1].to_string();
             if first_list_done {
                 if bill.plan.is_none() {
-                    bill.plan = bill.lines.iter()
-                        .find_map(|known| description.strip_prefix(&format!("{} ", known.description)).map(str::to_string));
+                    bill.plan = bill.lines.iter().find_map(|known| {
+                        description
+                            .strip_prefix(&format!("{} ", known.description))
+                            .map(str::to_string)
+                    });
                 }
                 continue;
             }
-            let (Some(quantity), Some(rate), Some(amount)) = (money(&captures[2]), money(&captures[4]), money(&captures[5])) else { continue };
-            bill.lines.push(BillLine { description, quantity, unit: captures[3].to_string(), rate, amount });
-        }
-        else if let Some(captures) = patterns.total.captures(&line) {
+            let (Some(quantity), Some(rate), Some(amount)) =
+                (money(&captures[2]), money(&captures[4]), money(&captures[5]))
+            else {
+                continue;
+            };
+            bill.lines.push(BillLine {
+                description,
+                quantity,
+                unit: captures[3].to_string(),
+                rate,
+                amount,
+            });
+        } else if let Some(captures) = patterns.total.captures(&line) {
             if !first_list_done {
                 bill.gst = money(&captures[1]);
                 bill.total = money(&captures[2]);
             }
             first_list_done = true;
-        }
-        else if let Some(captures) = patterns.period.captures(&line) {
+        } else if let Some(captures) = patterns.period.captures(&line) {
             if bill.period.is_none() {
                 bill.period = bill_date(&captures[1]).zip(bill_date(&captures[2]));
             }
-        }
-        else if bill.invoice.is_none() && let Some(invoice) = first(&patterns.invoice) {
+        } else if bill.invoice.is_none()
+            && let Some(invoice) = first(&patterns.invoice)
+        {
             bill.invoice = Some(invoice);
-        }
-        else if bill.issued.is_none() && let Some(issued) = first(&patterns.issued) {
+        } else if bill.issued.is_none()
+            && let Some(issued) = first(&patterns.issued)
+        {
             bill.issued = bill_date(&issued);
-        }
-        else if bill.due.is_none() && let Some(due) = first(&patterns.due) {
+        } else if bill.due.is_none()
+            && let Some(due) = first(&patterns.due)
+        {
             bill.due = bill_date(&due);
         }
     }
@@ -405,7 +513,9 @@ pub fn pdf_text(bytes: &[u8]) -> anyhow::Result<String> {
 pub fn read_bill(pdf: &[u8]) -> anyhow::Result<Bill> {
     let bill = parse_bill(&pdf_text(pdf)?);
     if bill.lines.is_empty() || bill.total.is_none() {
-        return Err(anyhow!("No charges or total were found in the bill's text, which may be in a form not known yet"));
+        return Err(anyhow!(
+            "No charges or total were found in the bill's text, which may be in a form not known yet"
+        ));
     }
     Ok(bill)
 }
@@ -422,15 +532,22 @@ pub fn convert_legacy(cache_config: &CacheConfig, dir: &std::path::Path) -> anyh
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         let path = entry.path();
-        let json = || -> anyhow::Result<serde_json::Value> { Ok(serde_json::from_str(&std::fs::read_to_string(&path)?)?) };
-        if let Some(offset) = name.strip_prefix("list-").and_then(|offset| offset.parse::<usize>().ok()) {
+        let json =
+            || -> anyhow::Result<serde_json::Value> { Ok(serde_json::from_str(&std::fs::read_to_string(&path)?)?) };
+        if let Some(offset) = name
+            .strip_prefix("list-")
+            .and_then(|offset| offset.parse::<usize>().ok())
+        {
             save_list_page(store, account_id, offset, &json()?)?;
-        }
-        else if let Some(email_id) = name.strip_prefix("detail-") {
-            store.put(&Item::new(&account_key(store, DETAIL_KIND, account_id)?, email_id, crate::store::version_now(), json()?))?;
+        } else if let Some(email_id) = name.strip_prefix("detail-") {
+            store.put(&Item::new(
+                &account_key(store, DETAIL_KIND, account_id)?,
+                email_id,
+                crate::store::version_now(),
+                json()?,
+            ))?;
             emails += 1;
-        }
-        else if let Some(document_id) = name.strip_prefix("document-").and_then(|id| id.strip_suffix(".pdf")) {
+        } else if let Some(document_id) = name.strip_prefix("document-").and_then(|id| id.strip_suffix(".pdf")) {
             let pdf = std::fs::read(&path)?;
             let blob = store.put_blob(&pdf)?;
             store.put(&Item::new(&account_key(store, DOCUMENT_KIND, account_id)?, document_id, crate::store::version_now(),
@@ -446,11 +563,19 @@ mod tests {
     use super::*;
 
     fn item(id: i64, title: &str) -> ListItem {
-        ListItem { id, title: Some(title.to_string()), created_date: Some(String::from("2026-01-02T03:04:05.0")) }
+        ListItem {
+            id,
+            title: Some(title.to_string()),
+            created_date: Some(String::from("2026-01-02T03:04:05.0")),
+        }
     }
 
     fn document(document_id: i64) -> Document {
-        Document { document_id, name: Some(format!("Invoice{document_id}")), is_reversed: Some(false) }
+        Document {
+            document_id,
+            name: Some(format!("Invoice{document_id}")),
+            is_reversed: Some(false),
+        }
     }
 
     #[test]
@@ -461,20 +586,37 @@ mod tests {
 
         cached.total_count = Some(25);
         cached.first_page_age = Some(Duration::from_secs(60));
-        cached.items = vec![item(3, "Welcome"), item(2, "Your latest bill is here"), item(1, "Your latest bill is here")];
+        cached.items = vec![
+            item(3, "Welcome"),
+            item(2, "Your latest bill is here"),
+            item(1, "Your latest bill is here"),
+        ];
         assert_eq!(next_request(&cached, true), Some(Request::Detail { email_id: 2 }));
 
-        cached.details.insert(2, Detail { document_list: vec![document(20)] });
+        cached.details.insert(
+            2,
+            Detail {
+                document_list: vec![document(20)],
+            },
+        );
         assert_eq!(next_request(&cached, true), Some(Request::Document { document_id: 20 }));
 
         cached.documents.insert(20, Id::of_bytes(b"x"));
         assert_eq!(next_request(&cached, true), Some(Request::Detail { email_id: 1 }));
 
         cached.details.insert(1, Detail::default());
-        assert_eq!(next_request(&cached, true), Some(Request::List { offset: 3 }), "the welcome letter's email is not needed");
+        assert_eq!(
+            next_request(&cached, true),
+            Some(Request::List { offset: 3 }),
+            "the welcome letter's email is not needed"
+        );
 
         cached.first_page_age = Some(LIST_REFRESH + Duration::from_secs(1));
-        assert_eq!(next_request(&cached, true), Some(Request::List { offset: 0 }), "new bills are looked for first");
+        assert_eq!(
+            next_request(&cached, true),
+            Some(Request::List { offset: 0 }),
+            "new bills are looked for first"
+        );
 
         cached.first_page_age = Some(Duration::from_secs(60));
         cached.total_count = Some(3);
@@ -489,14 +631,19 @@ mod tests {
         let store = std::sync::Arc::new(Store::open(&format!("file://{}", dir.display()), &site).unwrap());
         let cache_config = CacheConfig::new(dir.join("cache"), false).with_store(store.clone());
         super::super::fetch::save_account(&cache_config, &serde_json::json!({"accounts": [{"accountId": 7}]})).unwrap();
-        let page = |ids: &[i64]| serde_json::json!({"totalCount": 4, "data": ids.iter()
-            .map(|id| serde_json::json!({"id": id, "title": "bill", "createdDate": format!("2026-0{id}-01T00:00:00")})).collect::<Vec<_>>()});
+        let page = |ids: &[i64]| {
+            serde_json::json!({"totalCount": 4, "data": ids.iter()
+            .map(|id| serde_json::json!({"id": id, "title": "bill", "createdDate": format!("2026-0{id}-01T00:00:00")})).collect::<Vec<_>>()})
+        };
         // The first page was fetched again after email 4 came, so the second page, fetched before, repeats email 2.
         save_list_page(&store, 7, 2, &page(&[2, 1])).unwrap();
         save_list_page(&store, 7, 0, &page(&[4, 3])).unwrap();
         save_list_page(&store, 7, 1, &page(&[3, 2])).unwrap();
         let cached = cached(&cache_config);
-        assert_eq!(cached.items.iter().map(|item| item.id).collect::<Vec<_>>(), vec![4, 3, 2, 1]);
+        assert_eq!(
+            cached.items.iter().map(|item| item.id).collect::<Vec<_>>(),
+            vec![4, 3, 2, 1]
+        );
         assert_eq!(cached.total_count, Some(4));
         assert!(cached.first_page_age.is_some_and(|age| age < Duration::from_secs(60)));
         std::fs::remove_dir_all(&dir).unwrap();
@@ -527,18 +674,49 @@ TOTAL (including $8.41 GST) $92.50
         assert_eq!(bill.invoice.as_deref(), Some("1000001"));
         assert_eq!(bill.issued, Some(date(2027, time::Month::February, 3)));
         assert_eq!(bill.due, Some(date(2027, time::Month::February, 17)));
-        assert_eq!(bill.period, Some((date(2027, time::Month::January, 1), date(2027, time::Month::January, 31))));
+        assert_eq!(
+            bill.period,
+            Some((
+                date(2027, time::Month::January, 1),
+                date(2027, time::Month::January, 31)
+            ))
+        );
         assert_eq!(bill.plan.as_deref(), Some("SAVER"));
         assert_eq!(bill.total, Some(92.5));
         assert_eq!(bill.gst, Some(8.41));
-        assert_eq!(bill.lines.len(), 4, "the second list, with the plan's name, is not counted again");
-        assert_eq!(bill.lines[0], BillLine { description: String::from("Daily Charge"), quantity: 31.0, unit: String::from("Days"), rate: 1.0, amount: 31.0 });
-        assert_eq!(bill.lines[3], BillLine { description: String::from("Standard Solar Feed in"), quantity: 50.0, unit: String::from("kWh"), rate: -0.05, amount: -2.5 });
+        assert_eq!(
+            bill.lines.len(),
+            4,
+            "the second list, with the plan's name, is not counted again"
+        );
+        assert_eq!(
+            bill.lines[0],
+            BillLine {
+                description: String::from("Daily Charge"),
+                quantity: 31.0,
+                unit: String::from("Days"),
+                rate: 1.0,
+                amount: 31.0
+            }
+        );
+        assert_eq!(
+            bill.lines[3],
+            BillLine {
+                description: String::from("Standard Solar Feed in"),
+                quantity: 50.0,
+                unit: String::from("kWh"),
+                rate: -0.05,
+                amount: -2.5
+            }
+        );
         assert!(bill.lines[0].is_daily() && !bill.lines[1].is_daily());
     }
 
     #[test]
     fn text_which_is_not_a_bill_has_nothing() {
-        assert_eq!(parse_bill("Welcome to GloBird\nYour plan starts today"), Bill::default());
+        assert_eq!(
+            parse_bill("Welcome to GloBird\nYour plan starts today"),
+            Bill::default()
+        );
     }
 }

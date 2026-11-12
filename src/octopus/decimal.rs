@@ -1,9 +1,9 @@
+use serde::de::{self, Visitor};
+use serde::{Deserializer, Serialize, Serializer};
 use std::fmt::{self, Display};
 use std::hash::Hash;
-use std::ops::{Add, AddAssign, Deref, Div, Mul, Sub, DivAssign, MulAssign, SubAssign};
+use std::ops::{Add, AddAssign, Deref, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 use std::str::FromStr;
-use serde::{Deserializer, Serialize, Serializer};
-use serde::de::{self, Visitor};
 
 use bruce_graphql::types::Int;
 
@@ -22,37 +22,36 @@ This implementation is a wrapper around a rust_decimal::Decimal which provides s
 #[derive(Debug, Clone, Copy)]
 pub struct Decimal(rust_decimal::Decimal);
 
-
 impl Decimal {
-    pub const ZERO: Decimal  = Decimal(rust_decimal::Decimal::ZERO);
+    pub const ZERO: Decimal = Decimal(rust_decimal::Decimal::ZERO);
 
-  pub fn new(num: i64, scale: u32) -> Decimal {
-    Decimal (rust_decimal::Decimal::new(num, scale))
-  }
+    pub fn new(num: i64, scale: u32) -> Decimal {
+        Decimal(rust_decimal::Decimal::new(num, scale))
+    }
 
-  pub fn from_int(i: &Int) -> Decimal {
-    Decimal::new(**i as i64, 0)
-  }
+    pub fn from_int(i: &Int) -> Decimal {
+        Decimal::new(**i as i64, 0)
+    }
 
-  pub fn is_positive(&self)-> bool {
-    self.0.gt(&rust_decimal::Decimal::from(0)) //.gt(&0)
-  }
+    pub fn is_positive(&self) -> bool {
+        self.0.gt(&rust_decimal::Decimal::from(0)) //.gt(&0)
+    }
 
-  pub fn is_non_zero(&self)-> bool {
-    self.0.ne(&rust_decimal::Decimal::from(0)) //.gt(&0)
-  }
+    pub fn is_non_zero(&self) -> bool {
+        self.0.ne(&rust_decimal::Decimal::from(0)) //.gt(&0)
+    }
 
-  pub fn round_dp(&self, dp: u32) -> Decimal {
-    Decimal(self.0.round_dp(dp))
-  }
+    pub fn round_dp(&self, dp: u32) -> Decimal {
+        Decimal(self.0.round_dp(dp))
+    }
 
-  pub fn round_dp_with_strategy(&self, dp: u32, strategy: rust_decimal::RoundingStrategy) -> Decimal {
-    Decimal(self.0.round_dp_with_strategy(dp, strategy))
-  }
+    pub fn round_dp_with_strategy(&self, dp: u32, strategy: rust_decimal::RoundingStrategy) -> Decimal {
+        Decimal(self.0.round_dp_with_strategy(dp, strategy))
+    }
 
-  pub fn normalize(&self) -> Decimal {
-    Decimal(self.0.normalize())
-  }
+    pub fn normalize(&self) -> Decimal {
+        Decimal(self.0.normalize())
+    }
 }
 
 // impl Div for Decimal {
@@ -92,7 +91,6 @@ impl Decimal {
 //         Decimal(self.0.sub(rhs.0))
 //     }
 // }
-
 
 macro_rules! forward_ref_binary_op {
     ($imp:ident, $method:ident) => {
@@ -188,10 +186,10 @@ impl DivAssign for Decimal {
 forward_ref_assign_op!(DivAssign, div_assign);
 
 impl Display for Decimal {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    // f.pad(&format!("{}.{}", self.int, self.dec))
-    self.0.fmt(f)
-  }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // f.pad(&format!("{}.{}", self.int, self.dec))
+        self.0.fmt(f)
+    }
 }
 
 impl Deref for Decimal {
@@ -204,7 +202,7 @@ impl Deref for Decimal {
 
 impl From<i32> for Decimal {
     fn from(value: i32) -> Self {
-      Decimal(rust_decimal::Decimal::from(value))
+        Decimal(rust_decimal::Decimal::from(value))
     }
 }
 
@@ -212,13 +210,12 @@ impl FromStr for Decimal {
     type Err = anyhow::Error;
 
     fn from_str(str: &str) -> Result<Decimal, Self::Err> {
-      // Python Decimals may be serialized in scientific notation, e.g. "0E-18"
-      if str.contains(['e', 'E']) {
-        Ok(Decimal(rust_decimal::Decimal::from_scientific(str)?))
-      }
-      else {
-        Ok(Decimal(rust_decimal::Decimal::from_str(str)?))
-      }
+        // Python Decimals may be serialized in scientific notation, e.g. "0E-18"
+        if str.contains(['e', 'E']) {
+            Ok(Decimal(rust_decimal::Decimal::from_scientific(str)?))
+        } else {
+            Ok(Decimal(rust_decimal::Decimal::from_str(str)?))
+        }
         // let mut int: i32 = 0;
         // let mut dec: u32 = 0;
         // let mut i = 0;
@@ -244,10 +241,8 @@ impl FromStr for Decimal {
         //   int,
         //   dec
         // })
-
     }
 }
-
 
 impl Eq for Decimal {}
 
@@ -288,30 +283,28 @@ impl<'de> Visitor<'de> for DecimalVisitor {
     where
         E: de::Error,
     {
-      // Trailing zeros after the decimal point are removed, e.g. "1.500" becomes 1.5
-      match  Decimal::from_str(value) {
-        Ok(value) => Ok(value.normalize()),
-        Err(error) => Err(E::custom(format!("Invalid Decimal value: {}", error)))
-      }
+        // Trailing zeros after the decimal point are removed, e.g. "1.500" becomes 1.5
+        match Decimal::from_str(value) {
+            Ok(value) => Ok(value.normalize()),
+            Err(error) => Err(E::custom(format!("Invalid Decimal value: {}", error))),
+        }
     }
 }
 
 impl<'de> serde::Deserialize<'de> for Decimal {
-  fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-    deserializer.deserialize_string(DecimalVisitor)
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_string(DecimalVisitor)
     }
 }
 
-
-
 impl Serialize for Decimal {
-  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-  where
-      S: Serializer,
-  {
-    // serializer.serialize_str(&format!("{}.{}", self.int, self.dec))
-    serializer.serialize_str(&self.0.to_string())
-  }
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // serializer.serialize_str(&format!("{}.{}", self.int, self.dec))
+        serializer.serialize_str(&self.0.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -320,7 +313,6 @@ mod tests {
 
     use super::*;
 
-
     #[derive(serde::Serialize, serde::Deserialize, Debug)]
     struct MyStruct {
         decimal: Decimal,
@@ -328,83 +320,83 @@ mod tests {
 
     #[test]
     fn test_from_str() {
+        let dd = rust_decimal::Decimal::new(123456, 3);
+        assert_eq!(dd.to_string(), "123.456");
 
-      let dd = rust_decimal::Decimal::new(123456, 3);
-      assert_eq!(dd.to_string(), "123.456");
+        let decimal = Decimal::from_str("123.456").unwrap();
 
-      let decimal = Decimal::from_str("123.456").unwrap();
-
-      assert_eq!(decimal.0, rust_decimal::Decimal::new(123456, 3));
+        assert_eq!(decimal.0, rust_decimal::Decimal::new(123456, 3));
     }
 
-    fn expect_parse(s: &str, v:rust_decimal::Decimal) {
-      let result: Result<MyStruct, serde_json::Error> = serde_json::from_str(s);
-      if let Ok(value) = result {
-        assert_eq!(value.decimal.0, v);
-      }
-      else {
-        panic!("Expecting {} for {}", v, s);
-      }
+    fn expect_parse(s: &str, v: rust_decimal::Decimal) {
+        let result: Result<MyStruct, serde_json::Error> = serde_json::from_str(s);
+        if let Ok(value) = result {
+            assert_eq!(value.decimal.0, v);
+        } else {
+            panic!("Expecting {} for {}", v, s);
+        }
     }
 
     fn expect_parse_error(s: &str) {
-      let result: Result<MyStruct, serde_json::Error> = serde_json::from_str(s);
-      if let Ok(v) = result {
-        panic!("Expecting error for {}, got {}", s, v.decimal);
-      }
+        let result: Result<MyStruct, serde_json::Error> = serde_json::from_str(s);
+        if let Ok(v) = result {
+            panic!("Expecting error for {}, got {}", s, v.decimal);
+        }
     }
 
     #[test]
     fn test_parse() {
-      
-      expect_parse(r#"{ "decimal": "123.456" }"#, rust_decimal::Decimal::new(123456,3));
-      
-      expect_parse(r#"{ "decimal": "444" }"#, rust_decimal::Decimal::new(444, 0));
-      
-      expect_parse(r#"{ "decimal": "444.0" }"#, rust_decimal::Decimal::new(444, 0));
-      expect_parse(r#"{ "decimal": "444." }"#, rust_decimal::Decimal::new(444, 0));
-      expect_parse(r#"{ "decimal": ".444" }"#, dec!(0.444));
-      
-      // expect_parse_error(r#"{ "decimal": "444." }"#);
-      // expect_parse_error(r#"{ "decimal": ".444" }"#);
-      
-      expect_parse(r#"{ "decimal": "0.444" }"#, dec!(0.444));
-      
-      expect_parse(r#"{ "decimal": "0000.444" }"#, dec!(0.444));
-      
-      expect_parse(r#"{ "decimal": "876.444" }"#, dec!(876.444));
+        expect_parse(r#"{ "decimal": "123.456" }"#, rust_decimal::Decimal::new(123456, 3));
 
+        expect_parse(r#"{ "decimal": "444" }"#, rust_decimal::Decimal::new(444, 0));
 
-      expect_parse(r#"{ "decimal": "0E-18" }"#, dec!(0));
-      expect_parse(r#"{ "decimal": "12345E-3" }"#, dec!(12.345));
-      expect_parse(r#"{ "decimal": "-2.5e-2" }"#, dec!(-0.025));
-      expect_parse(r#"{ "decimal": "1.5E+3" }"#, dec!(1500));
-      expect_parse_error(r#"{ "decimal": "1.5E" }"#);
-      
-      expect_parse_error(r#"{ "decimal": "0.1.2" }"#);
+        expect_parse(r#"{ "decimal": "444.0" }"#, rust_decimal::Decimal::new(444, 0));
+        expect_parse(r#"{ "decimal": "444." }"#, rust_decimal::Decimal::new(444, 0));
+        expect_parse(r#"{ "decimal": ".444" }"#, dec!(0.444));
+
+        // expect_parse_error(r#"{ "decimal": "444." }"#);
+        // expect_parse_error(r#"{ "decimal": ".444" }"#);
+
+        expect_parse(r#"{ "decimal": "0.444" }"#, dec!(0.444));
+
+        expect_parse(r#"{ "decimal": "0000.444" }"#, dec!(0.444));
+
+        expect_parse(r#"{ "decimal": "876.444" }"#, dec!(876.444));
+
+        expect_parse(r#"{ "decimal": "0E-18" }"#, dec!(0));
+        expect_parse(r#"{ "decimal": "12345E-3" }"#, dec!(12.345));
+        expect_parse(r#"{ "decimal": "-2.5e-2" }"#, dec!(-0.025));
+        expect_parse(r#"{ "decimal": "1.5E+3" }"#, dec!(1500));
+        expect_parse_error(r#"{ "decimal": "1.5E" }"#);
+
+        expect_parse_error(r#"{ "decimal": "0.1.2" }"#);
     }
-  
+
     fn expect_parse_as(s: &str, expected: &str) {
-      let value: MyStruct = serde_json::from_str(s).unwrap();
-      assert_eq!(value.decimal.to_string(), expected, "parsing {}", s);
+        let value: MyStruct = serde_json::from_str(s).unwrap();
+        assert_eq!(value.decimal.to_string(), expected, "parsing {}", s);
     }
 
     #[test]
     fn trailing_zeros_after_the_decimal_point_are_removed() {
-      expect_parse_as(r#"{ "decimal": "1.500" }"#, "1.5");
-      expect_parse_as(r#"{ "decimal": "444.0" }"#, "444");
-      expect_parse_as(r#"{ "decimal": "0.0000" }"#, "0");
-      expect_parse_as(r#"{ "decimal": "0E-18" }"#, "0");
-      expect_parse_as(r#"{ "decimal": "-0.00" }"#, "0");
-      expect_parse_as(r#"{ "decimal": "100" }"#, "100");
-      expect_parse_as(r#"{ "decimal": "28.8273" }"#, "28.8273");
+        expect_parse_as(r#"{ "decimal": "1.500" }"#, "1.5");
+        expect_parse_as(r#"{ "decimal": "444.0" }"#, "444");
+        expect_parse_as(r#"{ "decimal": "0.0000" }"#, "0");
+        expect_parse_as(r#"{ "decimal": "0E-18" }"#, "0");
+        expect_parse_as(r#"{ "decimal": "-0.00" }"#, "0");
+        expect_parse_as(r#"{ "decimal": "100" }"#, "100");
+        expect_parse_as(r#"{ "decimal": "28.8273" }"#, "28.8273");
     }
 
     #[test]
     fn test_serialize() {
-      assert_eq!(serde_json::to_string(&MyStruct {
-        decimal: Decimal::new(314159, 5)
-      }).unwrap(), "{\"decimal\":\"3.14159\"}");
+        assert_eq!(
+            serde_json::to_string(&MyStruct {
+                decimal: Decimal::new(314159, 5)
+            })
+            .unwrap(),
+            "{\"decimal\":\"3.14159\"}"
+        );
     }
 
     #[test]

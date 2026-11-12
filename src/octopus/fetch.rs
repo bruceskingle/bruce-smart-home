@@ -6,10 +6,6 @@
 use std::cell::RefCell;
 use std::time::{Duration, Instant};
 
-
-use crate::FETCH_DAYS;
-use crate::components::date_range_picker::{LocalSlot, RangeSelection};
-use crate::data_set::CancelToken;
 use super::bill::{BillDataSet, BillTransactionBreakDown};
 use super::charging_session;
 use super::context::OctopusContext;
@@ -19,6 +15,9 @@ use super::meter_point::MeterPointDataSet;
 use super::property::PropertyDataSet;
 use super::smart_device::SmartDeviceDataSet;
 use super::telemetry;
+use crate::FETCH_DAYS;
+use crate::components::date_range_picker::{LocalSlot, RangeSelection};
+use crate::data_set::CancelToken;
 
 /// A progress monitor which prints each message with what it is for. A rate limit's countdown changes every second, so
 /// a message which only differs from the last in its countdown is printed once a minute.
@@ -44,7 +43,13 @@ pub async fn fetch_latest_data(context: &OctopusContext) -> anyhow::Result<()> {
     let cancel = CancelToken::new();
     // The 30 Days quick range of the date range picker.
     let today = crate::clock::today(tz);
-    let range = RangeSelection { start: LocalSlot { date: today - time::Duration::days(FETCH_DAYS), slot: 0 }, end: None };
+    let range = RangeSelection {
+        start: LocalSlot {
+            date: today - time::Duration::days(FETCH_DAYS),
+            slot: 0,
+        },
+        end: None,
+    };
     let (start, end) = range.to_date_times(tz).map_err(|error| anyhow::anyhow!(error))?;
     println!("Fetching account {account} from {start} to {end}");
 
@@ -60,14 +65,27 @@ pub async fn fetch_latest_data(context: &OctopusContext) -> anyhow::Result<()> {
         Ok(bills) => {
             println!("  Bills: {} bills", bills.data_set.data.len());
             for (id, (_, bill)) in &bills.data_set.data {
-                if bill.as_bill_interface().issued_date_.as_ref().is_some_and(|issued| issued.at_midnight(tz) >= start) {
-                    match BillTransactionBreakDown::for_statement(account.clone(), id.clone(), tz, config, request_manager).await {
+                if bill
+                    .as_bill_interface()
+                    .issued_date_
+                    .as_ref()
+                    .is_some_and(|issued| issued.at_midnight(tz) >= start)
+                {
+                    match BillTransactionBreakDown::for_statement(
+                        account.clone(),
+                        id.clone(),
+                        tz,
+                        config,
+                        request_manager,
+                    )
+                    .await
+                    {
                         Ok(transactions) => println!("  Bill {id}: {} transactions", transactions.len()),
                         Err(error) => failed(&format!("Bill {id}"), error),
                     }
                 }
             }
-        },
+        }
         Err(error) => failed("Bills", error),
     }
 
@@ -86,14 +104,26 @@ pub async fn fetch_latest_data(context: &OctopusContext) -> anyhow::Result<()> {
                 };
                 let export = matches!(direction, ElectricityDirection::Export);
                 let what = format!("Meter {}", meter_point.mpan_);
-                match MeasurementsDataSet::new(account, &meter_point.mpan_, export, &start, &end, None, tz, &printer(what.clone()),
-                    &cancel, config, request_manager).await
+                match MeasurementsDataSet::new(
+                    account,
+                    &meter_point.mpan_,
+                    export,
+                    &start,
+                    &end,
+                    None,
+                    tz,
+                    &printer(what.clone()),
+                    &cancel,
+                    config,
+                    request_manager,
+                )
+                .await
                 {
                     Ok(_) => println!("  {what}: up to date"),
                     Err(error) => failed(&what, error),
                 }
             }
-        },
+        }
         Err(error) => failed("Meter points", error),
     }
 
@@ -102,26 +132,59 @@ pub async fn fetch_latest_data(context: &OctopusContext) -> anyhow::Result<()> {
         Ok(devices) => {
             for device in devices.devices.iter().filter(|device| device.charging.is_some()) {
                 let what = format!("Charging sessions of {}", device.name.as_deref().unwrap_or(&device.id));
-                match charging_session::fetch(account, &device.id, &start, &end, None, tz, config, request_manager, &printer(what.clone()), &cancel).await {
+                match charging_session::fetch(
+                    account,
+                    &device.id,
+                    &start,
+                    &end,
+                    None,
+                    tz,
+                    config,
+                    request_manager,
+                    &printer(what.clone()),
+                    &cancel,
+                )
+                .await
+                {
                     Ok(sessions) => println!("  {what}: {} sessions", sessions.len()),
                     Err(error) => failed(&what, error),
                 }
             }
-        },
+        }
         Err(error) => failed("Smart devices", error),
     }
 
     // The readings every 10 seconds of each meter with a consumer access device, e.g. a Home Mini, which Octopus only
     // keeps for 30 days.
     if let Ok(properties) = &properties {
-        let meters = properties.property_map.values()
+        let meters = properties
+            .property_map
+            .values()
             .flat_map(|property| property.smart_device_networks_.iter())
-            .filter(|network| network.smart_devices_.iter().any(|device| device.type_.to_string().trim_matches('"') == "CAD"))
+            .filter(|network| {
+                network
+                    .smart_devices_
+                    .iter()
+                    .any(|device| device.type_.to_string().trim_matches('"') == "CAD")
+            })
             .flat_map(|network| network.smart_devices_.iter())
             .filter(|device| matches!(device.type_.to_string().trim_matches('"'), "ESME" | "GSME"));
         for meter in meters {
             let what = format!("Home Mini readings of {}", meter.device_id_);
-            match telemetry::fetch(account, &meter.device_id_, &start, &end, None, tz, config, request_manager, &printer(what.clone()), &cancel).await {
+            match telemetry::fetch(
+                account,
+                &meter.device_id_,
+                &start,
+                &end,
+                None,
+                tz,
+                config,
+                request_manager,
+                &printer(what.clone()),
+                &cancel,
+            )
+            .await
+            {
                 Ok(readings) => println!("  {what}: {} readings", readings.len()),
                 Err(error) => failed(&what, error),
             }

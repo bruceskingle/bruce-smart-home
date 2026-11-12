@@ -18,8 +18,20 @@ type Edits = BTreeMap<(String, String), Value>;
 /// The settings of a device's features which the profile's modules know, as (feature, module, [(setting, the module
 /// profile's field)]), see FeatureSettings' Fill In.
 const FROM_PROFILE: &[(&str, &str, &[(&str, &str)])] = &[
-    ("TeslaCapture", "tesla", &[("tesla_host", "gatewayHost"), ("tesla_email", "email"), ("tesla_password", "password")]),
-    ("MyenergiCapture", "myenergi", &[("myenergi_hub", "hubSerial"), ("myenergi_key", "apiKey")]),
+    (
+        "TeslaCapture",
+        "tesla",
+        &[
+            ("tesla_host", "gatewayHost"),
+            ("tesla_email", "email"),
+            ("tesla_password", "password"),
+        ],
+    ),
+    (
+        "MyenergiCapture",
+        "myenergi",
+        &[("myenergi_hub", "hubSerial"), ("myenergi_key", "apiKey")],
+    ),
     ("OctopusCapture", "octopus", &[("octopus_key", "apiKey")]),
 ];
 
@@ -29,8 +41,11 @@ fn from_profile(profile_name: &str, feature: &str) -> Edits {
         return Edits::new();
     };
     let profile = crate::profile::fetch_active_profile(&Some(profile_name.to_string())).ok();
-    let module_profile = profile.as_ref().and_then(|profile| profile.active_profile.modules.get(*module));
-    let mut edits: Edits = fields.iter()
+    let module_profile = profile
+        .as_ref()
+        .and_then(|profile| profile.active_profile.modules.get(*module));
+    let mut edits: Edits = fields
+        .iter()
         .filter_map(|(setting, field)| {
             let value = module_profile?.get(*field)?.as_str()?;
             Some(((feature.to_string(), setting.to_string()), json!(value)))
@@ -38,9 +53,17 @@ fn from_profile(profile_name: &str, feature: &str) -> Edits {
         .collect();
     // The account the Octopus module uses, its default, the first of its cached viewer's, see ViewerDataSet.
     if feature == "OctopusCapture" {
-        let viewer = crate::store::for_profile(profile_name).ok()
-            .and_then(|store| crate::data_set::Records::in_store(store, "#Viewer").ok()?.get("-").ok().flatten());
-        if let Some(account) = viewer.as_ref().and_then(|viewer| viewer["viewer"]["accounts"][0]["number"].as_str()) {
+        let viewer = crate::store::for_profile(profile_name).ok().and_then(|store| {
+            crate::data_set::Records::in_store(store, "#Viewer")
+                .ok()?
+                .get("-")
+                .ok()
+                .flatten()
+        });
+        if let Some(account) = viewer
+            .as_ref()
+            .and_then(|viewer| viewer["viewer"]["accounts"][0]["number"].as_str())
+        {
             edits.insert((feature.to_string(), "octopus_account".to_string()), json!(account));
         }
     }
@@ -52,8 +75,13 @@ fn from_profile(profile_name: &str, feature: &str) -> Edits {
 const READING_MODULES: &[&str] = &["tesla", "myenergi", "octopus"];
 
 /// Saves the profile's devices, in the profile and for the pages which show them.
-fn save_devices(profile_name: &str, settings: &mut Signal<ProfileSettings>, devices: Vec<DeviceProfile>) -> Result<(), String> {
-    crate::profile::update_capture_devices(profile_name, &devices).map_err(|error| format!("Unable to save the devices, {error:#}"))?;
+fn save_devices(
+    profile_name: &str,
+    settings: &mut Signal<ProfileSettings>,
+    devices: Vec<DeviceProfile>,
+) -> Result<(), String> {
+    crate::profile::update_capture_devices(profile_name, &devices)
+        .map_err(|error| format!("Unable to save the devices, {error:#}"))?;
     settings.write().capture_devices = devices;
     Ok(())
 }
@@ -89,7 +117,11 @@ struct Restarts {
 /// The kinds of start, by reset reason, as a noun and its plural, for the summary, see restarts.
 const KINDS: [(&[&str], &str, &str); 8] = [
     (&["Panic", "CpuLockup"], "crash", "crashes"),
-    (&["InterruptWatchdog", "TaskWatchdog", "OtherWatchdog"], "watchdog reset", "watchdog resets"),
+    (
+        &["InterruptWatchdog", "TaskWatchdog", "OtherWatchdog"],
+        "watchdog reset",
+        "watchdog resets",
+    ),
     (&["Brownout", "PowerGlitch"], "power dip", "power dips"),
     (&["Software"], "restart", "restarts"),
     (&["PowerOn"], "switch-on", "switch-ons"),
@@ -101,7 +133,9 @@ const KINDS: [(&[&str], &str, &str); 8] = [
 /// A device's starts in the last RESTART_DAYS before now.
 fn restarts(starts: &capture_device::Starts, now: chrono::DateTime<chrono::Utc>) -> Restarts {
     let from = now - chrono::TimeDelta::days(RESTART_DAYS);
-    let recent: Vec<(chrono::DateTime<chrono::Utc>, &capture_device::Start)> = starts.starts.iter()
+    let recent: Vec<(chrono::DateTime<chrono::Utc>, &capture_device::Start)> = starts
+        .starts
+        .iter()
         .filter_map(|start| Some((chrono::DateTime::parse_from_rfc3339(&start.time).ok()?.to_utc(), start)))
         .filter(|(time, _)| *time >= from)
         .collect();
@@ -114,22 +148,51 @@ fn restarts(starts: &capture_device::Starts, now: chrono::DateTime<chrono::Utc>)
         .collect();
     let mut kinds = Vec::new();
     for (reasons, one, many) in KINDS {
-        let n = recent.iter().filter(|(_, start)| reasons.contains(&start.reason.as_str())).count();
+        let n = recent
+            .iter()
+            .filter(|(_, start)| reasons.contains(&start.reason.as_str()))
+            .count();
         if n > 0 {
-            kinds.push((format!("{n} {}", if n == 1 { one } else { many }), started_after(reasons[0]).1));
+            kinds.push((
+                format!("{n} {}", if n == 1 { one } else { many }),
+                started_after(reasons[0]).1,
+            ));
         }
     }
-    let other = recent.iter().filter(|(_, start)| !KINDS.iter().any(|(reasons, _, _)| reasons.contains(&start.reason.as_str()))).count();
+    let other = recent
+        .iter()
+        .filter(|(_, start)| {
+            !KINDS
+                .iter()
+                .any(|(reasons, _, _)| reasons.contains(&start.reason.as_str()))
+        })
+        .count();
     if other > 0 {
         kinds.push((format!("{other} other"), true));
     }
-    let list = recent.iter().zip(&gaps).rev()
+    let list = recent
+        .iter()
+        .zip(&gaps)
+        .rev()
         .map(|((time, start), gap)| {
             let (text, trouble) = started_after(&start.reason);
-            (time.with_timezone(&chrono::Local).format("%a %-d %b %H:%M:%S").to_string(), start.count, text, trouble, *gap)
+            (
+                time.with_timezone(&chrono::Local)
+                    .format("%a %-d %b %H:%M:%S")
+                    .to_string(),
+                start.count,
+                text,
+                trouble,
+                *gap,
+            )
         })
         .collect();
-    Restarts { count: recent.len(), kinds, not_logged: gaps.iter().sum(), list }
+    Restarts {
+        count: recent.len(),
+        kinds,
+        not_logged: gaps.iter().sum(),
+        list,
+    }
 }
 
 /// What a device's reset reason, see DeviceInfo::reset_reason, means, and whether it is trouble, e.g. a crash, rather
@@ -142,8 +205,9 @@ pub(crate) fn started_after(reason: &str) -> (String, bool) {
         "DeepSleep" => ("After waking from deep sleep".to_string(), false),
         "Usb" | "Jtag" => ("After a reset over USB, e.g. being flashed".to_string(), false),
         "Panic" => ("After a crash (panic)".to_string(), true),
-        "InterruptWatchdog" | "TaskWatchdog" | "OtherWatchdog" =>
-            (format!("After it stopped responding ({reason})"), true),
+        "InterruptWatchdog" | "TaskWatchdog" | "OtherWatchdog" => {
+            (format!("After it stopped responding ({reason})"), true)
+        }
         "Brownout" | "PowerGlitch" => ("After a dip in its power supply (brownout)".to_string(), true),
         "CpuLockup" => ("After a crash (CPU lockup)".to_string(), true),
         _ => (format!("After {reason}"), true),
@@ -163,7 +227,11 @@ fn up_time(seconds: u64) -> String {
 pub fn Devices() -> Element {
     let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
     let settings = use_context::<Signal<ProfileSettings>>();
-    let profile_name = context_signal.read().as_ref().map(|context| context.profile.active_profile.name.clone()).unwrap_or_default();
+    let profile_name = context_signal
+        .read()
+        .as_ref()
+        .map(|context| context.profile.active_profile.name.clone())
+        .unwrap_or_default();
     let devices = settings.read().capture_devices.clone();
     // The device whose card is shown, below the table, see DeviceRow.
     let selected = use_signal(|| None::<Selected>);
@@ -226,7 +294,9 @@ fn FlashBoard() -> Element {
         if !shown() {
             return Vec::new();
         }
-        tokio::task::spawn_blocking(bruce_embedded_flash_ui::Firmware::load_local).await.unwrap_or_default()
+        tokio::task::spawn_blocking(bruce_embedded_flash_ui::Firmware::load_local)
+            .await
+            .unwrap_or_default()
     });
     let known: Vec<bruce_embedded_flash_ui::KnownDevice> = settings
         .read()
@@ -318,7 +388,11 @@ fn DeviceRow(device: DeviceProfile, selected: Signal<Option<Selected>>) -> Eleme
             async move {
                 let result = async { DeviceClient::for_device(&device)?.info().await }.await;
                 if let Err(error) = &result {
-                    crate::log_warning!("The capture device {} at {} is not reachable, {error:#}", device.id, device.address);
+                    crate::log_warning!(
+                        "The capture device {} at {} is not reachable, {error:#}",
+                        device.id,
+                        device.address
+                    );
                 }
                 result
             }
@@ -336,10 +410,20 @@ fn DeviceRow(device: DeviceProfile, selected: Signal<Option<Selected>>) -> Eleme
         }
     });
 
-    let is_selected = selected.read().as_ref().is_some_and(|shown| shown.device.id == device.id);
+    let is_selected = selected
+        .read()
+        .as_ref()
+        .is_some_and(|shown| shown.device.id == device.id);
     let show = {
         let device = device.clone();
-        move |_| selected.set(Some(Selected { device: device.clone(), info, starts, generation }))
+        move |_| {
+            selected.set(Some(Selected {
+                device: device.clone(),
+                info,
+                starts,
+                generation,
+            }))
+        }
     };
 
     rsx! {
@@ -427,7 +511,13 @@ fn DeviceCard(
         let device = device.clone();
         let profile_name = profile_name.clone();
         move || {
-            let devices: Vec<DeviceProfile> = settings.read().capture_devices.iter().filter(|other| other.id != device.id).cloned().collect();
+            let devices: Vec<DeviceProfile> = settings
+                .read()
+                .capture_devices
+                .iter()
+                .filter(|other| other.id != device.id)
+                .cloned()
+                .collect();
             if let Err(error) = save_devices(&profile_name, &mut settings, devices) {
                 status.set(Some(Err(error)));
             } else {
@@ -631,7 +721,12 @@ fn AddDevice(profile_name: String) -> Element {
             pairing.set(false);
             match capture_device::find(&address()).await {
                 Ok(device) => {
-                    if settings.read().capture_devices.iter().any(|known| known.id == device.info.id) {
+                    if settings
+                        .read()
+                        .capture_devices
+                        .iter()
+                        .any(|known| known.id == device.info.id)
+                    {
                         status.set(Some(Err(format!("{} is already in this profile", device.info.id))));
                     } else if device.info.adopted {
                         status.set(Some(Err("Another app, or another profile, has adopted it. To adopt it here, hold its BOOT button for 5 seconds to release it, then Find it again.".to_string())));
@@ -656,7 +751,10 @@ fn AddDevice(profile_name: String) -> Element {
                 Ok(time) => {
                     pairing.set(true);
                     code.set(String::new());
-                    status.set(Some(Ok(format!("The device is showing a code, for {} minutes", time.as_secs() / 60))));
+                    status.set(Some(Ok(format!(
+                        "The device is showing a code, for {} minutes",
+                        time.as_secs() / 60
+                    ))));
                 }
                 Err(error) => status.set(Some(Err(format!("Unable to start pairing, {error:#}")))),
             }
@@ -862,15 +960,31 @@ fn DeviceSettings(device: DeviceProfile) -> Element {
 
 /// One feature's settings, with whether it is enabled.
 #[component]
-fn FeatureSettings(feature: Value, edits: Signal<Edits>, enabled_edits: Signal<BTreeMap<String, bool>>, device_id: String) -> Element {
+fn FeatureSettings(
+    feature: Value,
+    edits: Signal<Edits>,
+    enabled_edits: Signal<BTreeMap<String, bool>>,
+    device_id: String,
+) -> Element {
     let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
-    let profile_name = context_signal.read().as_ref().map(|context| context.profile.active_profile.name.clone()).unwrap_or_default();
+    let profile_name = context_signal
+        .read()
+        .as_ref()
+        .map(|context| context.profile.active_profile.name.clone())
+        .unwrap_or_default();
     let name = feature["name"].as_str().unwrap_or_default().to_string();
     let fillable = FROM_PROFILE.iter().any(|(feature, _, _)| *feature == name);
     // What the device says to show it as, e.g. Tesla Powerwall, otherwise its name.
-    let title = feature["label"].as_str().map(String::from).unwrap_or_else(|| name.clone());
+    let title = feature["label"]
+        .as_str()
+        .map(String::from)
+        .unwrap_or_else(|| name.clone());
     let required = feature["enabled"] == json!("required");
-    let enabled = enabled_edits.read().get(&name).copied().unwrap_or_else(|| feature["enabled"] == json!(true));
+    let enabled = enabled_edits
+        .read()
+        .get(&name)
+        .copied()
+        .unwrap_or_else(|| feature["enabled"] == json!(true));
     let settings = feature["settings"].as_array().cloned().unwrap_or_default();
 
     rsx! {
@@ -921,7 +1035,10 @@ fn FeatureSettings(feature: Value, edits: Signal<Edits>, enabled_edits: Signal<B
 fn SettingField(feature: String, setting: Value, edits: Signal<Edits>) -> Element {
     let name = setting["name"].as_str().unwrap_or_default().to_string();
     // What the device says to show it as, e.g. WiFi Password, otherwise its name.
-    let label = setting["label"].as_str().map(String::from).unwrap_or_else(|| name.clone());
+    let label = setting["label"]
+        .as_str()
+        .map(String::from)
+        .unwrap_or_else(|| name.clone());
     let kind = setting["type"].as_str().unwrap_or_default().to_string();
     let required = setting["required"].as_bool().unwrap_or_default();
     let secret = setting["secret"].as_bool().unwrap_or_default();
@@ -947,8 +1064,17 @@ fn SettingField(feature: String, setting: Value, edits: Signal<Edits>) -> Elemen
         }
     };
     // Empty clears an optional setting, as on the device's /config page.
-    let text_value = move |text: String| if text.trim().is_empty() { Value::Null } else { json!(text) };
-    let max_length = setting["maxLength"].as_u64().map(|len| len.to_string()).unwrap_or_default();
+    let text_value = move |text: String| {
+        if text.trim().is_empty() {
+            Value::Null
+        } else {
+            json!(text)
+        }
+    };
+    let max_length = setting["maxLength"]
+        .as_u64()
+        .map(|len| len.to_string())
+        .unwrap_or_default();
     let changed = edited.is_some();
 
     rsx! {
@@ -1035,7 +1161,11 @@ mod tests {
 
     #[test]
     fn restarts_counts_the_last_week_by_kind_and_those_not_logged() {
-        let start = |time: &str, reason: &str, count| capture_device::Start { time: time.to_string(), reason: reason.to_string(), count: Some(count) };
+        let start = |time: &str, reason: &str, count| capture_device::Start {
+            time: time.to_string(),
+            reason: reason.to_string(),
+            count: Some(count),
+        };
         let starts = capture_device::Starts {
             count: Some(9),
             starts: vec![
@@ -1046,14 +1176,29 @@ mod tests {
             ],
             problem: None,
         };
-        let now = chrono::DateTime::parse_from_rfc3339("2026-10-30T07:00:00Z").unwrap().to_utc();
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-30T07:00:00Z")
+            .unwrap()
+            .to_utc();
         let restarts = restarts(&starts, now);
         assert_eq!(restarts.count, 3);
-        assert_eq!(restarts.kinds, vec![("1 crash".to_string(), true), ("1 restart".to_string(), false), ("1 switch-on".to_string(), false)]);
+        assert_eq!(
+            restarts.kinds,
+            vec![
+                ("1 crash".to_string(), true),
+                ("1 restart".to_string(), false),
+                ("1 switch-on".to_string(), false)
+            ]
+        );
         assert_eq!(restarts.not_logged, 2);
         // Newest first, with the 2 not logged before the last.
-        assert_eq!(restarts.list.iter().map(|(_, count, _, trouble, gap)| (*count, *trouble, *gap)).collect::<Vec<_>>(),
-            vec![(Some(9), false, 2), (Some(6), true, 0), (Some(5), false, 0)]);
+        assert_eq!(
+            restarts
+                .list
+                .iter()
+                .map(|(_, count, _, trouble, gap)| (*count, *trouble, *gap))
+                .collect::<Vec<_>>(),
+            vec![(Some(9), false, 2), (Some(6), true, 0), (Some(5), false, 0)]
+        );
     }
 }
 
@@ -1090,27 +1235,50 @@ const TEMPERATURE_OFFSET: &str = "offset_tenths";
 /// setting's value on the device, is what the sensor itself read, and the offset is the thermometer's less that. To
 /// within a tenth, as the readings are kept to tenths, and as of the app's last read, a few minutes ago at most.
 #[component]
-fn Calibrate(profile_name: String, device_id: String, feature: String, setting: Value, edits: Signal<Edits>) -> Element {
+fn Calibrate(
+    profile_name: String,
+    device_id: String,
+    feature: String,
+    setting: Value,
+    edits: Signal<Edits>,
+) -> Element {
     let mut actual = use_signal(String::new);
     let mut note = use_signal(|| None::<Result<String, String>>);
     let now = crate::clock::now_utc();
-    let latest = crate::climate::store(&profile_name).ok()
-        .map(|dir| crate::climate::load_series(&dir, &device_id, &crate::climate::SERIES[0], now - time::Duration::minutes(30), now))
+    let latest = crate::climate::store(&profile_name)
+        .ok()
+        .map(|dir| {
+            crate::climate::load_series(
+                &dir,
+                &device_id,
+                &crate::climate::SERIES[0],
+                now - time::Duration::minutes(30),
+                now,
+            )
+        })
         .and_then(|periods| periods.last().map(|period| period.value));
     let offset = setting["value"].as_f64().unwrap_or(0.0) / 10.0;
     let work_out = move |_| {
         let Ok(thermometer) = actual.read().trim().parse::<f64>() else {
-            note.set(Some(Err(String::from("Type the temperature the thermometer says, e.g. 24.8"))));
+            note.set(Some(Err(String::from(
+                "Type the temperature the thermometer says, e.g. 24.8",
+            ))));
             return;
         };
         let Some(latest) = latest else {
-            note.set(Some(Err(String::from("The app has no temperature from this device in the last half hour"))));
+            note.set(Some(Err(String::from(
+                "The app has no temperature from this device in the last half hour",
+            ))));
             return;
         };
         let sensor = latest - offset;
         let tenths = ((thermometer - sensor) * 10.0).round() as i64;
-        edits.write().insert((feature.clone(), String::from(TEMPERATURE_OFFSET)), json!(tenths));
-        note.set(Some(Ok(format!("The sensor reads {sensor:.1} °C, so the offset is {tenths}. Save to use it."))));
+        edits
+            .write()
+            .insert((feature.clone(), String::from(TEMPERATURE_OFFSET)), json!(tenths));
+        note.set(Some(Ok(format!(
+            "The sensor reads {sensor:.1} °C, so the offset is {tenths}. Save to use it."
+        ))));
     };
     rsx! {
         label { class: "device-setting",

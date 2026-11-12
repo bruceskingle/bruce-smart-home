@@ -21,6 +21,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
+use bruce_embedded_std::config::ConfigSpec;
+use bruce_embedded_std::config::ConfigSpecValue;
+use bruce_embedded_std::config::FeatureConfig;
+use bruce_embedded_std::config::TypedValue;
+use bruce_embedded_std::feature::FeatureDescriptor;
+use bruce_embedded_std::platform::PlatformInitializer;
+use bruce_embedded_std::task::scheduler::ScheduledTask;
+use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
 use chrono::{DateTime, Local, Utc};
 use croner::Cron;
 use embedded_svc::http::client::Client;
@@ -31,14 +39,6 @@ use log::{info, warn};
 use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
-use bruce_embedded_std::config::ConfigSpec;
-use bruce_embedded_std::config::ConfigSpecValue;
-use bruce_embedded_std::config::FeatureConfig;
-use bruce_embedded_std::config::TypedValue;
-use bruce_embedded_std::feature::FeatureDescriptor;
-use bruce_embedded_std::platform::PlatformInitializer;
-use bruce_embedded_std::task::scheduler::ScheduledTask;
-use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
 
 use crate::connections::KeptConnection;
 use crate::db::Db;
@@ -71,7 +71,8 @@ const PANEL_ORDER: u8 = 3;
 /// The accounts the API key may use, the first of which is polled if the config does not say which.
 const ACCOUNTS: &str = "query accounts { viewer { accounts { number } } }";
 
-const LOGIN: &str = "mutation obtainKrakenToken($input: ObtainJSONWebTokenInput!) { obtainKrakenToken(input: $input) { token } }";
+const LOGIN: &str =
+    "mutation obtainKrakenToken($input: ObtainJSONWebTokenInput!) { obtainKrakenToken(input: $input) { token } }";
 
 /// The devices, to find the charging device the first time, as in bruce-smart-home's graphql/octopus/flex.graphql.
 const DEVICES: &str = "query devicePreferences($accountNumber: String!) { devices(accountNumber: $accountNumber) { id __typename \
@@ -114,7 +115,10 @@ impl Feature for OctopusCapture {
 
     fn init(&self, initializer: &mut Esp32PlatformInitializer) -> anyhow::Result<FeatureDescriptor> {
         self.panel.start(initializer)?;
-        Ok(FeatureDescriptor { name: FEATURE_NAME.to_string(), config: OctopusConfig::to_config_spec()? })
+        Ok(FeatureDescriptor {
+            name: FEATURE_NAME.to_string(),
+            config: OctopusConfig::to_config_spec()?,
+        })
     }
 
     fn start(
@@ -154,7 +158,9 @@ impl Feature for OctopusCapture {
         initializer.add_task(Box::new(poll), &schedule_spec)?;
 
         // For the app, at /api/store/info, see db.rs.
-        self.db.add_status("octopus", move |db| device.to_json(db, store.lock().unwrap().last_poll.as_ref()));
+        self.db.add_status("octopus", move |db| {
+            device.to_json(db, store.lock().unwrap().last_poll.as_ref())
+        });
         Ok(())
     }
 }
@@ -182,11 +188,17 @@ struct Octopus {
 impl Octopus {
     /// Counts a request, or fails if CALLS_PER_HOUR have been made in the last hour.
     fn spend(&mut self) -> anyhow::Result<()> {
-        while self.calls.front().is_some_and(|call| call.elapsed() >= Duration::from_secs(60 * 60)) {
+        while self
+            .calls
+            .front()
+            .is_some_and(|call| call.elapsed() >= Duration::from_secs(60 * 60))
+        {
             self.calls.pop_front();
         }
         if self.calls.len() >= CALLS_PER_HOUR {
-            return Err(anyhow!("skipped, {CALLS_PER_HOUR} requests to Octopus in the last hour"));
+            return Err(anyhow!(
+                "skipped, {CALLS_PER_HOUR} requests to Octopus in the last hour"
+            ));
         }
         self.calls.push_back(Instant::now());
         Ok(())
@@ -203,7 +215,10 @@ impl Octopus {
         self.spend()?;
         let body = serde_json::to_vec(&json!({ "query": query, "variables": variables }))?;
         let length = body.len().to_string();
-        let mut headers = vec![("Content-Type", "application/json"), ("Content-Length", length.as_str())];
+        let mut headers = vec![
+            ("Content-Type", "application/json"),
+            ("Content-Length", length.as_str()),
+        ];
         if let Some(token) = token {
             headers.push(("Authorization", token));
         }
@@ -213,7 +228,10 @@ impl Octopus {
         let status = response.status();
         let body = read_body(&mut response)?;
         if !(200..300).contains(&status) {
-            anyhow::bail!("Octopus responded {status}: {}", String::from_utf8_lossy(&body[..body.len().min(100)]));
+            anyhow::bail!(
+                "Octopus responded {status}: {}",
+                String::from_utf8_lossy(&body[..body.len().min(100)])
+            );
         }
         let errors: Errors = serde_json::from_slice(&body)?;
         if !errors.errors.is_empty() {
@@ -221,8 +239,15 @@ impl Octopus {
                 .errors
                 .iter()
                 .map(|error| {
-                    let code = error.extensions.as_ref().and_then(|extensions| extensions.error_code.as_deref());
-                    format!("{} {}", error.message.as_deref().unwrap_or("error"), code.unwrap_or_default())
+                    let code = error
+                        .extensions
+                        .as_ref()
+                        .and_then(|extensions| extensions.error_code.as_deref());
+                    format!(
+                        "{} {}",
+                        error.message.as_deref().unwrap_or("error"),
+                        code.unwrap_or_default()
+                    )
                 })
                 .collect();
             anyhow::bail!("{}", messages.join("; "));
@@ -330,7 +355,9 @@ fn data<'a, T: Deserialize<'a>>(body: &'a [u8]) -> anyhow::Result<T> {
     struct Data<T> {
         data: Option<T>,
     }
-    serde_json::from_slice::<Data<T>>(body)?.data.ok_or_else(|| anyhow!("Octopus gave no data"))
+    serde_json::from_slice::<Data<T>>(body)?
+        .data
+        .ok_or_else(|| anyhow!("Octopus gave no data"))
 }
 
 #[derive(Deserialize)]
@@ -409,7 +436,12 @@ fn devices(devices: &RawValue) -> anyhow::Result<Vec<DeviceRead>> {
 fn charging_device(devices: &[DeviceRead]) -> Option<String> {
     devices
         .iter()
-        .find(|device| matches!(device.typename.as_deref(), Some("SmartFlexChargePoint" | "SmartFlexVehicle")))
+        .find(|device| {
+            matches!(
+                device.typename.as_deref(),
+                Some("SmartFlexChargePoint" | "SmartFlexVehicle")
+            )
+        })
         .and_then(|device| device.id.clone())
 }
 
@@ -435,8 +467,12 @@ fn panel_line(devices: &[DeviceRead], planned: &[Dispatch]) -> Line {
     let next = planned
         .iter()
         .filter_map(|dispatch| {
-            let start = DateTime::parse_from_rfc3339(dispatch.start.as_deref()?).ok()?.with_timezone(&Utc);
-            let end = DateTime::parse_from_rfc3339(dispatch.end.as_deref()?).ok()?.with_timezone(&Utc);
+            let start = DateTime::parse_from_rfc3339(dispatch.start.as_deref()?)
+                .ok()?
+                .with_timezone(&Utc);
+            let end = DateTime::parse_from_rfc3339(dispatch.end.as_deref()?)
+                .ok()?
+                .with_timezone(&Utc);
             (end > now).then_some(start)
         })
         .min();
@@ -513,9 +549,15 @@ impl PollTask {
                 drop(responses);
                 // The account, which the poll found if the config did not say.
                 let account = self.octopus.account.clone().unwrap_or_default();
-                let put = serde_json::from_str::<serde_json::Value>(&record).map_err(anyhow::Error::from).map(|record| {
-                    self.db.put(|store, writer| Ok(Some(crate::device_kinds::octopus_flex(store, &account, &record, writer)?)))
-                });
+                let put = serde_json::from_str::<serde_json::Value>(&record)
+                    .map_err(anyhow::Error::from)
+                    .map(|record| {
+                        self.db.put(|store, writer| {
+                            Ok(Some(crate::device_kinds::octopus_flex(
+                                store, &account, &record, writer,
+                            )?))
+                        })
+                    });
                 if let Err(error) = &put {
                     warn!("Unable to read the Octopus record, {error:#}");
                 }
@@ -530,7 +572,9 @@ impl PollTask {
                     let (db, panel) = (self.db.clone(), self.panel.clone());
                     let converting = std::thread::Builder::new().stack_size(16 * 1024).spawn(move || {
                         db.convert(&panel, "octopus", &|store, writer, record| {
-                            Ok(Some(crate::device_kinds::octopus_flex(store, &account, record, writer)?))
+                            Ok(Some(crate::device_kinds::octopus_flex(
+                                store, &account, record, writer,
+                            )?))
                         });
                     });
                     if let Err(error) = converting {
@@ -543,7 +587,11 @@ impl PollTask {
             }
             Err(error) => {
                 warn!("Octopus poll failed, {error:#}");
-                store.last_poll = Some(LastPoll::failed(store.last_poll.as_ref(), received, format!("{error:#}")));
+                store.last_poll = Some(LastPoll::failed(
+                    store.last_poll.as_ref(),
+                    received,
+                    format!("{error:#}"),
+                ));
                 store.line = (format!("Octopus: {error:#}"), true);
             }
         }

@@ -96,7 +96,12 @@ impl LogEntry {
             Some((source, message)) if !source.contains(' ') => (Some(source.to_string()), message),
             _ => (None, rest),
         };
-        Some(LogEntry { time, level, source, message: message.to_string() })
+        Some(LogEntry {
+            time,
+            level,
+            source,
+            message: message.to_string(),
+        })
     }
 }
 
@@ -135,8 +140,12 @@ impl LogRetention {
     fn roll_before(&self, first: Option<OffsetDateTime>, size: u64, line: &str, now: OffsetDateTime) -> bool {
         match *self {
             LogRetention::EachRun => false,
-            LogRetention::Hours { hours } => first.is_some_and(|first| now - first > time::Duration::hours(hours as i64)),
-            LogRetention::Size { megabytes } => size > 0 && size + line.len() as u64 + 1 > megabytes as u64 * 1024 * 1024 / 2,
+            LogRetention::Hours { hours } => {
+                first.is_some_and(|first| now - first > time::Duration::hours(hours as i64))
+            }
+            LogRetention::Size { megabytes } => {
+                size > 0 && size + line.len() as u64 + 1 > megabytes as u64 * 1024 * 1024 / 2
+            }
         }
     }
 }
@@ -158,7 +167,10 @@ fn shown() -> bool {
 
 impl Default for LogSettings {
     fn default() -> Self {
-        LogSettings { retention: LogRetention::default(), show: true }
+        LogSettings {
+            retention: LogRetention::default(),
+            show: true,
+        }
     }
 }
 
@@ -202,7 +214,11 @@ fn lock_path(path: &Path) -> PathBuf {
 
 /// Locks the log against other processes until the returned file is dropped.
 fn lock(path: &Path) -> std::io::Result<File> {
-    let lock = OpenOptions::new().create(true).truncate(false).write(true).open(lock_path(path))?;
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(lock_path(path))?;
     lock.lock()?;
     Ok(lock)
 }
@@ -242,15 +258,22 @@ pub fn start(profile_name: &str, settings: &LogSettings, process: Process) {
         Err(error) => {
             eprintln!("Unable to find the log file: {error}");
             return;
-        },
+        }
     };
-    let previous = LOGGER.lock().unwrap().as_ref().map(|logger| logger.profile_name.clone());
+    let previous = LOGGER
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|logger| logger.profile_name.clone());
     if previous.is_some_and(|previous| previous != profile_name) {
         crate::log_info!("Changed to profile {profile_name}");
     }
 
     let mut rolled = ROLLED.lock().unwrap();
-    if process == Process::App && settings.retention == LogRetention::EachRun && !rolled.iter().any(|name| name == profile_name) {
+    if process == Process::App
+        && settings.retention == LogRetention::EachRun
+        && !rolled.iter().any(|name| name == profile_name)
+    {
         rolled.push(profile_name.to_string());
         if let Err(error) = lock(&path).and_then(|_lock| roll(&path)) {
             eprintln!("Unable to roll the log file {}: {error}", path.display());
@@ -265,7 +288,13 @@ pub fn start(profile_name: &str, settings: &LogSettings, process: Process) {
         retention: settings.retention,
     });
     UNWRITTEN.lock().unwrap().clear();
-    log(Level::Info, format!("Started, Bruce's Smart Home {}, profile {profile_name}", env!("CARGO_PKG_VERSION")));
+    log(
+        Level::Info,
+        format!(
+            "Started, Bruce's Smart Home {}, profile {profile_name}",
+            env!("CARGO_PKG_VERSION")
+        ),
+    );
 }
 
 /// Changes when the log is rolled, from the next entry.
@@ -282,8 +311,16 @@ pub fn log(level: Level, message: String) {
     let time = OffsetDateTime::now_utc();
     let time = time.replace_nanosecond(0).unwrap_or(time);
     let logger = LOGGER.lock().unwrap();
-    let source = logger.as_ref().and_then(|logger| logger.process.source()).map(String::from);
-    let entry = LogEntry { time, level, source, message: message.replace(['\r', '\n'], " ") };
+    let source = logger
+        .as_ref()
+        .and_then(|logger| logger.process.source())
+        .map(String::from);
+    let entry = LogEntry {
+        time,
+        level,
+        source,
+        message: message.replace(['\r', '\n'], " "),
+    };
     // Before the log is started, e.g. while the profile is read, entries are only printed.
     let Some(logger) = logger.as_ref() else {
         println!("{}", entry.line());
@@ -318,7 +355,11 @@ pub struct LogReader {
 impl LogReader {
     /// A reader which starts at the beginning of the file.
     pub fn new(path: PathBuf) -> Self {
-        LogReader { path, offset: 0, created: None }
+        LogReader {
+            path,
+            offset: 0,
+            created: None,
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -330,7 +371,8 @@ impl LogReader {
         let metadata = fs::metadata(&self.path).ok()?;
         let created = metadata.created().ok();
         let mut entries = Vec::new();
-        let rolled = metadata.len() < self.offset || (self.offset > 0 && created.is_some() && self.created.is_some() && created != self.created);
+        let rolled = metadata.len() < self.offset
+            || (self.offset > 0 && created.is_some() && self.created.is_some() && created != self.created);
         if rolled {
             // The rest of the file which was being read is now the .old file.
             if let Some((old_entries, _)) = read_lines(&old_path(&self.path), self.offset) {
@@ -357,7 +399,10 @@ fn read_lines(path: &Path, offset: u64) -> Option<(Vec<LogEntry>, u64)> {
     file.read_to_end(&mut bytes).ok()?;
     // A line which is still being written is read next time.
     let whole = bytes.iter().rposition(|byte| *byte == b'\n').map_or(0, |end| end + 1);
-    let entries = String::from_utf8_lossy(&bytes[..whole]).lines().filter_map(LogEntry::parse).collect();
+    let entries = String::from_utf8_lossy(&bytes[..whole])
+        .lines()
+        .filter_map(LogEntry::parse)
+        .collect();
     Some((entries, offset + whole as u64))
 }
 
@@ -389,7 +434,12 @@ mod tests {
     use super::{Level, LogEntry, LogReader, LogRetention, LogSettings, append, old_path};
 
     fn entry(time: time::OffsetDateTime, source: Option<&str>, message: &str) -> LogEntry {
-        LogEntry { time, level: Level::Info, source: source.map(String::from), message: message.to_string() }
+        LogEntry {
+            time,
+            level: Level::Info,
+            source: source.map(String::from),
+            message: message.to_string(),
+        }
     }
 
     #[test]
@@ -407,22 +457,35 @@ mod tests {
 
     #[test]
     fn a_line_is_read_back_as_it_was_written() {
-        let app = LogEntry { level: Level::Warning, ..entry(datetime!(2026-10-26 06:40:20 UTC), None, "Too many requests") };
+        let app = LogEntry {
+            level: Level::Warning,
+            ..entry(datetime!(2026-10-26 06:40:20 UTC), None, "Too many requests")
+        };
         assert_eq!(app.line(), "2026-10-26T06:40:20Z WARNING Too many requests");
         assert_eq!(LogEntry::parse(&app.line()), Some(app));
-        let fetch = entry(datetime!(2026-10-26 06:40:20 UTC), Some("fetch"), "[not a source] Started");
+        let fetch = entry(
+            datetime!(2026-10-26 06:40:20 UTC),
+            Some("fetch"),
+            "[not a source] Started",
+        );
         assert_eq!(fetch.line(), "2026-10-26T06:40:20Z INFO [fetch] [not a source] Started");
         assert_eq!(LogEntry::parse(&fetch.line()), Some(fetch));
     }
 
     #[test]
     fn settings_are_stored_with_the_retention_flattened() {
-        let settings = LogSettings { retention: LogRetention::Hours { hours: 48 }, show: false };
+        let settings = LogSettings {
+            retention: LogRetention::Hours { hours: 48 },
+            show: false,
+        };
         let json = serde_json::to_value(&settings).unwrap();
         assert_eq!(json, serde_json::json!({ "keep": "hours", "hours": 48, "show": false }));
         assert_eq!(serde_json::from_value::<LogSettings>(serde_json::json!({})).ok(), None);
         // What the first versions saved as the default is the default now.
-        assert_eq!(serde_json::from_value::<LogSettings>(serde_json::json!({ "keep": "lastRun", "show": true })).unwrap(), LogSettings::default());
+        assert_eq!(
+            serde_json::from_value::<LogSettings>(serde_json::json!({ "keep": "lastRun", "show": true })).unwrap(),
+            LogSettings::default()
+        );
     }
 
     #[test]
@@ -435,7 +498,13 @@ mod tests {
         let size = LogRetention::Size { megabytes: 1 };
         let now = datetime!(2026-10-27 12:00 UTC);
         let line = |message: &str| entry(now, None, message).line();
-        let messages = |entries: Option<Vec<LogEntry>>| entries.unwrap_or_default().into_iter().map(|entry| entry.message).collect::<Vec<_>>();
+        let messages = |entries: Option<Vec<LogEntry>>| {
+            entries
+                .unwrap_or_default()
+                .into_iter()
+                .map(|entry| entry.message)
+                .collect::<Vec<_>>()
+        };
 
         let mut reader = LogReader::new(path.clone());
         assert!(reader.read_new().is_none());

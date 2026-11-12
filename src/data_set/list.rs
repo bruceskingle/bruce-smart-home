@@ -3,46 +3,44 @@
 
 use std::{sync::Arc, time::Duration};
 
+use bruce_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse};
 use indexmap::IndexMap;
 use serde::{Serialize, de::DeserializeOwned};
-use bruce_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse};
 
-use crate::{CacheConfig};
 use super::DataSetAttributes;
+use crate::CacheConfig;
 
 /// A DataSet which is a list of records where the records returned paginated from the API
-pub struct ListDataSet<K, V>
-{
-    pub data: IndexMap<K, V> ,
+pub struct ListDataSet<K, V> {
+    pub data: IndexMap<K, V>,
     pub _attributes: DataSetAttributes,
 }
 
 impl<K, V> ListDataSet<K, V>
 where
     K: Eq + std::hash::Hash + Ord + Clone + Send + Sync,
-    V: DeserializeOwned + Serialize
+    V: DeserializeOwned + Serialize,
 {
-   pub async fn new<R, Q, IQP, CQP, RI, IN, I>(
-            hash_key: &str,
-            refresh_after: Option<Duration>,
-            initial_query_provider: IQP,
-            continuation_query_provider: CQP,
-            response_iterator: RI,
-            indexer: IN,
-            config: &Arc<CacheConfig>,
-            request_manager: &impl GraphQLCaller
-        ) -> anyhow::Result<Self>
-        where
-            R: GraphQLResponse,
-            Q: GraphQLQuery<R>,
-            IQP: FnOnce() -> Result<Q, bruce_graphql::Error>,
-            CQP: Fn(&R) -> Option<Result<Q, bruce_graphql::Error>>,
-            RI: Fn(R) -> I,
-            IN: Fn(&V) -> K,
-            I: IntoIterator<Item = V>,
+    pub async fn new<R, Q, IQP, CQP, RI, IN, I>(
+        hash_key: &str,
+        refresh_after: Option<Duration>,
+        initial_query_provider: IQP,
+        continuation_query_provider: CQP,
+        response_iterator: RI,
+        indexer: IN,
+        config: &Arc<CacheConfig>,
+        request_manager: &impl GraphQLCaller,
+    ) -> anyhow::Result<Self>
+    where
+        R: GraphQLResponse,
+        Q: GraphQLQuery<R>,
+        IQP: FnOnce() -> Result<Q, bruce_graphql::Error>,
+        CQP: Fn(&R) -> Option<Result<Q, bruce_graphql::Error>>,
+        RI: Fn(R) -> I,
+        IN: Fn(&V) -> K,
+        I: IntoIterator<Item = V>,
     {
-
-        let mut attributes = DataSetAttributes { cached: true, };
+        let mut attributes = DataSetAttributes { cached: true };
         let mut data: IndexMap<K, V> = IndexMap::new();
         let records = super::records::Records::open(config, hash_key)?;
         let mut place = 0;
@@ -62,13 +60,15 @@ where
                     Ok(value) => {
                         let index = indexer(&value);
                         data.insert(index, value);
-                    },
+                    }
                     Err(error) => {
-                        crate::log_warning!("Failed to read record {sk} of the cached {hash_key}, fetching it again: {error}");
+                        crate::log_warning!(
+                            "Failed to read record {sk} of the cached {hash_key}, fetching it again: {error}"
+                        );
                         refresh = true;
                         data.clear();
                         break;
-                    },
+                    }
                 }
             }
         }
@@ -91,7 +91,7 @@ where
 
                 for value in response_iterator(response) {
                     let index = indexer(&value);
-                    if ! data.contains_key(&index) {
+                    if !data.contains_key(&index) {
                         records.put(&format!("{next:08}"), serde_json::to_value(&value)?)?;
                         next += 1;
                         data.insert(index, value);
@@ -102,8 +102,7 @@ where
                     let query = continuation_query?;
 
                     response = request_manager.call(&query).await?;
-                }
-                else {
+                } else {
                     break;
                 }
             }
@@ -114,6 +113,5 @@ where
             data,
             _attributes: attributes,
         })
-        
     }
 }

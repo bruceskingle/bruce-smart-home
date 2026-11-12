@@ -18,9 +18,9 @@ use crate::data_set::CancelToken;
 use crate::period::Period;
 use crate::power::check::{self, Check, CheckKind, Relation, Series};
 use crate::power::topology::{Channel, Circuit, Use};
+use crate::profile::Settings as ProfileSettings;
 use crate::util::SharedProp;
 use crate::views::electricity::Found;
-use crate::profile::Settings as ProfileSettings;
 use crate::{MarcoSparkoContext, ModuleRegistrations};
 
 /// The size of a circuit's box in the diagram, with one channel, and the gaps between them, in the SVG's units. Each
@@ -39,15 +39,27 @@ pub(super) fn use_colour(use_: &Use, colours: &BTreeMap<String, String>) -> Stri
         Use::Grid => String::from("#b0b0b0"),
         Use::Board => String::from("#e0e0e0"),
         Use::Solar => String::from("#f2c94c"),
-        other => other.category().and_then(|category| colours.get(category)).cloned().unwrap_or_else(|| String::from("#8a8a99")),
+        other => other
+            .category()
+            .and_then(|category| colours.get(category))
+            .cloned()
+            .unwrap_or_else(|| String::from("#8a8a99")),
     }
 }
 
 /// The colour of each of the profile's categories and the batteries', see category_filter::category_colour.
 pub(super) fn category_colours(settings: &ProfileSettings) -> BTreeMap<String, String> {
     let categories = settings.all_categories();
-    categories.iter().map(String::as_str).chain([crate::power::topology::BATTERY])
-        .map(|category| (category.to_string(), category_colour(category, &settings.colours, &categories)))
+    categories
+        .iter()
+        .map(String::as_str)
+        .chain([crate::power::topology::BATTERY])
+        .map(|category| {
+            (
+                category.to_string(),
+                category_colour(category, &settings.colours, &categories),
+            )
+        })
         .collect()
 }
 
@@ -61,7 +73,8 @@ fn use_id(use_: &Use) -> String {
 
 /// The circuit at path, the indexes of the children down to it, from circuit.
 fn at<'a>(circuit: &'a mut Circuit, path: &[usize]) -> &'a mut Circuit {
-    path.iter().fold(circuit, |circuit, index| &mut circuit.children[*index])
+    path.iter()
+        .fold(circuit, |circuit, index| &mut circuit.children[*index])
 }
 
 /// A circuit placed in the diagram, by its depth, its column, and the middle of its box, see place.
@@ -83,16 +96,33 @@ pub(super) fn box_height(channels: usize) -> f64 {
 /// Places circuit and those under it, each leaf below the last, from top, and each circuit level with the middle of
 /// its children, or if its box is taller than they are, they level with it, returning the middle of its box. top
 /// is moved below what was placed.
-pub(super) fn place(circuit: &Circuit, depth: usize, parent: Option<usize>, top: &mut f64, placed: &mut Vec<Placed>) -> f64 {
+pub(super) fn place(
+    circuit: &Circuit,
+    depth: usize,
+    parent: Option<usize>,
+    top: &mut f64,
+    placed: &mut Vec<Placed>,
+) -> f64 {
     let index = placed.len();
-    placed.push(Placed { depth, y: 0.0, name: circuit.name.clone(), use_: circuit.use_.clone(), channels: circuit.channels.clone(), parent });
+    placed.push(Placed {
+        depth,
+        y: 0.0,
+        name: circuit.name.clone(),
+        use_: circuit.use_.clone(),
+        channels: circuit.channels.clone(),
+        parent,
+    });
     let height = box_height(circuit.channels.len());
     let first_top = *top;
     let y = if circuit.children.is_empty() {
         *top += height + ROW_GAP;
         first_top + height / 2.0
     } else {
-        let ys: Vec<f64> = circuit.children.iter().map(|child| place(child, depth + 1, Some(index), top, placed)).collect();
+        let ys: Vec<f64> = circuit
+            .children
+            .iter()
+            .map(|child| place(child, depth + 1, Some(index), top, placed))
+            .collect();
         let children_height = *top - ROW_GAP - first_top;
         if children_height < height {
             *top = first_top + height + ROW_GAP;
@@ -184,7 +214,13 @@ fn TopologyDiagram(topology: Circuit, colours: BTreeMap<String, String>) -> Elem
 
 /// Each circuit with its path and depth, the top first and each followed by those under it, for the list.
 fn flattened(circuit: &Circuit, path: Vec<usize>, rows: &mut Vec<(Vec<usize>, Circuit)>) {
-    rows.push((path.clone(), Circuit { children: Vec::new(), ..circuit.clone() }));
+    rows.push((
+        path.clone(),
+        Circuit {
+            children: Vec::new(),
+            ..circuit.clone()
+        },
+    ));
     for (index, child) in circuit.children.iter().enumerate() {
         let mut child_path = path.clone();
         child_path.push(index);
@@ -310,7 +346,11 @@ fn channel_choices(channels: &[Channel], circuit: &Circuit) -> Vec<Channel> {
     let mut choices = channels.to_vec();
     for id in &circuit.channels {
         if !choices.iter().any(|channel| channel.id == *id) {
-            choices.push(Channel { id: id.clone(), description: String::from("No module of this profile has this channel now"), use_: circuit.use_.clone() });
+            choices.push(Channel {
+                id: id.clone(),
+                description: String::from("No module of this profile has this channel now"),
+                use_: circuit.use_.clone(),
+            });
         }
     }
     choices
@@ -328,7 +368,8 @@ pub fn SitePage() -> Element {
         let context = context_signal.read().clone();
         let registrations = registrations.clone();
         async move {
-            let found = super::electricity::find(context.ok_or_else(|| anyhow!("There is no profile"))?, registrations).await?;
+            let found =
+                super::electricity::find(context.ok_or_else(|| anyhow!("There is no profile"))?, registrations).await?;
             anyhow::Ok(Arc::new(found))
         }
     });
@@ -339,21 +380,29 @@ pub fn SitePage() -> Element {
     // suggested below.
     use_effect(move || {
         if let Some(Ok(found)) = &*found.read()
-            && edited.peek().is_none() && checked.peek().is_none() && !*checking.peek()
+            && edited.peek().is_none()
+            && checked.peek().is_none()
+            && !*checking.peek()
         {
             start_check(found.clone(), checked, checking, progress);
         }
     });
     let (channels, not_ready, found) = match &*found.read() {
         None => return rsx! { h1 { "Site" } p { "Loading..." } },
-        Some(Err(error)) => return rsx! {
-            h1 { "Site" }
-            div { class: "error", ErrorText { error: format!("{error:#}"), message: "Failed to load the modules" } }
-        },
+        Some(Err(error)) => {
+            return rsx! {
+                h1 { "Site" }
+                div { class: "error", ErrorText { error: format!("{error:#}"), message: "Failed to load the modules" } }
+            };
+        }
         Some(Ok(found)) => (found.channels.clone(), found.not_ready.clone(), found.clone()),
     };
     let check = move |_: MouseEvent| start_check(found.clone(), checked, checking, progress);
-    let profile_name = context_signal.read().as_ref().map(|context| context.profile.active_profile.name.clone()).unwrap_or_default();
+    let profile_name = context_signal
+        .read()
+        .as_ref()
+        .map(|context| context.profile.active_profile.name.clone())
+        .unwrap_or_default();
     let saved = settings.read().topology.clone();
     let changed = edited() != saved;
     let problems = edited().map(|topology| topology.problems()).unwrap_or_default();
@@ -367,8 +416,12 @@ pub fn SitePage() -> Element {
             match crate::profile::update_topology(&profile_name, topology.as_ref()) {
                 Ok(()) => {
                     settings.write().topology = topology.clone();
-                    status.set(Some(Ok(String::from(if topology.is_some() { "Saved" } else { "Cleared" }))));
-                },
+                    status.set(Some(Ok(String::from(if topology.is_some() {
+                        "Saved"
+                    } else {
+                        "Cleared"
+                    }))));
+                }
                 Err(error) => status.set(Some(Err(format!("Unable to save the topology, {error:#}")))),
             }
         }
@@ -376,7 +429,9 @@ pub fn SitePage() -> Element {
     // The first topology, if none is set: the one from what the channels usually measure, if the measurements fit it,
     // otherwise the one they say, if they fit that, see check::propose, otherwise the first, until they are checked.
     let guessed = Circuit::suggested(&channels);
-    let fits = |topology: &Circuit, measured: &Measured| check::verdict(&check::checks(topology, &measured.series)) == check::Verdict::LooksRight;
+    let fits = |topology: &Circuit, measured: &Measured| {
+        check::verdict(&check::checks(topology, &measured.series)) == check::Verdict::LooksRight
+    };
     let (suggested, measured_suggestion) = match checked() {
         Some(Ok(measured)) if fits(&guessed, &measured.0) => (guessed, true),
         Some(Ok(measured)) => match check::propose(&guessed, &measured.0.series, &measured.0.relations, &channels)
@@ -496,8 +551,18 @@ pub struct Measured {
 /// The channels' net import each half hour of the last CHECK_DAYS days: the grid readings', from the sources, put
 /// together as on the Electricity page, as the supplier's channels', and each of the measurements'.
 async fn measure(found: Arc<Found>, mut progress: Signal<String>) -> anyhow::Result<Measured> {
-    let tz = found.sources.first().map(|source| source.timezone()).unwrap_or(time_tz::timezones::db::UTC);
-    let range = RangeSelection { start: LocalSlot { date: crate::clock::today(tz) - time::Duration::days(CHECK_DAYS - 1), slot: 0 }, end: None };
+    let tz = found
+        .sources
+        .first()
+        .map(|source| source.timezone())
+        .unwrap_or(time_tz::timezones::db::UTC);
+    let range = RangeSelection {
+        start: LocalSlot {
+            date: crate::clock::today(tz) - time::Duration::days(CHECK_DAYS - 1),
+            slot: 0,
+        },
+        end: None,
+    };
     let (start, end) = range.to_date_times(tz).map_err(|error| anyhow!(error))?;
     let mut loaded = Vec::new();
     for source in &found.sources {
@@ -506,7 +571,9 @@ async fn measure(found: Arc<Found>, mut progress: Signal<String>) -> anyhow::Res
     let (start, end) = (start.unix_timestamp(), end.unix_timestamp());
     let loaded_refs: Vec<&dyn crate::power::LoadedElectricity> = loaded.iter().map(|loaded| loaded.as_ref()).collect();
     let electricity = crate::power::electricity(&loaded_refs, None, start, end, Period::HalfHour, tz);
-    let grid = electricity.points.iter()
+    let grid = electricity
+        .points
+        .iter()
         .filter(|point| point.end - point.start == crate::power::measured::HALF_HOUR)
         .map(|point| (point.start, point.import.iter().sum::<f64>() - point.export))
         .collect();
@@ -517,8 +584,13 @@ async fn measure(found: Arc<Found>, mut progress: Signal<String>) -> anyhow::Res
     }
     // The grid readings are of the channels which measure the grid which no device's measurements have, e.g. the
     // supplier's meter.
-    let measured: std::collections::BTreeSet<String> = measurements.iter().flat_map(|measurements| measurements.channels()).collect();
-    let grid_name = found.channels.iter()
+    let measured: std::collections::BTreeSet<String> = measurements
+        .iter()
+        .flat_map(|measurements| measurements.channels())
+        .collect();
+    let grid_name = found
+        .channels
+        .iter()
         .filter(|channel| channel.use_ == Use::Grid && !measured.contains(&channel.id))
         .map(|channel| channel.id.clone())
         .next()
@@ -531,8 +603,10 @@ async fn measure(found: Arc<Found>, mut progress: Signal<String>) -> anyhow::Res
 /// A half hour's start, as the checks show it, e.g. Tue 3 Nov 04:00.
 fn half_hour_label(start: i64, tz: &'static time_tz::Tz) -> String {
     use time_tz::OffsetDateTimeExt;
-    let format = time::macros::format_description!("[weekday repr:short] [day padding:none] [month repr:short] [hour]:[minute]");
-    time::OffsetDateTime::from_unix_timestamp(start).ok()
+    let format =
+        time::macros::format_description!("[weekday repr:short] [day padding:none] [month repr:short] [hour]:[minute]");
+    time::OffsetDateTime::from_unix_timestamp(start)
+        .ok()
         .and_then(|time| time.to_timezone(tz).format(&format).ok())
         .unwrap_or_default()
 }
@@ -541,9 +615,15 @@ fn half_hour_label(start: i64, tz: &'static time_tz::Tz) -> String {
 fn mismatch_cell(mismatch: Option<f64>) -> Element {
     match mismatch {
         Some(mismatch) => {
-            let class = if mismatch <= 0.05 { "ok" } else if mismatch > 0.15 { "invalid" } else { "" };
+            let class = if mismatch <= 0.05 {
+                "ok"
+            } else if mismatch > 0.15 {
+                "invalid"
+            } else {
+                ""
+            };
             rsx! { td { class, {format!("{:.1}%", mismatch * 100.0)} } }
-        },
+        }
         None => rsx! { td {} },
     }
 }
@@ -552,15 +632,22 @@ fn mismatch_cell(mismatch: Option<f64>) -> Element {
 /// which does, if they have one, to use instead, which sets edited, then for each check, the half hours it has, the two
 /// sides' totals, how far out they are, and the half hours furthest out.
 #[component]
-fn TopologyChecks(topology: Circuit, measured: SharedProp<Measured>, edited: Signal<Option<Circuit>>, channels: Vec<Channel>,
-    colours: BTreeMap<String, String>) -> Element
-{
+fn TopologyChecks(
+    topology: Circuit,
+    measured: SharedProp<Measured>,
+    edited: Signal<Option<Circuit>>,
+    channels: Vec<Channel>,
+    colours: BTreeMap<String, String>,
+) -> Element {
     let checks = check::checks(&topology, &measured.0.series);
     let verdict = check::verdict(&checks);
     // One which fits, if this does not, and the measurements say of one.
     let proposed = match &verdict {
         check::Verdict::Wrong(_) => check::propose(&topology, &measured.0.series, &measured.0.relations, &channels)
-            .filter(|proposed| *proposed != topology && check::verdict(&check::checks(proposed, &measured.0.series)) == check::Verdict::LooksRight),
+            .filter(|proposed| {
+                *proposed != topology
+                    && check::verdict(&check::checks(proposed, &measured.0.series)) == check::Verdict::LooksRight
+            }),
         _ => None,
     };
     let verdict_text = match &verdict {
@@ -587,7 +674,9 @@ fn TopologyChecks(topology: Circuit, measured: SharedProp<Measured>, edited: Sig
     };
     let tz = measured.0.tz;
     let worst = |check: &Check| -> String {
-        check.worst.iter()
+        check
+            .worst
+            .iter()
             .map(|(start, left, right)| match check.kind {
                 CheckKind::Rest => format!("{} {:.2}", half_hour_label(*start, tz), left - right),
                 _ => format!("{} {:.2} against {:.2}", half_hour_label(*start, tz), left, right),
@@ -644,14 +733,19 @@ fn ChannelRelations(measured: SharedProp<Measured>) -> Element {
     let percent = |mismatch: f64| format!("{:.1}%", mismatch * 100.0);
     // A channel in a sum, with those which are the same, as a sum names only one of them.
     let named = |name: &String| -> String {
-        let same: Vec<&str> = relations.iter()
+        let same: Vec<&str> = relations
+            .iter()
             .filter_map(|relation| match relation {
                 Relation::Same { a, b, .. } if a == name => Some(b.as_str()),
                 Relation::Same { a, b, .. } if b == name => Some(a.as_str()),
                 _ => None,
             })
             .collect();
-        if same.is_empty() { name.clone() } else { format!("{name} (the same as {})", same.join(", ")) }
+        if same.is_empty() {
+            name.clone()
+        } else {
+            format!("{name} (the same as {})", same.join(", "))
+        }
     };
     rsx! {
         h3 { "What the measurements say" }
@@ -687,7 +781,11 @@ fn CategoryEditor(edited: Signal<Option<Circuit>>) -> Element {
     let store = use_colour_store();
     let mut new_category = use_signal(String::new);
     let mut error = use_signal(|| None::<String>);
-    let profile_name = context_signal.read().as_ref().map(|context| context.profile.active_profile.name.clone()).unwrap_or_default();
+    let profile_name = context_signal
+        .read()
+        .as_ref()
+        .map(|context| context.profile.active_profile.name.clone())
+        .unwrap_or_default();
     let all = settings.read().all_categories();
     let colours = category_colours(&settings.read());
     let used = edited().map(|topology| topology.categories()).unwrap_or_default();
@@ -697,7 +795,7 @@ fn CategoryEditor(edited: Signal<Option<Circuit>>) -> Element {
             Ok(saved) => {
                 settings.write().categories = saved.categories;
                 error.set(None);
-            },
+            }
             Err(failed) => error.set(Some(format!("Unable to save the categories, {failed:#}"))),
         }
     };
@@ -706,7 +804,9 @@ fn CategoryEditor(edited: Signal<Option<Circuit>>) -> Element {
         move || {
             let name = new_category.read().trim().to_string();
             if !crate::power::topology::is_valid_category(&name) {
-                error.set(Some(String::from("A category needs a name, which is not grid, board, battery or solar")));
+                error.set(Some(String::from(
+                    "A category needs a name, which is not grid, board, battery or solar",
+                )));
             } else if all.iter().any(|category| category.eq_ignore_ascii_case(&name)) {
                 error.set(Some(format!("There is a category {name} already")));
             } else {
@@ -778,12 +878,18 @@ fn CategoryEditor(edited: Signal<Option<Circuit>>) -> Element {
 }
 
 /// Loads and checks the last CHECK_DAYS days' measurements, see measure, into checked, with checking set meanwhile.
-fn start_check(found: Arc<Found>, mut checked: Signal<Option<Result<SharedProp<Measured>, String>>>, mut checking: Signal<bool>,
-    progress: Signal<String>)
-{
+fn start_check(
+    found: Arc<Found>,
+    mut checked: Signal<Option<Result<SharedProp<Measured>, String>>>,
+    mut checking: Signal<bool>,
+    progress: Signal<String>,
+) {
     checking.set(true);
     spawn(async move {
-        let result = measure(found, progress).await.map(|measured| SharedProp(Arc::new(measured))).map_err(|error| format!("{error:#}"));
+        let result = measure(found, progress)
+            .await
+            .map(|measured| SharedProp(Arc::new(measured)))
+            .map_err(|error| format!("{error:#}"));
         checked.set(Some(result));
         checking.set(false);
     });

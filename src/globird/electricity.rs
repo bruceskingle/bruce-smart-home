@@ -7,8 +7,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use dioxus::prelude::*;
 use bruce_graphql::types::{Currency, DateTime};
+use dioxus::prelude::*;
 use time::{Date, OffsetDateTime};
 use time_tz::Tz;
 
@@ -31,7 +31,14 @@ const SITE_TIMEZONE: &Tz = time_tz::timezones::db::australia::SYDNEY;
 const READINGS_A_DAY: f64 = 288.0;
 
 /// The periods which can be chosen: none shorter than the readings, which are 5 minutes.
-const PERIODS: [Period; 6] = [Period::FiveMinutes, Period::TenMinutes, Period::HalfHour, Period::Day, Period::Week, Period::Month];
+const PERIODS: [Period; 6] = [
+    Period::FiveMinutes,
+    Period::TenMinutes,
+    Period::HalfHour,
+    Period::Day,
+    Period::Week,
+    Period::Month,
+];
 
 /// The meter's readings, of all its registers, or of one, e.g. E1, for the Meters page, see register.
 pub struct GlobirdElectricity {
@@ -60,30 +67,48 @@ impl LoadedElectricity for GlobirdReadings {
 /// tariff, has no cost, as it can not be known.
 fn site_data(readings: &[Reading], days: &[DaySummary], register: Option<&str>) -> SiteData {
     let tariffs = rates::tariffs(days);
-    let supply: BTreeMap<Date, f64> = days.iter()
+    let supply: BTreeMap<Date, f64> = days
+        .iter()
         .filter_map(|day| {
             let date = day.date?;
-            Some((date, day.cost.get(SUPPLY).copied().or_else(|| rates::tariff_of(&tariffs, date)?.daily)?))
+            Some((
+                date,
+                day.cost
+                    .get(SUPPLY)
+                    .copied()
+                    .or_else(|| rates::tariff_of(&tariffs, date)?.daily)?,
+            ))
         })
         .collect();
-    let mut data = SiteData { currency: Currency::from_code("AUD"), ..SiteData::default() };
+    let mut data = SiteData {
+        currency: Currency::from_code("AUD"),
+        ..SiteData::default()
+    };
     for reading in readings {
         let import = reading.register.starts_with('E');
-        let date = OffsetDateTime::from_unix_timestamp(reading.start).ok().map(|time| time.to_offset(fetch::nem_offset()).date());
-        let cost = date.and_then(|date| rates::tariff_of(&tariffs, date))
+        let date = OffsetDateTime::from_unix_timestamp(reading.start)
+            .ok()
+            .map(|time| time.to_offset(fetch::nem_offset()).date());
+        let cost = date
+            .and_then(|date| rates::tariff_of(&tariffs, date))
             .and_then(|tariff| tariff.rate(if import { USAGE } else { SOLAR }, &reading.band))
             .map(|rate| reading.kwh * rate * 100.0);
         let meter_reading = MeterReading {
             start: reading.start,
             end: reading.end,
             units: BTreeMap::from([(reading.band.clone(), reading.kwh)]),
-            costs: cost.map(|cost| BTreeMap::from([(reading.band.clone(), cost)])).unwrap_or_default(),
-            standing_charge: date.filter(|_| import).and_then(|date| supply.get(&date)).map_or(0.0, |daily| daily * 100.0 / READINGS_A_DAY),
+            costs: cost
+                .map(|cost| BTreeMap::from([(reading.band.clone(), cost)]))
+                .unwrap_or_default(),
+            standing_charge: date
+                .filter(|_| import)
+                .and_then(|date| supply.get(&date))
+                .map_or(0.0, |daily| daily * 100.0 / READINGS_A_DAY),
             ..MeterReading::default()
         };
         match register {
             Some(register) if reading.register == register => data.import.push(meter_reading),
-            Some(_) => {},
+            Some(_) => {}
             None if import => data.import.push(meter_reading),
             None => data.export.push(meter_reading),
         }
@@ -115,9 +140,14 @@ impl ElectricitySource for GlobirdElectricity {
 
     /// The cached readings, after fetching the latest if reload is set, as GloBird's are fetched a day at a time, see
     /// fetch::fetch, whatever the range.
-    fn load(&self, start: DateTime, end: DateTime, reload: Option<(DateTime, DateTime)>, mut progress: Signal<String>,
-        _cancel: CancelToken) -> Pin<Box<dyn Future<Output = LoadResult>>>
-    {
+    fn load(
+        &self,
+        start: DateTime,
+        end: DateTime,
+        reload: Option<(DateTime, DateTime)>,
+        mut progress: Signal<String>,
+        _cancel: CancelToken,
+    ) -> Pin<Box<dyn Future<Output = LoadResult>>> {
         let context = self.context.clone();
         let register = self.register.clone();
         Box::pin(async move {
@@ -125,7 +155,8 @@ impl ElectricitySource for GlobirdElectricity {
                 context.fetch(&mut |message| progress.set(message)).await?;
             }
             let (start, end) = (start.unix_timestamp(), end.unix_timestamp());
-            let readings: Vec<Reading> = fetch::cached_readings(&context.cache_config).into_iter()
+            let readings: Vec<Reading> = fetch::cached_readings(&context.cache_config)
+                .into_iter()
                 .filter(|reading| reading.end > start && reading.start < end)
                 .collect();
             let data = site_data(&readings, &fetch::summaries(&context.cache_config), register.as_deref());
@@ -141,7 +172,13 @@ mod tests {
     use crate::power::combine::{Estimate, combine};
 
     fn reading(start: i64, register: &str, band: &str, kwh: f64) -> Reading {
-        Reading { start, end: start + 300, register: register.to_string(), band: band.to_string(), kwh }
+        Reading {
+            start,
+            end: start + 300,
+            register: register.to_string(),
+            band: band.to_string(),
+            kwh,
+        }
     }
 
     // 2026-11-01 00:00 UTC, 11:00 in Sydney.
@@ -159,15 +196,40 @@ mod tests {
     #[test]
     fn readings_are_added_up_into_periods_by_charge_type_with_the_export() {
         let data = site_data(&readings(), &[], None);
-        let electricity = combine(&data.import, &data.export, &[], "", None, START, START + 3600, Period::HalfHour, &Estimate::default(), SITE_TIMEZONE);
+        let electricity = combine(
+            &data.import,
+            &data.export,
+            &[],
+            "",
+            None,
+            START,
+            START + 3600,
+            Period::HalfHour,
+            &Estimate::default(),
+            SITE_TIMEZONE,
+        );
         assert_eq!(electricity.labels, ["Offpeak Usage", "Peak Usage"]);
         assert_eq!(electricity.points.len(), 2);
-        assert_eq!((electricity.points[0].start, electricity.points[0].end), (START, START + 1800));
+        assert_eq!(
+            (electricity.points[0].start, electricity.points[0].end),
+            (START, START + 1800)
+        );
         assert_eq!(electricity.points[0].import, [0.2, 0.1]);
         assert_eq!(electricity.points[0].export, 0.5);
         assert_eq!(electricity.points[1].import, [0.0, 0.4]);
         // In 10 minute periods, two readings in each.
-        let electricity = combine(&data.import, &data.export, &[], "", None, START, START + 3600, Period::TenMinutes, &Estimate::default(), SITE_TIMEZONE);
+        let electricity = combine(
+            &data.import,
+            &data.export,
+            &[],
+            "",
+            None,
+            START,
+            START + 3600,
+            Period::TenMinutes,
+            &Estimate::default(),
+            SITE_TIMEZONE,
+        );
         assert_eq!(electricity.points[0].end - electricity.points[0].start, 600);
         assert_eq!(electricity.points[0].import, [0.2, 0.1]);
     }
@@ -183,24 +245,33 @@ mod tests {
     /// Days from 1 November 2026 whose costs are their kWh at 37 and 20 cents a kWh, and a credit of 3 cents a kWh
     /// exported, with a daily charge of $1.20, as GloBird would give them, rounded to the cent.
     fn days() -> Vec<DaySummary> {
-        (0..10).map(|index| {
-            let (peak, offpeak, export) = (1.0 + index as f64 * 0.7, 20.0 + (index % 3) as f64 * 2.3, 2.0 + (index % 4) as f64);
-            let cent = |amount: f64| (amount * 100.0).round() / 100.0;
-            DaySummary {
-                date: Some(time::macros::date!(2026 - 11 - 01) + time::Duration::days(index)),
-                import: BTreeMap::from([(String::from("Peak Usage"), peak), (String::from("Offpeak Usage"), offpeak)]),
-                export,
-                export_by_type: BTreeMap::from([(String::from("Standard Solar Feed in"), export)]),
-                readings: 288,
-                cost: BTreeMap::from([
-                    (String::from(USAGE), cent(peak * 0.37 + offpeak * 0.20)),
-                    (String::from(SOLAR), cent(-export * 0.03)),
-                    (String::from(SUPPLY), 1.2),
-                ]),
-                quantity: BTreeMap::from([(String::from(USAGE), peak + offpeak), (String::from(SOLAR), export)]),
-                ..Default::default()
-            }
-        }).collect()
+        (0..10)
+            .map(|index| {
+                let (peak, offpeak, export) = (
+                    1.0 + index as f64 * 0.7,
+                    20.0 + (index % 3) as f64 * 2.3,
+                    2.0 + (index % 4) as f64,
+                );
+                let cent = |amount: f64| (amount * 100.0).round() / 100.0;
+                DaySummary {
+                    date: Some(time::macros::date!(2026 - 11 - 01) + time::Duration::days(index)),
+                    import: BTreeMap::from([
+                        (String::from("Peak Usage"), peak),
+                        (String::from("Offpeak Usage"), offpeak),
+                    ]),
+                    export,
+                    export_by_type: BTreeMap::from([(String::from("Standard Solar Feed in"), export)]),
+                    readings: 288,
+                    cost: BTreeMap::from([
+                        (String::from(USAGE), cent(peak * 0.37 + offpeak * 0.20)),
+                        (String::from(SOLAR), cent(-export * 0.03)),
+                        (String::from(SUPPLY), 1.2),
+                    ]),
+                    quantity: BTreeMap::from([(String::from(USAGE), peak + offpeak), (String::from(SOLAR), export)]),
+                    ..Default::default()
+                }
+            })
+            .collect()
     }
 
     #[test]
@@ -214,8 +285,16 @@ mod tests {
         ];
         let data = site_data(&readings, &days(), None);
         assert_eq!(data.currency, Currency::from_code("AUD"));
-        assert!((data.import[0].costs["Peak Usage"] - 18.5).abs() < 0.1, "{:?}", data.import[0]);
-        assert!((data.export[0].costs["Standard Solar Feed in"] + 3.0).abs() < 0.1, "{:?}", data.export[0]);
+        assert!(
+            (data.import[0].costs["Peak Usage"] - 18.5).abs() < 0.1,
+            "{:?}",
+            data.import[0]
+        );
+        assert!(
+            (data.export[0].costs["Standard Solar Feed in"] + 3.0).abs() < 0.1,
+            "{:?}",
+            data.export[0]
+        );
         // A reading in no charge type has no rate, but its share of the daily charge.
         assert!(data.import[1].costs.is_empty());
         assert_eq!(data.import[1].standing_charge, 120.0 / 288.0);
@@ -230,9 +309,34 @@ mod tests {
     fn a_day_is_a_day_in_sydney() {
         // 2026-10-31 13:00 UTC is midnight on 1 November in Sydney, in summer time.
         let midnight = 1_793_451_600;
-        let data = site_data(&[reading(midnight - 300, "E1", "Offpeak Usage", 1.0), reading(midnight, "E1", "Offpeak Usage", 2.0)], &[], None);
-        let electricity = combine(&data.import, &data.export, &[], "", None, midnight - 86400, midnight + 86400, Period::Day, &Estimate::default(), SITE_TIMEZONE);
-        assert_eq!(electricity.points.iter().map(|point| point.import[0]).collect::<Vec<_>>(), [1.0, 2.0]);
+        let data = site_data(
+            &[
+                reading(midnight - 300, "E1", "Offpeak Usage", 1.0),
+                reading(midnight, "E1", "Offpeak Usage", 2.0),
+            ],
+            &[],
+            None,
+        );
+        let electricity = combine(
+            &data.import,
+            &data.export,
+            &[],
+            "",
+            None,
+            midnight - 86400,
+            midnight + 86400,
+            Period::Day,
+            &Estimate::default(),
+            SITE_TIMEZONE,
+        );
+        assert_eq!(
+            electricity
+                .points
+                .iter()
+                .map(|point| point.import[0])
+                .collect::<Vec<_>>(),
+            [1.0, 2.0]
+        );
         assert_eq!(electricity.points[1].start, midnight);
     }
 }

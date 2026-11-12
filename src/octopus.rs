@@ -1,35 +1,33 @@
-
-
-mod token;
-mod decimal;
-mod viewer_data_set;
-mod property;
-mod meter_point;
-mod smart_device;
-mod charging_session;
-mod telemetry;
-mod rate_limit;
 mod bill;
-mod meter;
-mod line_items;
-mod meter_agreement;
-mod measurements;
-mod fetch;
-mod logging_caller;
-mod trend_graph;
-mod convert;
+mod charging_session;
 mod context;
-mod pages;
+mod convert;
+mod decimal;
+mod fetch;
 mod flex_poll;
+mod line_items;
+mod logging_caller;
+mod measurements;
+mod meter;
+mod meter_agreement;
+mod meter_point;
+mod pages;
+mod property;
+mod rate_limit;
+mod smart_device;
 mod tariff;
+mod telemetry;
+mod token;
+mod trend_graph;
+mod viewer_data_set;
 
 pub use tariff::LABELS;
 
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use viewer_data_set::ViewerDataSet;
 use async_trait::async_trait;
+use viewer_data_set::ViewerDataSet;
 
 use dioxus::prelude::*;
 
@@ -37,12 +35,15 @@ use context::{OctopusContext, OctopusRoot};
 use pages::{AccountRow, BillsPage, EvChargingPage, MeasurementsPage, PropertiesPage};
 use serde::{Deserialize, Serialize};
 
-use time_tz::timezones;
-use token::{OctopusTokenManager};
 use clap::Parser;
+use time_tz::timezones;
+use token::OctopusTokenManager;
 
+use crate::{
+    CacheConfig, InitRequested, MarcoSparkoContext, Module, ModuleFactory, ModuleRegistration, PageInfo,
+    octopus::token::OctopusAuthenticator,
+};
 use bruce_graphql::TokenManager;
-use crate::{CacheConfig, InitRequested, MarcoSparkoContext, Module, ModuleFactory, ModuleRegistration, PageInfo, octopus::token::OctopusAuthenticator};
 
 // include!("octopus/graphql.rs");
 include!(concat!(env!("OUT_DIR"), "/graphql.rs"));
@@ -51,22 +52,21 @@ include!(concat!(env!("OUT_DIR"), "/crate_info.rs"));
 #[cfg(graphql_generation_error)]
 compile_error!("graphql built with Errors");
 
-
 /// Makes the requests of the pages, logging each one, see logging_caller.rs.
-pub type RequestManager = logging_caller::LoggingCaller<bruce_graphql::AuthenticatedRequestManager<OctopusTokenManager>>;
-
+pub type RequestManager =
+    logging_caller::LoggingCaller<bruce_graphql::AuthenticatedRequestManager<OctopusTokenManager>>;
 
 /*
  * It is important that the names of all args here begin with octopus_
  * as only args beginning with octopus- on the command line are passed through to the module.
- * 
+ *
  * Underscores in the names of fields on this struct are translated into hyphens on the command line automatically by clap.
  */
 #[derive(Parser, Clone, PartialEq)]
 pub struct OctopusArgs {
     /// The Octopus API_KEY to use
     #[arg(short, long, env)]
-    octopus_api_key: Option<String>
+    octopus_api_key: Option<String>,
 }
 
 /// Debug output is used in verbose mode, so the API key is hidden.
@@ -81,7 +81,7 @@ impl std::fmt::Debug for OctopusArgs {
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
-    pub api_key:  Option<String>,
+    pub api_key: Option<String>,
     pub billing_timezone: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_number: Option<String>,
@@ -128,7 +128,7 @@ impl Profile {
     }
 }
 
-pub struct OctopusModule{
+pub struct OctopusModule {
     octopus_args: OctopusArgs,
     account_manager: ViewerDataSet,
     /// The module's settings, which the account page changes the account of, see AccountRow.
@@ -144,7 +144,6 @@ pub struct OctopusModule{
 }
 
 const MODULE_ID: &str = "octopus";
-
 
 #[derive(Deserialize, Clone)]
 struct LoginForm {
@@ -167,11 +166,17 @@ impl std::fmt::Debug for LoginForm {
 }
 
 impl OctopusModule {
-    async fn new(octopus_args: OctopusArgs, cache_config: Arc<CacheConfig>, store: Arc<bruce_db::Store>, profile: Profile,
-        request_manager: Arc<RequestManager>, _verbose: bool) -> anyhow::Result<OctopusModule> {   
-
+    async fn new(
+        octopus_args: OctopusArgs,
+        cache_config: Arc<CacheConfig>,
+        store: Arc<bruce_db::Store>,
+        profile: Profile,
+        request_manager: Arc<RequestManager>,
+        _verbose: bool,
+    ) -> anyhow::Result<OctopusModule> {
         let billing_timezone = Self::get_billing_timezone(&profile);
-        let account_manager = ViewerDataSet::new(&cache_config, &*request_manager, profile.account_number.as_deref()).await?;
+        let account_manager =
+            ViewerDataSet::new(&cache_config, &*request_manager, profile.account_number.as_deref()).await?;
 
         let context = Arc::new(OctopusContext {
             account_id: account_manager.get_selected_account_id().to_string(),
@@ -196,12 +201,12 @@ impl OctopusModule {
 
     fn get_billing_timezone(profile: &Profile) -> &'static time_tz::Tz {
         // if let Some(profile) = profile {
-            if let Some(name) = &profile.billing_timezone {
-                if let Some(tz) =  timezones::get_by_name(&name) {
-                    return tz;
-                }
-                panic!("Unable to load billing_timezone '{}'", name);
+        if let Some(name) = &profile.billing_timezone {
+            if let Some(tz) = timezones::get_by_name(&name) {
+                return tz;
             }
+            panic!("Unable to load billing_timezone '{}'", name);
+        }
         // }
         return timezones::db::europe::LONDON;
     }
@@ -213,23 +218,23 @@ impl OctopusModule {
             convert: Some(convert::convert_legacy),
         }
     }
-    
-    pub fn constructor(context: Arc<MarcoSparkoContext>, 
-        json_profile: Option<serde_json::Value>) -> anyhow::Result<Arc<dyn ModuleFactory>> {
 
-            let builder =OctopusModule::builder(context, json_profile)?;
+    pub fn constructor(
+        context: Arc<MarcoSparkoContext>,
+        json_profile: Option<serde_json::Value>,
+    ) -> anyhow::Result<Arc<dyn ModuleFactory>> {
+        let builder = OctopusModule::builder(context, json_profile)?;
 
-            Ok(Arc::new(builder.build()?))
+        Ok(Arc::new(builder.build()?))
     }
 
-    pub fn builder(context: Arc<MarcoSparkoContext>, 
-        json_profile: Option<serde_json::Value>
+    pub fn builder(
+        context: Arc<MarcoSparkoContext>,
+        json_profile: Option<serde_json::Value>,
     ) -> anyhow::Result<OctopusModuleFactoryBuilder> {
-
         OctopusModuleFactoryBuilder::new(context, json_profile)
     }
 }
-
 
 #[async_trait(?Send)]
 impl Module for OctopusModule {
@@ -248,8 +253,20 @@ impl Module for OctopusModule {
         let devices = crate::capture_device::adopted_devices(&self.profile_name);
         let since = flex_poll::latest(context).and_then(|(time, _)| time);
         if !context.cache_config.offline
-            && self.capture.read(&context.store, &devices, since, &mut |device, record| flex_poll::save(context, record, Some(&device.id)), &mut |_| {}).await? {
-            return Ok(flex_poll::latest(context).map(|(_, summary)| summary).unwrap_or_default());
+            && self
+                .capture
+                .read(
+                    &context.store,
+                    &devices,
+                    since,
+                    &mut |device, record| flex_poll::save(context, record, Some(&device.id)),
+                    &mut |_| {},
+                )
+                .await?
+        {
+            return Ok(flex_poll::latest(context)
+                .map(|(_, summary)| summary)
+                .unwrap_or_default());
         }
         flex_poll::poll(&self.context, slot, &self.call_budget, &self.charging_device).await
     }
@@ -260,7 +277,9 @@ impl Module for OctopusModule {
 
     /// Its meters and Home Mini put together, see pages/electricity.rs.
     fn electricity_source(&self) -> Option<Arc<dyn crate::power::ElectricitySource>> {
-        Some(Arc::new(pages::OctopusElectricity { context: self.context.clone() }))
+        Some(Arc::new(pages::OctopusElectricity {
+            context: self.context.clone(),
+        }))
     }
 
     /// The billing meter, whose half hours and Home Mini readings are one place, see power::topology.
@@ -283,13 +302,13 @@ impl Module for OctopusModule {
     }
 
     fn get_page_list(&self) -> Vec<PageInfo> {
-        vec!(
+        vec![
             PageInfo {
-                label: "User", 
+                label: "User",
                 path: "user",
             },
             PageInfo {
-                label: "Account", 
+                label: "Account",
                 path: "account",
             },
             PageInfo {
@@ -308,7 +327,7 @@ impl Module for OctopusModule {
                 label: "EV Charging",
                 path: "ev",
             },
-        )
+        ]
     }
 
     fn help_topic(&self, page_id: &str, path: &[String]) -> String {
@@ -336,14 +355,13 @@ impl Module for OctopusModule {
                 let account_user = &self.account_manager.data_set.data.viewer_;
                 let dob = if let Some(date) = &account_user.date_of_birth_ {
                     date.format(&date_format).unwrap()
-                }
-                else {
+                } else {
                     "".to_string()
                 };
 
-                        // tr {
-                        //    th { class: "row-header","accounts"} td{"{account_user.accounts_}"}
-                        // }
+                // tr {
+                //    th { class: "row-header","accounts"} td{"{account_user.accounts_}"}
+                // }
                 rsx! {
                     h1 { "Viewer (Current User)" }
                     table { class: "display",
@@ -448,7 +466,7 @@ impl Module for OctopusModule {
                         }
                     }
                 }
-            },
+            }
             "account" => {
                 let account_user = &self.account_manager.data_set.data.viewer_;
                 rsx! {
@@ -471,35 +489,35 @@ impl Module for OctopusModule {
                             th { class: "row-header", "API Key" }
                             td { {account_user.live_secret_key_.as_deref().unwrap_or("")} }
                         }
-                    
+
                     }
                 }
-            },
+            }
             "bills" => {
                 rsx! {
                     BillsPage { path }
                 }
-            },
+            }
             "properties" => {
                 rsx! {
                     PropertiesPage { path }
                 }
-            },
+            }
             "measurements" => {
                 rsx! {
                     MeasurementsPage { path }
                 }
-            },
+            }
             "ev" => {
                 rsx! {
                     EvChargingPage { path }
                 }
-            },
+            }
             _ => {
                 rsx! {
                     div { "Unknown page_id, {page_id}" }
                 }
-            },
+            }
         };
 
         // The key changes if the module is rebuilt, so that OctopusRoot is re-created and provides the new context.
@@ -509,7 +527,6 @@ impl Module for OctopusModule {
         }
     }
 }
-
 
 pub struct OctopusModuleFactory {
     context: Arc<MarcoSparkoContext>,
@@ -527,8 +544,9 @@ pub struct OctopusModuleFactory {
 fn describe_login_error(error: &bruce_graphql::Error) -> String {
     match error {
         // The response often explains the error, e.g. that a firewall blocked the request.
-        bruce_graphql::Error::HttpError(status, message) if !message.is_empty() =>
-            format!("the server responded {}: {}", status, message),
+        bruce_graphql::Error::HttpError(status, message) if !message.is_empty() => {
+            format!("the server responded {}: {}", status, message)
+        }
         bruce_graphql::Error::HttpError(status, _) => format!("the server responded {}", status),
         _ => error.to_string(),
     }
@@ -536,68 +554,74 @@ fn describe_login_error(error: &bruce_graphql::Error) -> String {
 
 impl OctopusModuleFactory {
     pub async fn do_build(&self) -> anyhow::Result<OctopusModule> {
+        let authenticated_request_manager = Arc::new(logging_caller::LoggingCaller(
+            bruce_graphql::AuthenticatedRequestManager::new(self.request_manager.clone(), self.token_manager.clone())?,
+        ));
 
-        let authenticated_request_manager = Arc::new(logging_caller::LoggingCaller(bruce_graphql::AuthenticatedRequestManager::new(self.request_manager.clone(), self.token_manager.clone())?));
-       
-        let mut client = OctopusModule::new(self.octopus_args.clone(), self.cache_config.clone(), self.context.store()?, self.profile.clone(),
-            authenticated_request_manager, self.verbose
-        ).await?;
+        let mut client = OctopusModule::new(
+            self.octopus_args.clone(),
+            self.cache_config.clone(),
+            self.context.store()?,
+            self.profile.clone(),
+            authenticated_request_manager,
+            self.verbose,
+        )
+        .await?;
         client.profile_name = self.context.profile.active_profile.name.clone();
 
         if self.profile.init {
             crate::profile::update_profile(&self.context.profile.active_profile.name, MODULE_ID, &self.profile)?;
         }
-        
+
         Ok(client)
     }
 
     async fn login(errors: &mut Vec<String>, token_manager: &Arc<OctopusTokenManager>) -> anyhow::Result<()> {
-
-            match token_manager.get_authenticator(true).await {
-                Ok(_token) => {
-                    crate::log_info!("Logged in to Octopus");
-                    Ok(())
-                },
-                Err(error) => {
-                    if let bruce_graphql::Error::GraphQLError(graphql_errors) = &error {
-                        let graphql_errors = &**graphql_errors;
-                        for graphql_error in graphql_errors {
-                            if let Some(error_code) = graphql_error.extensions.get("errorCode") {
-                                if error_code == "KT-CT-1138" {
-                                    errors.push(format!("Username or password is incorrect."));
-                                    return Err(anyhow!(error));
-                                }
-                                if error_code == "KT-CT-1139" {
-                                    errors.push(format!("API KEY is incorrect."));
-                                    return Err(anyhow!(error));
-                                }
+        match token_manager.get_authenticator(true).await {
+            Ok(_token) => {
+                crate::log_info!("Logged in to Octopus");
+                Ok(())
+            }
+            Err(error) => {
+                if let bruce_graphql::Error::GraphQLError(graphql_errors) = &error {
+                    let graphql_errors = &**graphql_errors;
+                    for graphql_error in graphql_errors {
+                        if let Some(error_code) = graphql_error.extensions.get("errorCode") {
+                            if error_code == "KT-CT-1138" {
+                                errors.push(format!("Username or password is incorrect."));
+                                return Err(anyhow!(error));
+                            }
+                            if error_code == "KT-CT-1139" {
+                                errors.push(format!("API KEY is incorrect."));
+                                return Err(anyhow!(error));
                             }
                         }
-                 
                     }
-                    errors.push(format!("Login failed, {}", describe_login_error(&error)));
-                    crate::log_error!("Login to Octopus failed, {}", describe_login_error(&error));
-                    return Err(anyhow!(error));
-                },
+                }
+                errors.push(format!("Login failed, {}", describe_login_error(&error)));
+                crate::log_error!("Login to Octopus failed, {}", describe_login_error(&error));
+                return Err(anyhow!(error));
             }
+        }
     }
 
     async fn handle_login(
         token_manager: Arc<OctopusTokenManager>,
         profile: Profile,
         context: Arc<MarcoSparkoContext>,
-        values: LoginForm, 
-        error_signal: &mut Signal<Vec<String>>) {
+        values: LoginForm,
+        error_signal: &mut Signal<Vec<String>>,
+    ) {
         let mut errors = Vec::new();
 
         println!("Octopus login submitted for: {:?}", values);
-        
+
         let login_method = values.login_method.trim().to_string();
-        
+
         if login_method == "email" {
             let email = values.email.as_ref().unwrap_or(&String::new()).trim().to_string();
             let password = values.password.as_ref().unwrap_or(&String::new()).trim().to_string();
-            
+
             if email.is_empty() {
                 errors.push("Email is required".to_string());
             }
@@ -607,30 +631,32 @@ impl OctopusModuleFactory {
 
             if errors.is_empty() {
                 println!("Performing login for email: {}", email);
-                token_manager.set_authenticator(
-                    OctopusAuthenticator::from_email_password(email.clone(), password.clone())
-                ).await;
+                token_manager
+                    .set_authenticator(OctopusAuthenticator::from_email_password(
+                        email.clone(),
+                        password.clone(),
+                    ))
+                    .await;
 
-                if let Ok(_) =  Self::login(&mut errors, &token_manager).await {
+                if let Ok(_) = Self::login(&mut errors, &token_manager).await {
                     let init_signal = try_consume_context::<Signal<InitRequested>>();
                     if let Some(mut init_sig) = init_signal {
                         init_sig.set(InitRequested(true));
                     }
                 }
-
             }
         } else if login_method == "api_key" {
             let api_key = values.api_key.as_ref().unwrap_or(&String::new()).trim().to_string();
-            
+
             if api_key.is_empty() {
                 errors.push("API Key is required".to_string());
             }
 
             if errors.is_empty() {
                 println!("Performing login with API key");
-                token_manager.set_authenticator(
-                    OctopusAuthenticator::from_api_key(api_key.clone())
-                ).await;
+                token_manager
+                    .set_authenticator(OctopusAuthenticator::from_api_key(api_key.clone()))
+                    .await;
                 if let Ok(_) = Self::login(&mut errors, &token_manager).await {
                     println!("Login successful!");
                     // Store the api_key into the profile
@@ -639,7 +665,8 @@ impl OctopusModuleFactory {
                         ..profile.clone()
                     };
 
-                    crate::profile::update_profile(&context.profile.active_profile.name, MODULE_ID, &new_profile).unwrap_or_else(|e| println!("profile update failed: {}", e));
+                    crate::profile::update_profile(&context.profile.active_profile.name, MODULE_ID, &new_profile)
+                        .unwrap_or_else(|e| println!("profile update failed: {}", e));
 
                     // Reset the app initialization to reload context with new profile
                     let init_signal = try_consume_context::<Signal<InitRequested>>();
@@ -658,7 +685,6 @@ impl OctopusModuleFactory {
 
 #[async_trait]
 impl ModuleFactory for OctopusModuleFactory {
-
     async fn is_ready(&self) -> anyhow::Result<bool> {
         // An offline profile has no login, it only shows its cached data, see Profile::offline.
         if self.context.profile.active_profile.offline {
@@ -668,7 +694,13 @@ impl ModuleFactory for OctopusModuleFactory {
             Ok(_token) => (true, None),
             // There is no saved login, so the login page is shown without an error.
             Err(bruce_graphql::Error::MissingRequiredValueError(_)) => (false, None),
-            Err(error) => (false, Some(format!("Unable to log in with the saved login details, {}", describe_login_error(&error)))),
+            Err(error) => (
+                false,
+                Some(format!(
+                    "Unable to log in with the saved login details, {}",
+                    describe_login_error(&error)
+                )),
+            ),
         };
         if let Some(error) = &error {
             crate::log_error!("{error}");
@@ -683,7 +715,7 @@ impl ModuleFactory for OctopusModuleFactory {
         let mut api_key = use_signal(|| String::new());
         let mut login_method = use_signal(|| "email".to_string());
         let saved_login_error = self.saved_login_error.lock().unwrap().clone();
-        let mut errors: Signal<Vec<String>>   = use_signal(|| saved_login_error.into_iter().collect());
+        let mut errors: Signal<Vec<String>> = use_signal(|| saved_login_error.into_iter().collect());
 
         let context: Arc<MarcoSparkoContext> = self.context.clone();
         let token_manager: Arc<OctopusTokenManager> = self.token_manager.clone();
@@ -803,14 +835,14 @@ impl ModuleFactory for OctopusModuleFactory {
             }
         }
     }
-    
+
     async fn build(&self) -> anyhow::Result<Box<dyn crate::Module + Send>> {
         Ok(Box::new(self.do_build().await?))
     }
 }
 
 pub struct OctopusModuleFactoryBuilder {
-    context: Arc<MarcoSparkoContext>, 
+    context: Arc<MarcoSparkoContext>,
     octopus_args: OctopusArgs,
     profile: Profile,
     authenticator: Option<OctopusAuthenticator>,
@@ -820,41 +852,35 @@ pub struct OctopusModuleFactoryBuilder {
 
 impl OctopusModuleFactoryBuilder {
     fn new(
-            context: Arc<MarcoSparkoContext>,
-            json_profile: Option<serde_json::Value>
-        ) -> anyhow::Result<OctopusModuleFactoryBuilder> {
-
+        context: Arc<MarcoSparkoContext>,
+        json_profile: Option<serde_json::Value>,
+    ) -> anyhow::Result<OctopusModuleFactoryBuilder> {
         let module_args = if let Some(args) = context.args.module_args(MODULE_ID) {
             args
-        }
-        else {
+        } else {
             Vec::new()
         };
 
         let octopus_args = OctopusArgs::parse_from(module_args);
         let profile = if let Some(json) = json_profile {
             serde_json::from_value(json)?
-        }
-        else {
+        } else {
             Profile::new()
         };
 
         let option_api_key = if let Some(api_key) = &octopus_args.octopus_api_key {
             Some(api_key.to_string())
-        }
-        else {
+        } else {
             if let Some(api_key) = &profile.api_key {
                 Some(api_key.to_string())
-            }
-            else {
+            } else {
                 None
             }
         };
 
         let authenticator = if let Some(api_key) = option_api_key {
             Some(OctopusAuthenticator::from_api_key(api_key))
-        }
-        else {
+        } else {
             None
         };
 
@@ -863,7 +889,7 @@ impl OctopusModuleFactoryBuilder {
         if verbose {
             println!("Octopus Module Args: {:?}", octopus_args);
             println!("Octopus Module Profile: {:?}", profile);
-        }  
+        }
 
         Ok(OctopusModuleFactoryBuilder {
             context,
@@ -900,8 +926,7 @@ impl OctopusModuleFactoryBuilder {
     pub fn build(self) -> anyhow::Result<OctopusModuleFactory> {
         let url = if let Some(url) = self.url {
             url
-        }
-        else {
+        } else {
             format!("https://{}/v1/graphql/", self.profile.api_host)
         };
 
@@ -910,8 +935,12 @@ impl OctopusModuleFactoryBuilder {
         if verbose {
             println!("Octopus API initialized with URL {}", &url);
         }
-        
-        let request_manager = Arc::new(bruce_graphql::RequestManager::new(url, verbose, create_info::USER_AGENT)?);
+
+        let request_manager = Arc::new(bruce_graphql::RequestManager::new(
+            url,
+            verbose,
+            create_info::USER_AGENT,
+        )?);
         let cache_config = self.context.create_cache_config(crate::octopus::MODULE_ID)?;
 
         Ok(OctopusModuleFactory {
@@ -920,8 +949,9 @@ impl OctopusModuleFactoryBuilder {
             cache_config,
             token_manager: Arc::new(OctopusTokenManager::new(
                 self.context,
-                 request_manager.clone(),
-                 self.authenticator)),
+                request_manager.clone(),
+                self.authenticator,
+            )),
             request_manager,
             profile: self.profile,
             verbose: self.verbose,

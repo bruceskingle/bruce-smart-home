@@ -27,12 +27,7 @@ const LIVE: &[&str] = &[
 ];
 
 /// What rarely changes, so is fetched once a day, or again when the gateway's software version changes.
-const DAILY: &[&str] = &[
-    "site_info",
-    "powerwalls",
-    "meters/site",
-    "meters/solar",
-];
+const DAILY: &[&str] = &["site_info", "powerwalls", "meters/site", "meters/solar"];
 
 /// The kinds of the snapshots and details, see the module documentation, and the part of their hash keys naming the
 /// gateway, as a site has one.
@@ -44,7 +39,12 @@ const GATEWAY: &str = crate::device_kinds::TESLA_GATEWAY;
 /// response}}. slot is the time the poll was scheduled for, see polling::next_slot, if it was, requested when the first
 /// request was sent, and received when the last response arrived. An endpoint which fails is recorded as
 /// {"error": "..."}, unless the login fails, which stops it.
-async fn fetch(client: &LocalClient, endpoints: &[&str], slot: Option<OffsetDateTime>, progress: &mut dyn FnMut(String)) -> anyhow::Result<serde_json::Value> {
+async fn fetch(
+    client: &LocalClient,
+    endpoints: &[&str],
+    slot: Option<OffsetDateTime>,
+    progress: &mut dyn FnMut(String),
+) -> anyhow::Result<serde_json::Value> {
     let requested = crate::clock::now_utc();
     let mut responses = serde_json::Map::new();
     for endpoint in endpoints {
@@ -55,7 +55,7 @@ async fn fetch(client: &LocalClient, endpoints: &[&str], slot: Option<OffsetDate
             Err(error) => {
                 crate::log_warning!("Unable to fetch {endpoint} from the Tesla gateway, {error:#}");
                 serde_json::json!({ "error": format!("{error:#}") })
-            },
+            }
         };
         responses.insert(endpoint.to_string(), response);
     }
@@ -71,7 +71,8 @@ async fn fetch(client: &LocalClient, endpoints: &[&str], slot: Option<OffsetDate
 /// When a snapshot or details are of: the slot of a scheduled poll, otherwise when it was requested, or for one saved
 /// before those were recorded its time.
 pub fn time_of(json: &serde_json::Value) -> Option<OffsetDateTime> {
-    ["slot", "requested", "time"].iter()
+    ["slot", "requested", "time"]
+        .iter()
         .find_map(|name| json[*name].as_str())
         .and_then(|time| OffsetDateTime::parse(time, &Rfc3339).ok())
 }
@@ -107,32 +108,47 @@ fn save_to(store: &Store, hk: &str, json: &serde_json::Value, device: Option<&st
 /// device_kinds.rs.
 pub fn save(store: &Store, json: &serde_json::Value, device: Option<&str>) -> anyhow::Result<bool> {
     let origin = crate::store::origin();
-    let writer = device.map_or(crate::device_kinds::Writer::App(&origin), crate::device_kinds::Writer::Device);
+    let writer = device.map_or(
+        crate::device_kinds::Writer::App(&origin),
+        crate::device_kinds::Writer::Device,
+    );
     Ok(store.put(&crate::device_kinds::tesla_snapshot(store, json, writer)?)? == Put::Stored)
 }
 
 /// The gateway's software version, in the status response.
 fn version(json: &serde_json::Value) -> Option<&str> {
-    json.pointer("/responses/status/version").and_then(|version| version.as_str())
+    json.pointer("/responses/status/version")
+        .and_then(|version| version.as_str())
 }
 
 /// Takes a snapshot, and the details too if they have not been fetched today or the gateway's software has changed,
 /// saying what it did with progress. slot is the time the poll was scheduled for, if it was, see Module::poll.
-pub async fn take(client: &LocalClient, store: &Store, offline: bool, slot: Option<OffsetDateTime>,
-    progress: &mut dyn FnMut(String)) -> anyhow::Result<()> {
+pub async fn take(
+    client: &LocalClient,
+    store: &Store,
+    offline: bool,
+    slot: Option<OffsetDateTime>,
+    progress: &mut dyn FnMut(String),
+) -> anyhow::Result<()> {
     if offline {
         return Err(anyhow!("This profile is offline, so nothing can be fetched"));
     }
     let now = crate::clock::now_utc();
     let snapshot = fetch(client, LIVE, slot, progress).await?;
     save(store, &snapshot, None)?;
-    progress(format!("Saved the snapshot of {}", time_of(&snapshot).map(crate::util::local_date_time).unwrap_or_default()));
+    progress(format!(
+        "Saved the snapshot of {}",
+        time_of(&snapshot).map(crate::util::local_date_time).unwrap_or_default()
+    ));
 
     let details = last(store, &details_key(store)?);
-    let fetched_today = details.as_ref()
+    let fetched_today = details
+        .as_ref()
         .and_then(time_of)
         .is_some_and(|time| time.date() == now.date());
-    let same_version = details.as_ref().is_some_and(|details| version(details) == version(&snapshot));
+    let same_version = details
+        .as_ref()
+        .is_some_and(|details| version(details) == version(&snapshot));
     if !fetched_today || !same_version {
         let mut details = fetch(client, DAILY, slot, progress).await?;
         // So that the next snapshot can tell whether the software has changed since.
@@ -177,10 +193,14 @@ pub struct Meter {
 
 /// The meters of a snapshot's meters/aggregates response, in which energy is in Wh.
 pub fn meters(snapshot: &serde_json::Value) -> Vec<Meter> {
-    let Some(aggregates) = snapshot.pointer("/responses/meters~1aggregates").and_then(|value| value.as_object()) else {
+    let Some(aggregates) = snapshot
+        .pointer("/responses/meters~1aggregates")
+        .and_then(|value| value.as_object())
+    else {
         return Vec::new();
     };
-    aggregates.iter()
+    aggregates
+        .iter()
         .filter(|(_, meter)| meter.get("instant_power").is_some())
         .map(|(name, meter)| {
             let number = |field: &str| meter.get(field).and_then(|value| value.as_f64()).unwrap_or_default();
@@ -211,7 +231,12 @@ pub struct Sample {
 
 impl Sample {
     fn from_snapshot(snapshot: &serde_json::Value) -> Sample {
-        let text = |pointer: &str| snapshot.pointer(pointer).and_then(|value| value.as_str()).map(String::from);
+        let text = |pointer: &str| {
+            snapshot
+                .pointer(pointer)
+                .and_then(|value| value.as_str())
+                .map(String::from)
+        };
         let number = |pointer: &str| snapshot.pointer(pointer).and_then(|value| value.as_f64());
         Sample {
             time: time_of(snapshot),
@@ -276,21 +301,35 @@ pub fn registers(store: &Store, start: i64, end: i64) -> Vec<SiteRegisters> {
         last_communication_time: Option<String>,
     }
 
-    let (Ok(first), Ok(last)) = (OffsetDateTime::from_unix_timestamp(start), OffsetDateTime::from_unix_timestamp(end)) else {
+    let (Ok(first), Ok(last)) = (
+        OffsetDateTime::from_unix_timestamp(start),
+        OffsetDateTime::from_unix_timestamp(end),
+    ) else {
         return Vec::new();
     };
     let mut registers = Vec::new();
     let Ok(hk) = snapshot_key(store) else { return registers };
     // The gateway's own time of a reading may be a little before the snapshot's.
-    let (from, to) = (sort_key(first - time::Duration::minutes(5)), sort_key(last + time::Duration::minutes(5)));
+    let (from, to) = (
+        sort_key(first - time::Duration::minutes(5)),
+        sort_key(last + time::Duration::minutes(5)),
+    );
     let _ = store.query(&hk, from.as_str()..to.as_str(), &mut |item| {
-        let Some(aggregates) = item.attributes.and_then(|json| serde_json::from_value::<Line>(json).ok()).and_then(|line| line.responses?.aggregates) else {
+        let Some(aggregates) = item
+            .attributes
+            .and_then(|json| serde_json::from_value::<Line>(json).ok())
+            .and_then(|line| line.responses?.aggregates)
+        else {
             return Ok(Flow::Continue);
         };
-        let (Some(site), Some(battery), Some(solar), Some(load)) = (aggregates.site, aggregates.battery, aggregates.solar, aggregates.load) else {
+        let (Some(site), Some(battery), Some(solar), Some(load)) =
+            (aggregates.site, aggregates.battery, aggregates.solar, aggregates.load)
+        else {
             return Ok(Flow::Continue);
         };
-        let Some(time) = site.last_communication_time.as_deref()
+        let Some(time) = site
+            .last_communication_time
+            .as_deref()
             .and_then(|time| OffsetDateTime::parse(time, &Rfc3339).ok())
             .map(|time| time.unix_timestamp_nanos() as f64 / 1e9)
         else {
@@ -322,7 +361,11 @@ pub fn registers(store: &Store, start: i64, end: i64) -> Vec<SiteRegisters> {
 /// Converts the snapshots and details kept in the module's directory of the cache before the store, a day's file of
 /// snapshots a line, `<day>#snapshots`, or a file each, `<day>#snapshot-HHMMSS` and `<day>#details-HHMMSS`, see
 /// convert.rs. Those a capture device took are kept as the app's, as which device is not known.
-pub fn convert_legacy(store: &std::sync::Arc<Store>, dir: &std::path::Path, progress: &mut dyn bruce_db::progress::Progress) -> anyhow::Result<String> {
+pub fn convert_legacy(
+    store: &std::sync::Arc<Store>,
+    dir: &std::path::Path,
+    progress: &mut dyn bruce_db::progress::Progress,
+) -> anyhow::Result<String> {
     let (mut snapshots, mut details) = (0, 0);
     let files = crate::convert::legacy_files(dir);
     for (index, file) in files.iter().enumerate() {
@@ -331,11 +374,9 @@ pub fn convert_legacy(store: &std::sync::Arc<Store>, dir: &std::path::Path, prog
             for json in file.lines()? {
                 snapshots += save(store, &json, None)? as usize;
             }
-        }
-        else if file.key.starts_with("snapshot-") {
+        } else if file.key.starts_with("snapshot-") {
             snapshots += save(store, &file.json()?, None)? as usize;
-        }
-        else if file.key.starts_with("details-") {
+        } else if file.key.starts_with("details-") {
             details += save_to(store, &details_key(store)?, &file.json()?, None)? as usize;
         }
     }
@@ -354,21 +395,32 @@ mod tests {
         let store = Store::open(&format!("file://{}", dir.display()), &site).unwrap();
         let now = crate::clock::now_utc().replace_millisecond(0).unwrap();
         let at = |seconds: i64| (now - time::Duration::seconds(seconds)).format(&Rfc3339).unwrap();
-        let snapshot = |time: &str, power: f64| serde_json::json!({
-            "slot": time,
-            "responses": {"meters/aggregates": {"site": {"instant_power": power, "energy_imported": 1000.0, "energy_exported": 0.0}}},
-        });
+        let snapshot = |time: &str, power: f64| {
+            serde_json::json!({
+                "slot": time,
+                "responses": {"meters/aggregates": {"site": {"instant_power": power, "energy_imported": 1000.0, "energy_exported": 0.0}}},
+            })
+        };
         assert!(save(&store, &snapshot(&at(30), 1.0), Some("44:1B:F6:CC:7F:CC")).unwrap());
         assert!(save(&store, &snapshot(&at(10), 3.0), None).unwrap());
         // Out of order, as a capture device's may be saved after the app's own.
         assert!(save(&store, &snapshot(&at(20), 2.0), Some("44:1B:F6:CC:7F:CC")).unwrap());
-        assert!(!save(&store, &snapshot(&at(20), 9.0), Some("44:1B:F6:CC:7F:CC")).unwrap(), "a second of the same time");
+        assert!(
+            !save(&store, &snapshot(&at(20), 9.0), Some("44:1B:F6:CC:7F:CC")).unwrap(),
+            "a second of the same time"
+        );
         // The app's own of a second a device has saved replaces it, and a device's of the app's does not.
         assert!(save(&store, &snapshot(&at(30), 4.0), None).unwrap());
         assert!(!save(&store, &snapshot(&at(10), 5.0), Some("44:1B:F6:CC:7F:CC")).unwrap());
 
-        assert_eq!(latest(&store).as_ref().and_then(time_of), OffsetDateTime::parse(&at(10), &Rfc3339).ok());
-        let powers: Vec<f64> = samples(&store, 10).iter().filter_map(|sample| Some(sample.meter("site")?.power)).collect();
+        assert_eq!(
+            latest(&store).as_ref().and_then(time_of),
+            OffsetDateTime::parse(&at(10), &Rfc3339).ok()
+        );
+        let powers: Vec<f64> = samples(&store, 10)
+            .iter()
+            .filter_map(|sample| Some(sample.meter("site")?.power))
+            .collect();
         assert_eq!(powers, [3.0, 2.0, 4.0]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -390,8 +442,14 @@ mod tests {
             },
         });
         let sample = Sample::from_snapshot(&record);
-        assert_eq!(sample.time, OffsetDateTime::parse("2026-10-29T07:30:00Z", &Rfc3339).ok());
-        assert_eq!(sample.meter("site").map(|meter| meter.imported), Some(44128.49336542916));
+        assert_eq!(
+            sample.time,
+            OffsetDateTime::parse("2026-10-29T07:30:00Z", &Rfc3339).ok()
+        );
+        assert_eq!(
+            sample.meter("site").map(|meter| meter.imported),
+            Some(44128.49336542916)
+        );
         assert_eq!(sample.charge, Some(100.0));
         assert_eq!(sample.grid_status.as_deref(), Some("SystemGridConnected"));
         assert_eq!(sample.reserve, None);
@@ -404,8 +462,14 @@ mod tests {
             "battery": {"instant_power": 600, "energy_imported": 20567877, "energy_exported": 18241742},
             "error": "not a meter",
         }}});
-        assert_eq!(meters(&snapshot), vec![
-            Meter { name: "battery".to_string(), power: 600.0, imported: 20567.877, exported: 18241.742 },
-        ]);
+        assert_eq!(
+            meters(&snapshot),
+            vec![Meter {
+                name: "battery".to_string(),
+                power: 600.0,
+                imported: 20567.877,
+                exported: 18241.742
+            },]
+        );
     }
 }

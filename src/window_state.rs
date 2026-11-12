@@ -52,22 +52,35 @@ impl WindowState {
         let (x, y, width, height) = if cfg!(target_os = "macos") {
             let position = position.to_logical::<i32>(window.scale_factor());
             let size = window.outer_size().to_logical::<u32>(window.scale_factor());
-            let title_bar = if window.is_decorated() { MACOS_TITLE_BAR_HEIGHT } else { 0 };
-            (position.x, position.y, size.width, size.height.saturating_sub(title_bar))
-        }
-        else {
+            let title_bar = if window.is_decorated() {
+                MACOS_TITLE_BAR_HEIGHT
+            } else {
+                0
+            };
+            (
+                position.x,
+                position.y,
+                size.width,
+                size.height.saturating_sub(title_bar),
+            )
+        } else {
             let size = window.inner_size();
             (position.x, position.y, size.width, size.height)
         };
 
-        Some(WindowState { x, y, width, height, maximized })
+        Some(WindowState {
+            x,
+            y,
+            width,
+            height,
+            maximized,
+        })
     }
 
     fn position(&self) -> Position {
         if cfg!(target_os = "macos") {
             LogicalPosition::new(self.x, self.y).into()
-        }
-        else {
+        } else {
             PhysicalPosition::new(self.x, self.y).into()
         }
     }
@@ -80,13 +93,10 @@ impl WindowState {
         let height = self.height.max(MIN_SIZE);
         let window = if cfg!(target_os = "macos") {
             window.with_inner_size(LogicalSize::new(width, height))
-        }
-        else {
+        } else {
             window.with_inner_size(PhysicalSize::new(width, height))
         };
-        window
-            .with_position(self.position())
-            .with_maximized(self.maximized)
+        window.with_position(self.position()).with_maximized(self.maximized)
     }
 
     /// Move the window to the saved position, unless it would not be on any connected monitor (e.g. an external
@@ -95,8 +105,7 @@ impl WindowState {
         let position = self.position().to_physical::<i32>(window.scale_factor());
         if is_on_screen(window, position) {
             window.set_outer_position(position);
-        }
-        else {
+        } else {
             centre_on_primary_monitor(window);
         }
     }
@@ -116,9 +125,12 @@ impl WindowState {
         match serde_json::to_string(self) {
             Ok(json) => {
                 if let Err(error) = std::fs::write(&path, json) {
-                    crate::log_error!("Failed to save the window's size and position to {}: {error}", path.display());
+                    crate::log_error!(
+                        "Failed to save the window's size and position to {}: {error}",
+                        path.display()
+                    );
                 }
-            },
+            }
             Err(error) => crate::log_error!("Failed to save the window's size and position: {error}"),
         }
     }
@@ -196,22 +208,22 @@ pub fn remember_window_state(config: Config, window: WindowBuilder) -> Config {
                     WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
                         let previous = *state.borrow();
                         *state.borrow_mut() = WindowState::capture(&window, previous);
-                    },
+                    }
                     WindowEvent::CloseRequested => {
                         let previous = *state.borrow();
                         if let Some(current) = WindowState::capture(&window, previous) {
                             current.save();
                         }
-                    },
-                    _ => {},
+                    }
+                    _ => {}
                 },
                 // Quitting from the menu (e.g. Cmd+Q on macOS) ends the event loop without a close request.
                 Event::LoopDestroyed => {
                     if let Some(current) = *state.borrow() {
                         current.save();
                     }
-                },
-                _ => {},
+                }
+                _ => {}
             }
         })
 }

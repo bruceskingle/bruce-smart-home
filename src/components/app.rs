@@ -1,11 +1,9 @@
-
 use std::sync::Arc;
 
-use dioxus::prelude::*;
 use crate::{Args, InitRequested, MarcoSparkoContext, ModuleRegistrations, views::*};
+use dioxus::prelude::*;
 
 // use crate::views::{Blog, Home, Navbar};
-
 
 /// The Route enum is used to define the structure of internal routes in our app. All route enums need to derive
 /// the [`Routable`] trait, which provides the necessary methods for the router to work.
@@ -47,7 +45,8 @@ pub const MAIN_CSS: Asset = asset!("/assets/styling/main.css");
 /// main.css has loaded, which shows it, so that it is not seen without its styles for a moment as the app starts. Every
 /// window links main.css, the main one in App and the bills' in BillWindow, or it would stay hidden.
 pub const BACKGROUND_COLOR: (u8, u8, u8, u8) = (0x0f, 0x11, 0x16, 0xff);
-pub const INITIAL_HEAD: &str = "<style>html, body { background-color: #0f1116; color: #ffffff; } #main { visibility: hidden; }</style>";
+pub const INITIAL_HEAD: &str =
+    "<style>html, body { background-color: #0f1116; color: #ffffff; } #main { visibility: hidden; }</style>";
 
 /// App is the main component of our app. Components are the building blocks of dioxus apps. Each component is a function
 /// that takes some props and returns an Element. In this case, App takes no props because it is the root of our app.
@@ -73,10 +72,10 @@ pub fn App() -> Element {
     let mut init_signal = use_signal(|| InitRequested(true));
     let init = init_signal.read().0;
     let mut context_signal = use_signal::<Option<Arc<MarcoSparkoContext>>>(|| None);
-    
+
     // Store the init signal in context so it can be accessed and reset from anywhere
     use_context_provider::<Signal<InitRequested>>(move || init_signal);
-    
+
     use_context_provider::<Signal<Option<Arc<MarcoSparkoContext>>>>(move || context_signal);
 
     use_context_provider::<ModuleRegistrations>(move || ModuleRegistrations::new(verbose));
@@ -90,22 +89,18 @@ pub fn App() -> Element {
         let marco_sparko_context = MarcoSparkoContext::new(args)?;
         context_signal.set(Some(marco_sparko_context));
         // let x: Signal<Arc<MarcoSparkoContext>>;
-        
-        
 
         init_signal.set(InitRequested(false));
-        
-        return rsx!{ "Loading..." };
-    }
 
+        return rsx! { "Loading..." };
+    }
 
     // let opt_context = &*context_signal.read();
     // let context = opt_context.as_ref().unwrap();
     // let profile = &context.profile.active_profile;
 
-
     // if !profile.version.eq(CURRENT_VERSION) {
-        
+
     //     let profile_version = if profile.version.len() == 0 {"0.0.0"} else { &profile.version };
 
     //     return rsx! {
@@ -133,7 +128,7 @@ pub fn App() -> Element {
     //         }
     //     }
     // }
-   
+
     rsx! {
         ErrorBoundary {
             handle_error: |errors: ErrorContext| {
@@ -164,4 +159,3 @@ pub fn App() -> Element {
         }
     }
 }
-

@@ -35,13 +35,22 @@ fn timezone() -> &'static Tz {
 #[component]
 pub fn ClimatePage() -> Element {
     let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
-    let profile_name = context_signal.read().as_ref().map(|context| context.profile.active_profile.name.clone()).unwrap_or_default();
+    let profile_name = context_signal
+        .read()
+        .as_ref()
+        .map(|context| context.profile.active_profile.name.clone())
+        .unwrap_or_default();
     let statuses = use_context::<PollStatuses>();
     let tz = timezone();
     let now = crate::clock::now_utc();
-    let range = use_signal(|| RangeSelection::day_containing(now.unix_timestamp(), tz).unwrap_or_else(|| RangeSelection::current_month(tz)));
+    let range = use_signal(|| {
+        RangeSelection::day_containing(now.unix_timestamp(), tz).unwrap_or_else(|| RangeSelection::current_month(tz))
+    });
     // Read so that the page shows what each read of the devices saved, see ClimateReader.
-    let _read = statuses.read().get(climate::MODULE_ID).and_then(|status| status.last_time);
+    let _read = statuses
+        .read()
+        .get(climate::MODULE_ID)
+        .and_then(|status| status.last_time);
 
     let dir = match climate::store(&profile_name) {
         Ok(dir) => dir,
@@ -112,25 +121,39 @@ fn shown(series: &Series, value: f64) -> String {
 
 fn local_time(seconds: i64, tz: &Tz) -> String {
     let format = time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]");
-    OffsetDateTime::from_unix_timestamp(seconds).map(|time| time.to_timezone(tz).format(&format).unwrap_or_default()).unwrap_or_default()
+    OffsetDateTime::from_unix_timestamp(seconds)
+        .map(|time| time.to_timezone(tz).format(&format).unwrap_or_default())
+        .unwrap_or_default()
 }
 
 /// The graph of the series at index of SERIES, of each device's periods, from from to to, as steps, a line each.
 fn graph(series: &Series, index: usize, devices: &[DeviceClimate], from: i64, to: i64, tz: &Tz) -> Element {
-    let lines: Vec<(&str, &[climate::Period])> = devices.iter().map(|device| (device.name.as_str(), device.series[index].as_slice())).collect();
+    let lines: Vec<(&str, &[climate::Period])> = devices
+        .iter()
+        .map(|device| (device.name.as_str(), device.series[index].as_slice()))
+        .collect();
     series_graph(series, &lines, from, to, tz)
 }
 
 /// The graph of a series, of the periods of each of lines, by name, from from to to, as steps, a line each, e.g. a
 /// device's battery's voltage on the Devices page.
 pub fn series_graph(series: &Series, lines: &[(&str, &[climate::Period])], from: i64, to: i64, tz: &Tz) -> Element {
-    let values: Vec<f64> = lines.iter().flat_map(|(_, periods)| periods.iter().map(|period| period.value)).collect();
+    let values: Vec<f64> = lines
+        .iter()
+        .flat_map(|(_, periods)| periods.iter().map(|period| period.value))
+        .collect();
     if values.is_empty() {
         return rsx! { p { "No {series.label.to_lowercase()} readings in this period." } };
     }
-    let (min, max) = values.iter().fold((f64::MAX, f64::MIN), |(min, max), value| (min.min(*value), max.max(*value)));
+    let (min, max) = values.iter().fold((f64::MAX, f64::MIN), |(min, max), value| {
+        (min.min(*value), max.max(*value))
+    });
     // At least a degree, 5 %, or a tenth of a volt, so that the smallest steps do not fill the graph.
-    let span = (max - min).max(match series.decimals { 0 => 5.0, 1 => 1.0, _ => 0.1 });
+    let span = (max - min).max(match series.decimals {
+        0 => 5.0,
+        1 => 1.0,
+        _ => 0.1,
+    });
     let (step, decimals) = crate::components::stacked_bar_graph::nice_step(span / 4.0);
     let low = (min / step).floor() * step;
     let high = ((max / step).ceil() * step).max(low + step);
@@ -144,9 +167,20 @@ pub fn series_graph(series: &Series, lines: &[(&str, &[climate::Period])], from:
         .take_while(|value| *value <= high + step / 1e6)
         .map(|value| (y(value), format!("{value:.decimals$}")))
         .collect();
-    let x_ticks: Vec<(f64, String)> = time_ticks(from, to, tz).into_iter().map(|(time, label)| (x(time), label)).collect();
-    let lines: Vec<(String, &str, &str)> = lines.iter().enumerate()
-        .map(|(line_index, (name, periods))| (step_path(periods, from, to, &x, &y), COLOURS[line_index % COLOURS.len()], *name))
+    let x_ticks: Vec<(f64, String)> = time_ticks(from, to, tz)
+        .into_iter()
+        .map(|(time, label)| (x(time), label))
+        .collect();
+    let lines: Vec<(String, &str, &str)> = lines
+        .iter()
+        .enumerate()
+        .map(|(line_index, (name, periods))| {
+            (
+                step_path(periods, from, to, &x, &y),
+                COLOURS[line_index % COLOURS.len()],
+                *name,
+            )
+        })
         .collect();
 
     rsx! {
@@ -170,7 +204,13 @@ pub fn series_graph(series: &Series, lines: &[(&str, &[climate::Period])], from:
 
 /// The SVG path of periods, in order, as steps: along each period at its value, up or down to the next if it follows
 /// on, otherwise a gap, see GAP.
-fn step_path(periods: &[climate::Period], from: i64, to: i64, x: &dyn Fn(i64) -> f64, y: &dyn Fn(f64) -> f64) -> String {
+fn step_path(
+    periods: &[climate::Period],
+    from: i64,
+    to: i64,
+    x: &dyn Fn(i64) -> f64,
+    y: &dyn Fn(f64) -> f64,
+) -> String {
     let mut path = String::new();
     let mut last_end = None;
     for period in periods.iter().filter(|period| period.end >= from && period.start <= to) {
@@ -189,14 +229,31 @@ fn step_path(periods: &[climate::Period], from: i64, to: i64, x: &dyn Fn(i64) ->
 fn time_ticks(from: i64, to: i64, tz: &Tz) -> Vec<(i64, String)> {
     const HOUR: i64 = 3600;
     const DAY: i64 = 24 * HOUR;
-    let spacing = [HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, DAY, 2 * DAY, 7 * DAY, 14 * DAY, 28 * DAY]
-        .into_iter()
-        .find(|spacing| (to - from) / spacing <= 8)
-        .unwrap_or(28 * DAY);
+    let spacing = [
+        HOUR,
+        3 * HOUR,
+        6 * HOUR,
+        12 * HOUR,
+        DAY,
+        2 * DAY,
+        7 * DAY,
+        14 * DAY,
+        28 * DAY,
+    ]
+    .into_iter()
+    .find(|spacing| (to - from) / spacing <= 8)
+    .unwrap_or(28 * DAY);
     let hours = time::macros::format_description!("[hour]:[minute]");
     let date = time::macros::format_description!("[day padding:none] [month repr:short]");
-    let Ok(start) = OffsetDateTime::from_unix_timestamp(from) else { return Vec::new() };
-    let midnight = |day: time::Date| day.with_time(time::Time::MIDNIGHT).assume_timezone(tz).take_first().map(|time| time.unix_timestamp());
+    let Ok(start) = OffsetDateTime::from_unix_timestamp(from) else {
+        return Vec::new();
+    };
+    let midnight = |day: time::Date| {
+        day.with_time(time::Time::MIDNIGHT)
+            .assume_timezone(tz)
+            .take_first()
+            .map(|time| time.unix_timestamp())
+    };
     let mut ticks = Vec::new();
     let mut day = start.to_timezone(tz).date();
     while let Some(day_start) = midnight(day) {
@@ -204,17 +261,25 @@ fn time_ticks(from: i64, to: i64, tz: &Tz) -> Vec<(i64, String)> {
             break;
         }
         // Within the day, by the clock, so that the ticks stay on the hours across a change of the clocks.
-        let in_day = if spacing < DAY { (0..DAY / spacing).map(|tick| day_start + tick * spacing).collect() } else { vec![day_start] };
+        let in_day = if spacing < DAY {
+            (0..DAY / spacing).map(|tick| day_start + tick * spacing).collect()
+        } else {
+            vec![day_start]
+        };
         for time in in_day.into_iter().filter(|time| (from..=to).contains(time)) {
             let local = OffsetDateTime::from_unix_timestamp(time).map(|time| time.to_timezone(tz));
             let label = match local {
-                Ok(local) if spacing < DAY && local.time() != time::Time::MIDNIGHT => local.format(&hours).unwrap_or_default(),
+                Ok(local) if spacing < DAY && local.time() != time::Time::MIDNIGHT => {
+                    local.format(&hours).unwrap_or_default()
+                }
                 Ok(local) => local.format(&date).unwrap_or_default(),
                 Err(_) => continue,
             };
             ticks.push((time, label));
         }
-        let Some(next) = day.checked_add(time::Duration::days((spacing / DAY).max(1))) else { break };
+        let Some(next) = day.checked_add(time::Duration::days((spacing / DAY).max(1))) else {
+            break;
+        };
         day = next;
     }
     ticks
@@ -227,10 +292,18 @@ mod tests {
     #[test]
     fn a_day_is_marked_every_3_hours_and_a_week_at_midnights() {
         let london = time_tz::timezones::db::europe::LONDON;
-        let at = |text: &str| OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339).unwrap().unix_timestamp();
+        let at = |text: &str| {
+            OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339)
+                .unwrap()
+                .unix_timestamp()
+        };
         let day = time_ticks(at("2026-11-04T00:00:00Z"), at("2026-11-05T00:00:00Z"), london);
-        assert_eq!(day.iter().map(|(_, label)| label.as_str()).collect::<Vec<_>>(),
-            vec!["4 Nov", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00", "5 Nov"]);
+        assert_eq!(
+            day.iter().map(|(_, label)| label.as_str()).collect::<Vec<_>>(),
+            vec![
+                "4 Nov", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00", "5 Nov"
+            ]
+        );
         let week = time_ticks(at("2026-11-02T00:00:00Z"), at("2026-11-09T00:00:00Z"), london);
         assert_eq!(week.len(), 8);
         assert_eq!(week[0].1, "2 Nov");
@@ -239,9 +312,21 @@ mod tests {
     #[test]
     fn periods_which_follow_on_are_joined_and_gaps_are_not() {
         let periods = [
-            climate::Period { start: 0, end: 60, value: 1.0 },
-            climate::Period { start: 60, end: 120, value: 2.0 },
-            climate::Period { start: 1000, end: 1100, value: 2.0 },
+            climate::Period {
+                start: 0,
+                end: 60,
+                value: 1.0,
+            },
+            climate::Period {
+                start: 60,
+                end: 120,
+                value: 2.0,
+            },
+            climate::Period {
+                start: 1000,
+                end: 1100,
+                value: 2.0,
+            },
         ];
         let path = step_path(&periods, 0, 1100, &|time| time as f64, &|value| value * 10.0);
         assert_eq!(path, " M 0.0 10.0 H 60.0 V 20.0 H 120.0 M 1000.0 20.0 H 1100.0");

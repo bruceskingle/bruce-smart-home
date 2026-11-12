@@ -77,7 +77,12 @@ pub trait Split {
     /// What each of a half hour's points' import, kwh, from and to the times of bounds, with the grid meter's average
     /// power, demand, was used for, in kWh by category, e.g. Car, Battery and House, see power::topology, or None if
     /// it was not measured all through the half hour.
-    fn split(&self, kwh: &[f64], demand: &[Option<f64>], bounds: &[(i64, i64)]) -> Option<Vec<std::collections::BTreeMap<String, f64>>>;
+    fn split(
+        &self,
+        kwh: &[f64],
+        demand: &[Option<f64>],
+        bounds: &[(i64, i64)],
+    ) -> Option<Vec<std::collections::BTreeMap<String, f64>>>;
 }
 
 /// Where a module's measurements come from, e.g. the Tesla module's capture device's snapshots.
@@ -101,13 +106,29 @@ pub struct RegisterMeasurements {
 }
 
 /// A register's fields of a channel: its import's, its export's, and its power into its circuit, if it has one.
-type Fields = (fn(&SiteRegisters) -> f64, fn(&SiteRegisters) -> f64, Option<fn(&SiteRegisters) -> f64>);
+type Fields = (
+    fn(&SiteRegisters) -> f64,
+    fn(&SiteRegisters) -> f64,
+    Option<fn(&SiteRegisters) -> f64>,
+);
 
 fn channel_fields(channel: &str) -> Option<Fields> {
     Some(match channel {
-        SITE_CHANNEL => (|registers| registers.site_imported, |registers| registers.site_exported, Some(|registers| registers.site_power)),
-        BATTERY_CHANNEL => (|registers| registers.battery_imported, |registers| registers.battery_exported, Some(|registers| registers.battery_power)),
-        SOLAR_CHANNEL => (|_| 0.0, |registers| registers.solar_exported, Some(|registers| -registers.solar_power)),
+        SITE_CHANNEL => (
+            |registers| registers.site_imported,
+            |registers| registers.site_exported,
+            Some(|registers| registers.site_power),
+        ),
+        BATTERY_CHANNEL => (
+            |registers| registers.battery_imported,
+            |registers| registers.battery_exported,
+            Some(|registers| registers.battery_power),
+        ),
+        SOLAR_CHANNEL => (
+            |_| 0.0,
+            |registers| registers.solar_exported,
+            Some(|registers| -registers.solar_power),
+        ),
         LOAD_CHANNEL => (|registers| registers.load_imported, |_| 0.0, None),
         _ => return None,
     })
@@ -119,7 +140,9 @@ impl Measurements for RegisterMeasurements {
     }
 
     fn channels(&self) -> Vec<String> {
-        [SITE_CHANNEL, BATTERY_CHANNEL, SOLAR_CHANNEL, LOAD_CHANNEL].map(String::from).to_vec()
+        [SITE_CHANNEL, BATTERY_CHANNEL, SOLAR_CHANNEL, LOAD_CHANNEL]
+            .map(String::from)
+            .to_vec()
     }
 
     fn complete(&self, half_hour: i64) -> bool {
@@ -128,7 +151,10 @@ impl Measurements for RegisterMeasurements {
 
     fn energy(&self, channel: &str, start: i64, end: i64) -> Option<Flow> {
         let (import, export, _) = channel_fields(channel)?;
-        Some(Flow { import: register_kwh(&self.registers, start, end, import)?, export: register_kwh(&self.registers, start, end, export)? })
+        Some(Flow {
+            import: register_kwh(&self.registers, start, end, import)?,
+            export: register_kwh(&self.registers, start, end, export)?,
+        })
     }
 
     fn power(&self, channel: &str, start: i64, end: i64) -> Option<f64> {
@@ -149,11 +175,20 @@ fn register_at(registers: &[SiteRegisters], time: f64, field: fn(&SiteRegisters)
     if span > MAX_REGISTERS_GAP {
         return None;
     }
-    Some(if span > 0.0 { field(before) + (field(after) - field(before)) * (time - before.time) / span } else { field(after) })
+    Some(if span > 0.0 {
+        field(before) + (field(after) - field(before)) * (time - before.time) / span
+    } else {
+        field(after)
+    })
 }
 
 /// The energy the register which field reads counted from start to end, in kWh, see register_at.
-pub(crate) fn register_kwh(registers: &[SiteRegisters], start: i64, end: i64, field: fn(&SiteRegisters) -> f64) -> Option<f64> {
+pub(crate) fn register_kwh(
+    registers: &[SiteRegisters],
+    start: i64,
+    end: i64,
+    field: fn(&SiteRegisters) -> f64,
+) -> Option<f64> {
     Some((register_at(registers, end as f64, field)? - register_at(registers, start as f64, field)?) / 1000.0)
 }
 
@@ -162,8 +197,11 @@ pub(crate) fn registers_complete(registers: &[SiteRegisters], half_hour: i64) ->
     let (start, end) = (half_hour as f64, (half_hour + HALF_HOUR) as f64);
     let first = registers.partition_point(|registers| registers.time < start);
     let last = registers.partition_point(|registers| registers.time <= end);
-    first > 0 && last < registers.len()
-        && registers[first - 1..=last].windows(2).all(|pair| pair[1].time - pair[0].time <= MAX_REGISTERS_GAP)
+    first > 0
+        && last < registers.len()
+        && registers[first - 1..=last]
+            .windows(2)
+            .all(|pair| pair[1].time - pair[0].time <= MAX_REGISTERS_GAP)
 }
 
 /// How many points the car's and the Powerwalls' power is smoothed over, see smoothed.
@@ -176,7 +214,8 @@ const SMOOTHING: usize = 5;
 pub(crate) fn smoothed(values: &[f64]) -> Vec<f64> {
     (0..values.len())
         .map(|index| {
-            let mut window: Vec<f64> = values[index.saturating_sub(SMOOTHING / 2)..(index + SMOOTHING / 2 + 1).min(values.len())].to_vec();
+            let mut window: Vec<f64> =
+                values[index.saturating_sub(SMOOTHING / 2)..(index + SMOOTHING / 2 + 1).min(values.len())].to_vec();
             window.sort_by(f64::total_cmp);
             window[window.len() / 2]
         })
@@ -186,12 +225,20 @@ pub(crate) fn smoothed(values: &[f64]) -> Vec<f64> {
 /// total shared between points in proportion to weights, or if they are all 0, to room, no point getting more than its
 /// room, what does not fit shared by those with room left.
 pub(crate) fn share(total: f64, weights: &[f64], room: &[f64]) -> Vec<f64> {
-    let weights = if weights.iter().sum::<f64>() > 0.0 { weights } else { room };
+    let weights = if weights.iter().sum::<f64>() > 0.0 {
+        weights
+    } else {
+        room
+    };
     let sum: f64 = weights.iter().sum();
     if sum <= 0.0 {
         return vec![0.0; room.len()];
     }
-    let mut shares: Vec<f64> = weights.iter().zip(room).map(|(weight, room)| (total * weight / sum).min(*room)).collect();
+    let mut shares: Vec<f64> = weights
+        .iter()
+        .zip(room)
+        .map(|(weight, room)| (total * weight / sum).min(*room))
+        .collect();
     let left_over = total - shares.iter().sum::<f64>();
     let space: f64 = room.iter().zip(&shares).map(|(room, share)| room - share).sum();
     if left_over > 1e-12 && space > 0.0 {
@@ -210,7 +257,9 @@ fn power(registers: &[SiteRegisters], start: i64, end: i64, field: fn(&SiteRegis
         return Some(registers[first..last].iter().map(field).sum::<f64>() / (last - first) as f64);
     }
     let middle = (start + end) as f64 / 2.0;
-    [first.checked_sub(1), Some(first)].into_iter().flatten()
+    [first.checked_sub(1), Some(first)]
+        .into_iter()
+        .flatten()
         .filter_map(|index| registers.get(index))
         .min_by(|a, b| (a.time - middle).abs().total_cmp(&(b.time - middle).abs()))
         .map(field)
@@ -223,7 +272,8 @@ pub(crate) mod tests {
     /// The gateway's registers every 10 seconds from start up to end, with the site importing site_watts, the
     /// Powerwalls taking in battery_watts and the solar panels making nothing.
     pub(crate) fn registers(start: i64, end: i64, site_watts: f64, battery_watts: f64) -> Vec<SiteRegisters> {
-        (start..=end).step_by(10)
+        (start..=end)
+            .step_by(10)
             .map(|time| {
                 let hours = (time - start) as f64 / 3600.0;
                 SiteRegisters {
@@ -246,6 +296,9 @@ pub(crate) mod tests {
     fn a_blip_of_a_reading_or_two_is_smoothed_away_and_a_step_is_kept() {
         assert_eq!(smoothed(&[7.0, 7.0, 9.0, 7.0, 7.0, 7.0]), [7.0; 6]);
         assert_eq!(smoothed(&[7.0, 7.0, 9.0, 5.0, 7.0, 7.0]), [7.0; 6]);
-        assert_eq!(smoothed(&[0.0, 0.0, 0.0, 7.0, 7.0, 7.0]), [0.0, 0.0, 0.0, 7.0, 7.0, 7.0]);
+        assert_eq!(
+            smoothed(&[0.0, 0.0, 0.0, 7.0, 7.0, 7.0]),
+            [0.0, 0.0, 0.0, 7.0, 7.0, 7.0]
+        );
     }
 }

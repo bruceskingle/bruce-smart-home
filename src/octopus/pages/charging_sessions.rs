@@ -4,8 +4,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use dioxus::prelude::*;
 use crate::components::error_text::ErrorText;
+use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, icons::ld_icons::LdRefreshCw};
 use time_tz::Tz;
 
@@ -15,15 +15,25 @@ use crate::components::date_range_picker::{DateRangePicker, RangeSelection};
 use bruce_graphql::types::{Currency, DateTime};
 
 use crate::components::category_filter::{CategoryFilter, CategoryFilterMenu, SOLID};
-use crate::octopus::charging_session::{self, CATEGORIES, ChargingSession, energy_unit, readable};
+use crate::components::stacked_bar_graph::{
+    BarClick, BarMenuItem, StackedBarGraph, StackedBarMode, StackedBarPeriod, day_bands, format_money,
+};
 use crate::data_set::CancelToken;
+use crate::octopus::charging_session::{self, CATEGORIES, ChargingSession, energy_unit, readable};
 use crate::octopus::context::OctopusContext;
 use crate::octopus::decimal::Decimal;
-use crate::components::stacked_bar_graph::{BarClick, BarMenuItem, StackedBarGraph, StackedBarMode, StackedBarPeriod, day_bands, format_money};
-use crate::octopus::trend_graph::{TrendGraph, TrendLegendItem, TrendLine, TrendSmoothing, cumulative_by_year, moving_average, range_years, year_positions};
+use crate::octopus::trend_graph::{
+    TrendGraph, TrendLegendItem, TrendLine, TrendSmoothing, cumulative_by_year, moving_average, range_years,
+    year_positions,
+};
 
 /// The aggregations offered, sessions have no rates so there is no Rate.
-const PERIODS: [StackedBarPeriod; 4] = [StackedBarPeriod::Raw, StackedBarPeriod::Day, StackedBarPeriod::Week, StackedBarPeriod::Month];
+const PERIODS: [StackedBarPeriod; 4] = [
+    StackedBarPeriod::Raw,
+    StackedBarPeriod::Day,
+    StackedBarPeriod::Week,
+    StackedBarPeriod::Month,
+];
 
 #[derive(Clone, Copy, PartialEq)]
 enum SessionsView {
@@ -45,7 +55,13 @@ impl std::fmt::Display for SessionsView {
 
 #[component]
 /// battery_size is the size Octopus has for the EV's battery, if it has one.
-pub fn ChargingSessions(account_id: String, device_id: String, device_name: String, battery_size: Option<Decimal>, billing_timezone: &'static Tz) -> Element {
+pub fn ChargingSessions(
+    account_id: String,
+    device_id: String,
+    device_name: String,
+    battery_size: Option<Decimal>,
+    billing_timezone: &'static Tz,
+) -> Element {
     let context = use_context::<Arc<OctopusContext>>();
     let tz = billing_timezone;
     let mut range = use_signal(|| RangeSelection::current_month(tz));
@@ -85,9 +101,23 @@ pub fn ChargingSessions(account_id: String, device_id: String, device_name: Stri
             async move {
                 let (start, end) = dates.map_err(|error| anyhow::anyhow!(error))?;
                 cancelling.set(false);
-                let monitor = move |message: String| { let mut progress = progress; progress.set(message) };
-                let sessions = charging_session::fetch(&account_id, &device_id, &start, &end, reload_period, tz, &context.cache_config,
-                    &*context.request_manager, &monitor, &token).await;
+                let monitor = move |message: String| {
+                    let mut progress = progress;
+                    progress.set(message)
+                };
+                let sessions = charging_session::fetch(
+                    &account_id,
+                    &device_id,
+                    &start,
+                    &end,
+                    reload_period,
+                    tz,
+                    &context.cache_config,
+                    &*context.request_manager,
+                    &monitor,
+                    &token,
+                )
+                .await;
                 if reload_period.is_some() {
                     reload.set(None);
                 }
@@ -97,18 +127,25 @@ pub fn ChargingSessions(account_id: String, device_id: String, device_name: Stri
     });
     // While the sessions are fetched there is a dialog over the page, with the sessions loaded before if there are any.
     let fetching = matches!(*sessions_resource.state().read(), UseResourceState::Pending);
-    let fetching_title = if reload.peek().is_some() { "Reloading" } else { "Loading" };
+    let fetching_title = if reload.peek().is_some() {
+        "Reloading"
+    } else {
+        "Loading"
+    };
 
     let (start, end) = range().to_date_times(tz).map_err(|error| anyhow::anyhow!(error))?;
     let categories: Vec<String> = CATEGORIES.iter().map(|category| category.to_string()).collect();
-    let visible: Vec<(String, bool)> = categories.iter().cloned()
+    let visible: Vec<(String, bool)> = categories
+        .iter()
+        .cloned()
         .zip(filter.read().styles(&categories).into_iter().map(|style| style.visible))
         .collect();
     let is_visible = |category: &str| visible.iter().any(|(label, shown)| label == category && *shown);
 
     // The start and end of each session shown, to zoom to the sessions in a bar.
     let shown_times: Vec<(i64, i64)> = match &*sessions_resource.read() {
-        Some(Ok(sessions)) => sessions.iter()
+        Some(Ok(sessions)) => sessions
+            .iter()
             .filter(|session| session.shown(is_visible))
             .map(|session| (session.start.unix_timestamp(), session.end.unix_timestamp()))
             .collect(),
@@ -127,12 +164,15 @@ pub fn ChargingSessions(account_id: String, device_id: String, device_name: Stri
             _ => return,
         };
         // The bar itself if it has no sessions.
-        let (first_start, last_end) = shown_times.iter()
+        let (first_start, last_end) = shown_times
+            .iter()
             .filter(|(start, end)| *start < bar_end && *end > bar_start)
-            .fold(None, |extent: Option<(i64, i64)>, &(start, end)| Some(match extent {
-                Some((first, last)) => (first.min(start), last.max(end)),
-                None => (start, end),
-            }))
+            .fold(None, |extent: Option<(i64, i64)>, &(start, end)| {
+                Some(match extent {
+                    Some((first, last)) => (first.min(start), last.max(end)),
+                    None => (start, end),
+                })
+            })
             .unwrap_or((bar_start, bar_end));
         const HALF_HOUR: i64 = 1800;
         let zoom_start = first_start.div_euclid(HALF_HOUR) * HALF_HOUR;
@@ -184,7 +224,10 @@ pub fn ChargingSessions(account_id: String, device_id: String, device_name: Stri
             label: String::from("Reload this bar"),
             enabled: true,
             action: EventHandler::new(move |click: BarClick| {
-                if let (Ok(bar_start), Ok(bar_end)) = (DateTime::from_unix_timestamp(click.start), DateTime::from_unix_timestamp(click.end)) {
+                if let (Ok(bar_start), Ok(bar_end)) = (
+                    DateTime::from_unix_timestamp(click.start),
+                    DateTime::from_unix_timestamp(click.end),
+                ) {
                     reload.set(Some((bar_start, bar_end)));
                     sessions_resource.restart();
                 }
@@ -195,12 +238,16 @@ pub fn ChargingSessions(account_id: String, device_id: String, device_name: Stri
     let content = match &*sessions_resource.read() {
         // The loading dialog is over the page.
         None => rsx! {},
-        Some(Err(error)) => rsx! { div { class: "error", ErrorText { error: format!("{error:#}"), message: "Failed to load charging sessions" } } },
+        Some(Err(error)) => {
+            rsx! { div { class: "error", ErrorText { error: format!("{error:#}"), message: "Failed to load charging sessions" } } }
+        }
         Some(Ok(sessions)) if sessions.is_empty() => rsx! { p { "No charging sessions in this period" } },
         Some(Ok(sessions)) => {
             let shown: Vec<&ChargingSession> = sessions.iter().filter(|session| session.shown(is_visible)).collect();
             match view() {
-                SessionsView::Table if shown.is_empty() => rsx! { p { "No charging sessions of the categories shown" } },
+                SessionsView::Table if shown.is_empty() => {
+                    rsx! { p { "No charging sessions of the categories shown" } }
+                }
                 SessionsView::Table => sessions_table(&shown, battery_size, tz),
                 SessionsView::Graph => {
                     let (series, points) = charging_session::graph_points(&shown, &start, &end, period(), tz);
@@ -225,10 +272,10 @@ pub fn ChargingSessions(account_id: String, device_id: String, device_name: Stri
                             menu,
                         }
                     }
-                },
+                }
                 SessionsView::Trend => trend(&shown, &start, &end, period(), smoothing(), &filter.read(), tz),
             }
-        },
+        }
     };
 
     rsx! {
@@ -327,10 +374,20 @@ pub fn ChargingSessions(account_id: String, device_id: String, device_name: Stri
 
 /// A line graph over one year of the energy added, with a line for each year from start to end. Smoothing other than
 /// None is worked out from daily totals, so period is then not used.
-fn trend(sessions: &[&ChargingSession], start: &DateTime, end: &DateTime, period: StackedBarPeriod, smoothing: TrendSmoothing,
-    filter: &CategoryFilter, tz: &'static Tz) -> Element
-{
-    let period = if smoothing == TrendSmoothing::None { period } else { StackedBarPeriod::Day };
+fn trend(
+    sessions: &[&ChargingSession],
+    start: &DateTime,
+    end: &DateTime,
+    period: StackedBarPeriod,
+    smoothing: TrendSmoothing,
+    filter: &CategoryFilter,
+    tz: &'static Tz,
+) -> Element {
+    let period = if smoothing == TrendSmoothing::None {
+        period
+    } else {
+        StackedBarPeriod::Day
+    };
     let (_, points) = charging_session::graph_points(sessions, start, end, period, tz);
     let positions = year_positions(points.iter().map(|point| (point.start, point.end)), tz)?;
     let point_years: Vec<i32> = positions.iter().map(|(year, _)| *year).collect();
@@ -341,7 +398,11 @@ fn trend(sessions: &[&ChargingSession], start: &DateTime, end: &DateTime, period
         TrendSmoothing::MovingAverage(days) => moving_average(&times, &energies, days),
         TrendSmoothing::Cumulative => cumulative_by_year(&point_years, &energies),
     };
-    let suffix = if matches!(smoothing, TrendSmoothing::MovingAverage(_)) { "/day" } else { "" };
+    let suffix = if matches!(smoothing, TrendSmoothing::MovingAverage(_)) {
+        "/day"
+    } else {
+        ""
+    };
 
     // A line for each year, in the year's colour.
     let years = range_years(start, end);
@@ -350,16 +411,26 @@ fn trend(sessions: &[&ChargingSession], start: &DateTime, end: &DateTime, period
     let mut lines = Vec::new();
     let mut legend = Vec::new();
     for (year, color) in years.iter().zip(&year_colors) {
-        let year_points: Vec<(f64, f64)> = positions.iter()
+        let year_points: Vec<(f64, f64)> = positions
+            .iter()
             .zip(&values)
             .filter(|((point_year, _), _)| point_year == year)
             .map(|((_, position), value)| (*position, *value))
             .collect();
         if !year_points.is_empty() {
-            lines.push(TrendLine { label: year.to_string(), color: color.clone(), dash: String::from(SOLID), points: year_points });
+            lines.push(TrendLine {
+                label: year.to_string(),
+                color: color.clone(),
+                dash: String::from(SOLID),
+                points: year_points,
+            });
         }
         if shown_years.contains(year) {
-            legend.push(TrendLegendItem { label: year.to_string(), color: color.clone(), dash: String::from(SOLID) });
+            legend.push(TrendLegendItem {
+                label: year.to_string(),
+                color: color.clone(),
+                dash: String::from(SOLID),
+            });
         }
     }
 
@@ -394,9 +465,10 @@ fn two_dp(value: &Decimal) -> String {
 /// The average power in kW of energy added over a number of minutes, None if there was no time or energy.
 fn average_kw(energy_kwh: Decimal, minutes: i64) -> Option<String> {
     if minutes > 0 && energy_kwh.is_positive() {
-        Some(two_dp(&(energy_kwh * Decimal::from(60) / Decimal::from(minutes as i32))))
-    }
-    else {
+        Some(two_dp(
+            &(energy_kwh * Decimal::from(60) / Decimal::from(minutes as i32)),
+        ))
+    } else {
         None
     }
 }
@@ -411,22 +483,23 @@ fn unit_price(cost: Decimal, energy: Decimal) -> Option<String> {
 fn long_duration(minutes: i64) -> String {
     if minutes >= 24 * 60 {
         format!("{}:{:02}:{:02}", minutes / (24 * 60), minutes / 60 % 24, minutes % 60)
-    }
-    else {
+    } else {
         format!("{}:{:02}", minutes / 60, minutes % 60)
     }
 }
-
 
 /// The battery size, in the units of the energy, which the percentages of sessions charging to a relative state of
 /// charge are of, for when Octopus does not say what its configured size is. Octopus does not know the state of
 /// charge of the EV, so its percentages are the energy added as a share of the configured size. The middle value of
 /// the sessions, in case any are odd.
 fn implied_battery_size(sessions: &[&ChargingSession]) -> Option<Decimal> {
-    let mut sizes: Vec<Decimal> = sessions.iter()
+    let mut sizes: Vec<Decimal> = sessions
+        .iter()
         .filter(|session| session.target.as_deref() == Some("RELATIVE_STATE_OF_CHARGE"))
         .filter_map(|session| match (&session.energy, session.state_of_charge_final) {
-            (Some((energy, _)), Some(percent)) if energy.is_positive() && percent.is_positive() => Some(*energy * Decimal::from(100) / percent),
+            (Some((energy, _)), Some(percent)) if energy.is_positive() && percent.is_positive() => {
+                Some(*energy * Decimal::from(100) / percent)
+            }
             _ => None,
         })
         .collect();
@@ -451,41 +524,69 @@ fn sessions_table(sessions: &[&ChargingSession], battery_size: Option<Decimal>, 
     let configured_size = battery_size
         .map(|size| format!("{size} kWh"))
         .or_else(|| implied_battery_size(sessions).map(|size| format!("about {size} kWh")));
-    let energy_unit = sessions.iter().find_map(|session| session.energy.as_ref().map(|(_, unit)| energy_unit(unit))).unwrap_or_default();
-    let currency = sessions.iter().find_map(|session| session.cost.as_ref().map(|(_, currency)| currency.clone())).unwrap_or_default();
+    let energy_unit = sessions
+        .iter()
+        .find_map(|session| session.energy.as_ref().map(|(_, unit)| energy_unit(unit)))
+        .unwrap_or_default();
+    let currency = sessions
+        .iter()
+        .find_map(|session| session.cost.as_ref().map(|(_, currency)| currency.clone()))
+        .unwrap_or_default();
 
     // The start and end date and time of each session, the dates are blank where they are the same as the one before,
     // the end's is the start's and the start's is the start of the session before.
     let mut previous_date = String::new();
-    let times: Vec<(String, String, String, String)> = sessions.iter()
+    let times: Vec<(String, String, String, String)> = sessions
+        .iter()
         .map(|session| {
             let (start, end) = (local(&session.start), local(&session.end));
             let start_date = start.format(&date_format).unwrap_or_default();
             let end_date = end.format(&date_format).unwrap_or_default();
-            let shown_start_date = if start_date == previous_date { String::new() } else { start_date.clone() };
-            let shown_end_date = if end_date == start_date { String::new() } else { end_date };
+            let shown_start_date = if start_date == previous_date {
+                String::new()
+            } else {
+                start_date.clone()
+            };
+            let shown_end_date = if end_date == start_date {
+                String::new()
+            } else {
+                end_date
+            };
             previous_date = start_date;
-            (shown_start_date, start.format(&time_only).unwrap_or_default(), shown_end_date, end.format(&time_only).unwrap_or_default())
+            (
+                shown_start_date,
+                start.format(&time_only).unwrap_or_default(),
+                shown_end_date,
+                end.format(&time_only).unwrap_or_default(),
+            )
         })
         .collect();
 
     // The totals are of the sessions which charged.
-    let charged: Vec<&ChargingSession> = sessions.iter().copied().filter(|session| !session.plugged_in_only()).collect();
+    let charged: Vec<&ChargingSession> = sessions
+        .iter()
+        .copied()
+        .filter(|session| !session.plugged_in_only())
+        .collect();
     let plugged_in = sessions.len() - charged.len();
-    let total_energy = charged.iter().filter_map(|session| session.energy.as_ref().map(|(value, _)| *value))
+    let total_energy = charged
+        .iter()
+        .filter_map(|session| session.energy.as_ref().map(|(value, _)| *value))
         .fold(Decimal::ZERO, |total, value| total + value);
-    let total_cost = charged.iter().filter_map(|session| session.cost.as_ref().map(|(value, _)| *value))
+    let total_cost = charged
+        .iter()
+        .filter_map(|session| session.cost.as_ref().map(|(value, _)| *value))
         .fold(Decimal::ZERO, |total, value| total + value);
     let total_minutes: i64 = charged.iter().map(|session| minutes(session)).sum();
     // The average price is of the sessions with a cost, e.g. public charging, as smart charging has none.
-    let costed_energy = charged.iter()
+    let costed_energy = charged
+        .iter()
         .filter(|session| session.cost.is_some())
         .filter_map(|session| session.energy.as_ref().map(|(value, _)| *value))
         .fold(Decimal::ZERO, |total, value| total + value);
     let count = if plugged_in > 0 {
         format!("{} charging, {plugged_in} plugged in without charging", charged.len())
-    }
-    else {
+    } else {
         format!("{} charging", charged.len())
     };
 

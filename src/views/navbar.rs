@@ -1,11 +1,21 @@
 use std::sync::Arc;
 
-use crate::{ MarcoSparkoContext, UpgradeRequested, components::{app::Route, copy_profile::CopyProfileDialog, delete_profile::DeleteProfileDialog, rename_profile::RenameProfileDialog}, profile::{Settings, profile_names_equal}};
+use crate::components::error_text::ErrorText;
 use crate::views::help_panel::HelpPanel;
 use crate::views::log_panel::LogPanel;
-use crate::components::error_text::ErrorText;
+use crate::{
+    MarcoSparkoContext, UpgradeRequested,
+    components::{
+        app::Route, copy_profile::CopyProfileDialog, delete_profile::DeleteProfileDialog,
+        rename_profile::RenameProfileDialog,
+    },
+    profile::{Settings, profile_names_equal},
+};
 use dioxus::prelude::*;
-use dioxus_free_icons::{Icon, icons::ld_icons::{LdCircleHelp, LdScrollText, LdSettings, LdUser}};
+use dioxus_free_icons::{
+    Icon,
+    icons::ld_icons::{LdCircleHelp, LdScrollText, LdSettings, LdUser},
+};
 
 // use crate::PROFILE_MANAGER;
 
@@ -21,9 +31,9 @@ const APP_ICON: Asset = asset!("/assets/MarcoSparko.png");
 /// Designed for Dioxus Desktop (but works for web too).
 pub fn Navbar() -> Element {
     let mut context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
-    let mut upgrade_requested = use_context_provider::<Signal<UpgradeRequested>>(|| Signal::new(UpgradeRequested(false)));
+    let mut upgrade_requested =
+        use_context_provider::<Signal<UpgradeRequested>>(|| Signal::new(UpgradeRequested(false)));
     let context = context_signal.read().as_ref().unwrap().clone();
-
 
     // State for the dropdown menu
     let mut menu_open = use_signal(|| false);
@@ -75,7 +85,7 @@ pub fn Navbar() -> Element {
     for name in &context.profile.all_profiles {
         all.push(name.clone());
     }
-    
+
     // get the current route so we can mark the active nav item
     let current_route = use_route::<Route>();
     let navigator = use_navigator();
@@ -85,7 +95,7 @@ pub fn Navbar() -> Element {
         Route::Settings {} => String::from("settings.md"),
         Route::Module { module_id } => module_help_topic.0().unwrap_or_else(|| format!("{module_id}/index.md")),
     };
-    
+
     rsx! {
         div { class: "app-layout",
         nav { class: "nav",

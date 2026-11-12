@@ -1,10 +1,10 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
-use serde::{Serialize, de::DeserializeOwned};
 use bruce_graphql::{GraphQLCaller, GraphQLQuery, GraphQLResponse};
+use serde::{Serialize, de::DeserializeOwned};
 
-use crate::{CacheConfig, OrderedMap};
 use super::DataSetAttributes;
+use crate::{CacheConfig, OrderedMap};
 
 /// A DataSet which is a list of records where the records returned from the API are in ascending order and new records can be
 /// appended to the end of the list.
@@ -13,36 +13,35 @@ use super::DataSetAttributes;
 /// fetches from the earliest record which is not final, or if they all are, from the latest, see fetch_from. With
 /// drop_missing_provisional, a record which is not final and is no longer returned is removed, e.g. an open bill which
 /// the server replaced with another, see missing_provisional.
-pub struct OrderedListDataSet<K, O, V>
-{
-    pub data: OrderedMap<K, O, (DataSetAttributes, V)> ,
+pub struct OrderedListDataSet<K, O, V> {
+    pub data: OrderedMap<K, O, (DataSetAttributes, V)>,
 }
 
 impl<K, O, V> OrderedListDataSet<K, O, V>
 where
     K: Eq + std::hash::Hash + Ord + Clone + Send + Sync + Serialize,
     O: Ord + Clone + Serialize,
-    V: DeserializeOwned + Serialize
+    V: DeserializeOwned + Serialize,
 {
     pub async fn new<R, Q, IQP, CQP, RI, IN, I>(
-            hash_key: &str,
-            refresh_after: Duration,
-            initial_query_provider: IQP,
-            continuation_query_provider: CQP,
-            response_iterator: RI,
-            indexer: IN,
-            drop_missing_provisional: bool,
-            config: &Arc<CacheConfig>,
-            request_manager: &impl GraphQLCaller
-        ) -> anyhow::Result<Self>
-        where
-            R: GraphQLResponse,
-            Q: GraphQLQuery<R>,
-            IQP: FnOnce(Option<&V>) -> Result<Q, bruce_graphql::Error>,
-            CQP: Fn(&R) -> Option<Result<Q, bruce_graphql::Error>>,
-            RI: Fn(R) -> I,
-            IN: Fn(&V) -> (K, O, bool),
-            I: IntoIterator<Item = V>,
+        hash_key: &str,
+        refresh_after: Duration,
+        initial_query_provider: IQP,
+        continuation_query_provider: CQP,
+        response_iterator: RI,
+        indexer: IN,
+        drop_missing_provisional: bool,
+        config: &Arc<CacheConfig>,
+        request_manager: &impl GraphQLCaller,
+    ) -> anyhow::Result<Self>
+    where
+        R: GraphQLResponse,
+        Q: GraphQLQuery<R>,
+        IQP: FnOnce(Option<&V>) -> Result<Q, bruce_graphql::Error>,
+        CQP: Fn(&R) -> Option<Result<Q, bruce_graphql::Error>>,
+        RI: Fn(R) -> I,
+        IN: Fn(&V) -> (K, O, bool),
+        I: IntoIterator<Item = V>,
     {
         let mut data: OrderedMap<K, O, (DataSetAttributes, V)> = OrderedMap::new();
         let records = super::records::Records::open(config, hash_key)?;
@@ -57,14 +56,16 @@ where
             match serde_json::from_value(value) {
                 Ok(value) => {
                     let (index, order, _is_final) = indexer(&value);
-                    data.insert(index, order, (DataSetAttributes { cached: true, }, value));
-                },
+                    data.insert(index, order, (DataSetAttributes { cached: true }, value));
+                }
                 Err(error) => {
-                    crate::log_warning!("Failed to read record {sk} of the cached {hash_key}, fetching it again: {error}");
+                    crate::log_warning!(
+                        "Failed to read record {sk} of the cached {hash_key}, fetching it again: {error}"
+                    );
                     refresh = true;
                     data.clear();
                     break;
-                },
+                }
             }
         }
 
@@ -74,9 +75,11 @@ where
 
         // An offline profile only has what is cached.
         if refresh && !config.offline {
-
             let from = fetch_from(data.iter().map(|(_, (_, value))| indexer(value)));
-            let last_record = from.as_ref().and_then(|(index, _)| data.get(index)).map(|(_, value)| value);
+            let last_record = from
+                .as_ref()
+                .and_then(|(index, _)| data.get(index))
+                .map(|(_, value)| value);
             let query = initial_query_provider(last_record)?;
             let mut response = request_manager.call(&query).await?;
             // The records returned, for drop_missing_provisional.
@@ -91,13 +94,15 @@ where
 
                     // Only a record which is new or has changed is put, as a new version.
                     let update = match data.get(&index) {
-                        Some((_attrs, current_value)) => serde_json::to_value(&value)? != serde_json::to_value(current_value)?,
+                        Some((_attrs, current_value)) => {
+                            serde_json::to_value(&value)? != serde_json::to_value(current_value)?
+                        }
                         None => true,
                     };
 
                     if update {
                         records.put(&sort_key(&order, &index)?, serde_json::to_value(&value)?)?;
-                        data.insert(index, order, (DataSetAttributes { cached: false, }, value));
+                        data.insert(index, order, (DataSetAttributes { cached: false }, value));
                     }
                 }
 
@@ -105,17 +110,20 @@ where
                     let query = continuation_query?;
 
                     response = request_manager.call(&query).await?;
-                }
-                else {
+                } else {
                     break;
                 }
             }
 
             if drop_missing_provisional {
                 let from_order = from.as_ref().map(|(_, order)| order);
-                let missing = missing_provisional(data.iter().map(|(_, (_, value))| indexer(value)), from_order, &returned);
+                let missing =
+                    missing_provisional(data.iter().map(|(_, (_, value))| indexer(value)), from_order, &returned);
                 if !missing.is_empty() {
-                    crate::log_info!("Removed {} records which are no longer returned from {hash_key}", missing.len());
+                    crate::log_info!(
+                        "Removed {} records which are no longer returned from {hash_key}",
+                        missing.len()
+                    );
                     for index in &missing {
                         if let Some((_, value)) = data.get(index) {
                             let (_, order, _) = indexer(value);
@@ -129,10 +137,7 @@ where
             records.mark_fetched()?;
         };
 
-        Ok(Self {
-            data
-        })
-        
+        Ok(Self { data })
     }
 }
 
@@ -142,7 +147,11 @@ fn sort_key<K: Serialize, O: Serialize>(order: &O, key: &K) -> anyhow::Result<St
         serde_json::Value::String(text) => text,
         other => other.to_string(),
     };
-    Ok(format!("{}#{}", text(serde_json::to_value(order)?), text(serde_json::to_value(key)?)))
+    Ok(format!(
+        "{}#{}",
+        text(serde_json::to_value(order)?),
+        text(serde_json::to_value(key)?)
+    ))
 }
 
 /// The record to fetch from, as its key and order, from each record's key, order and whether it is final: the earliest
@@ -156,8 +165,10 @@ fn fetch_from<K, O: Ord>(records: impl Iterator<Item = (K, O, bool)>) -> Option<
             if latest_final.as_ref().is_none_or(|(_, latest)| order > *latest) {
                 latest_final = Some((key, order));
             }
-        }
-        else if earliest_provisional.as_ref().is_none_or(|(_, earliest)| order < *earliest) {
+        } else if earliest_provisional
+            .as_ref()
+            .is_none_or(|(_, earliest)| order < *earliest)
+        {
             earliest_provisional = Some((key, order));
         }
     }
@@ -169,9 +180,11 @@ fn fetch_from<K, O: Ord>(records: impl Iterator<Item = (K, O, bool)>) -> Option<
 
 /// The keys of the records, from each one's key, order and whether it is final, which are not final, from the order
 /// fetched from, or all of them if from is None, and were not returned.
-fn missing_provisional<K: Eq + std::hash::Hash, O: Ord>(records: impl Iterator<Item = (K, O, bool)>, from: Option<&O>,
-    returned: &HashSet<K>) -> Vec<K>
-{
+fn missing_provisional<K: Eq + std::hash::Hash, O: Ord>(
+    records: impl Iterator<Item = (K, O, bool)>,
+    from: Option<&O>,
+    returned: &HashSet<K>,
+) -> Vec<K> {
     records
         .filter(|(key, order, is_final)| !is_final && from.is_none_or(|from| order >= from) && !returned.contains(key))
         .map(|(key, _, _)| key)
@@ -211,7 +224,10 @@ mod tests {
     #[test]
     fn records_which_are_not_final_and_are_no_longer_returned_are_missing() {
         let returned: HashSet<&str> = ["473394964", "474269026"].into_iter().collect();
-        assert_eq!(missing_provisional(bills().into_iter(), Some(&"2026-09-28"), &returned), ["465467620"]);
+        assert_eq!(
+            missing_provisional(bills().into_iter(), Some(&"2026-09-28"), &returned),
+            ["465467620"]
+        );
         // Final records, and those before the fetch, are never missing.
         assert!(missing_provisional(bills().into_iter(), Some(&"2026-10-25"), &returned).is_empty());
     }

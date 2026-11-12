@@ -1,11 +1,11 @@
-use std::collections::{BTreeMap, HashSet};
-use std::{collections::HashMap};
-use std::fs;
-use std::path::{Path, PathBuf};
+use anyhow::anyhow;
 use indexmap::IndexMap;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use anyhow::anyhow;
+use std::collections::HashMap;
+use std::collections::{BTreeMap, HashSet};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use crate::{MarcoSparkoContext, private_file};
 
@@ -24,7 +24,7 @@ const STORE_VERSION: &str = "0.5.0";
 
 #[derive(PartialEq)]
 pub struct ActiveProfile {
-    pub all_profiles:   Vec<String>,
+    pub all_profiles: Vec<String>,
     pub active_profile: Profile,
     pub profile_version_state: ProfileVersionState,
 }
@@ -73,7 +73,7 @@ impl ActiveProfile {
     // Create empty default profile
     fn new() -> ActiveProfile {
         ActiveProfile {
-            all_profiles: vec!(String::from(DEFAULT_PROFILE)),
+            all_profiles: vec![String::from(DEFAULT_PROFILE)],
             active_profile: Profile::new(),
             profile_version_state: ProfileVersionState::Current,
         }
@@ -86,25 +86,22 @@ pub fn fetch_active_profile(profile_name: &Option<String>) -> anyhow::Result<Act
     let mut active_profile = None;
 
     if let Some(profile_file) = read_profile_file_if_any()? {
-
         for profile in profile_file {
             if all_profiles.iter().any(|name| profile_names_equal(name, &profile.name)) {
                 return Err(anyhow!("Duplicate profile \"{}\"", &profile.name));
             }
             set.insert(profile.name.clone());
-            
+
             let got_it = if let Some(name) = profile_name {
                 profile_names_equal(name, &profile.name)
-            }
-            else {
+            } else {
                 active_profile.is_none()
             };
 
             if got_it {
                 all_profiles.push(profile.name.clone());
                 active_profile = Some(profile)
-            }
-            else {
+            } else {
                 all_profiles.push(profile.name);
             }
         }
@@ -116,39 +113,30 @@ pub fn fetch_active_profile(profile_name: &Option<String>) -> anyhow::Result<Act
         }
     }
 
-    Ok(
-        
-        if let Some(active_profile) = active_profile
-        {
-            let profile_version_state = ProfileVersionState::from(&active_profile.version)?;
-            ActiveProfile {
-                all_profiles,
-                active_profile: active_profile,
-                profile_version_state
-            }
+    Ok(if let Some(active_profile) = active_profile {
+        let profile_version_state = ProfileVersionState::from(&active_profile.version)?;
+        ActiveProfile {
+            all_profiles,
+            active_profile: active_profile,
+            profile_version_state,
         }
-        else
-        {
-            let active_profile = ActiveProfile::new();
-            let mut profiles = Vec::new();
+    } else {
+        let active_profile = ActiveProfile::new();
+        let mut profiles = Vec::new();
 
-            profiles.push(&active_profile.active_profile);
+        profiles.push(&active_profile.active_profile);
 
-            write_profile_file(&profiles)?;
+        write_profile_file(&profiles)?;
 
-            active_profile
-        }
-    )
+        active_profile
+    })
 }
 
 pub fn set_active_profile(profile_name: &String) -> anyhow::Result<ActiveProfile> {
-
     let mut all_profiles: Vec<String> = Vec::new();
     let mut map: IndexMap<String, Profile> = IndexMap::new();
-    
 
     if let Some(profile_file) = read_profile_file_if_any()? {
-
         for profile in profile_file {
             if map.keys().any(|name| profile_names_equal(name, &profile.name)) {
                 return Err(anyhow!("Duplicate profile \"{}\"", &profile.name));
@@ -156,12 +144,12 @@ pub fn set_active_profile(profile_name: &String) -> anyhow::Result<ActiveProfile
             all_profiles.push(profile.name.clone());
             map.insert(profile.name.clone(), profile);
         }
-        let active_profile = if let Some(existing_name) = map.keys().find(|name| profile_names_equal(name, profile_name)).cloned() {
-            map.shift_remove(&existing_name).unwrap()
-        }
-        else {
-            return Err(anyhow!("No such profile \"{}\"", profile_name)); 
-        };
+        let active_profile =
+            if let Some(existing_name) = map.keys().find(|name| profile_names_equal(name, profile_name)).cloned() {
+                map.shift_remove(&existing_name).unwrap()
+            } else {
+                return Err(anyhow!("No such profile \"{}\"", profile_name));
+            };
 
         let mut profiles = Vec::new();
 
@@ -176,9 +164,11 @@ pub fn set_active_profile(profile_name: &String) -> anyhow::Result<ActiveProfile
             active_profile,
             profile_version_state,
         })
-    }
-    else {
-        Err(anyhow!("No such profile \"{}\" (no profiles at all, in fact)", profile_name))
+    } else {
+        Err(anyhow!(
+            "No such profile \"{}\" (no profiles at all, in fact)",
+            profile_name
+        ))
     }
 }
 
@@ -192,9 +182,13 @@ pub fn set_active_profile(profile_name: &String) -> anyhow::Result<ActiveProfile
 /// Called when the user agrees to upgrade a profile on the Home page, and for --upgrade, saying how far it is with
 /// progress. If a step fails, or progress is cancelled, the profile is left at its version, its old data as it was, so
 /// that it can be upgraded again.
-pub fn upgrade_profile(profile_name: &str, progress: &mut dyn bruce_db::progress::Progress) -> anyhow::Result<ActiveProfile> {
+pub fn upgrade_profile(
+    profile_name: &str,
+    progress: &mut dyn bruce_db::progress::Progress,
+) -> anyhow::Result<ActiveProfile> {
     let profile_file: ProfileFile = read_profile_file()?;
-    let profile = profile_file.iter()
+    let profile = profile_file
+        .iter()
         .find(|profile| profile_names_equal(&profile.name, profile_name))
         .ok_or_else(|| anyhow!("No such profile \"{}\"", profile_name))?;
     let name = profile.name.clone();
@@ -207,7 +201,10 @@ pub fn upgrade_profile(profile_name: &str, progress: &mut dyn bruce_db::progress
 
     // Read again, as a step may have changed it, e.g. given it a site.
     let mut profile_file: ProfileFile = read_profile_file()?;
-    if let Some(profile) = profile_file.iter_mut().find(|profile| profile_names_equal(&profile.name, &name)) {
+    if let Some(profile) = profile_file
+        .iter_mut()
+        .find(|profile| profile_names_equal(&profile.name, &name))
+    {
         profile.version = CURRENT_VERSION.to_string();
     }
     write_profile_file(&profile_file)?;
@@ -221,14 +218,20 @@ pub fn upgrade_profile(profile_name: &str, progress: &mut dyn bruce_db::progress
 /// before secrets were encrypted.
 pub fn encrypt_secrets(profile_name: &str) -> anyhow::Result<()> {
     let profile_file = read_profile_file()?;
-    if !profile_file.iter().any(|profile| profile_names_equal(&profile.name, profile_name)) {
+    if !profile_file
+        .iter()
+        .any(|profile| profile_names_equal(&profile.name, profile_name))
+    {
         return Err(anyhow!("No such profile \"{}\"", profile_name));
     }
     write_profile_file(&profile_file)?;
     for path in cache_usage_in(&crate::data_home::tokens_dir()?, profile_name)?.token_files {
         let value: serde_json::Value = serde_json::from_reader(fs::File::open(&path)?)
             .map_err(|error| anyhow!("{} is not JSON: {error}", path.display()))?;
-        serde_json::to_writer_pretty(private_file::create_private_file(&path)?, &crate::secrets::seal(&value)?)?;
+        serde_json::to_writer_pretty(
+            private_file::create_private_file(&path)?,
+            &crate::secrets::seal(&value)?,
+        )?;
     }
     Ok(())
 }
@@ -245,12 +248,17 @@ pub fn create_profile(profile_name: &str) -> anyhow::Result<ActiveProfile> {
         return Err(anyhow!("Profile name cannot be empty"));
     }
     if !is_valid_profile_name(profile_name) {
-        return Err(anyhow!("Profile name must contain only letters, digits and underscores"));
+        return Err(anyhow!(
+            "Profile name must contain only letters, digits and underscores"
+        ));
     }
 
     let mut profiles: ProfileFile = read_profile_file_if_any()?.unwrap_or_default();
 
-    if profiles.iter().any(|profile| profile_names_equal(&profile.name, profile_name)) {
+    if profiles
+        .iter()
+        .any(|profile| profile_names_equal(&profile.name, profile_name))
+    {
         return Err(anyhow!("A profile named \"{}\" already exists", profile_name));
     }
 
@@ -271,31 +279,32 @@ pub fn create_profile(profile_name: &str) -> anyhow::Result<ActiveProfile> {
 }
 
 pub fn update_profile<T>(profile_name: &String, module_id: &str, module_profile: &T) -> anyhow::Result<()>
-    where
-    T: Serialize
+where
+    T: Serialize,
 {
     if let Some(mut profile_file) = read_profile_file_if_any()? {
-
-
         let mut found = false;
 
         for profile in profile_file.iter_mut() {
             if profile_names_equal(&profile.name, profile_name) {
-                profile.modules.insert(module_id.to_string(), serde_json::to_value(module_profile)?);
+                profile
+                    .modules
+                    .insert(module_id.to_string(), serde_json::to_value(module_profile)?);
                 found = true;
-
             }
         }
-        if ! found{
-            return Err(anyhow!("No such profile \"{}\"", profile_name)); 
+        if !found {
+            return Err(anyhow!("No such profile \"{}\"", profile_name));
         };
-    
+
         write_profile_file(&profile_file)?;
 
         Ok(())
-    }
-    else {
-        Err(anyhow!("No such profile \"{}\" (no profiles at all, in fact)", profile_name))
+    } else {
+        Err(anyhow!(
+            "No such profile \"{}\" (no profiles at all, in fact)",
+            profile_name
+        ))
     }
 }
 
@@ -304,7 +313,9 @@ pub fn update_profile<T>(profile_name: &String, module_id: &str, module_profile:
 pub fn save_redacted_profile(source: &Profile, name: &str, as_of: Option<i64>) -> anyhow::Result<()> {
     let mut profiles: ProfileFile = read_profile_file()?;
     profiles.retain(|profile| !profile_names_equal(&profile.name, name));
-    let modules = source.modules.iter()
+    let modules = source
+        .modules
+        .iter()
         .filter(|(module_id, _)| crate::redact::is_redactable(module_id))
         .map(|(module_id, module)| {
             let mut module = module.clone();
@@ -320,7 +331,10 @@ pub fn save_redacted_profile(source: &Profile, name: &str, as_of: Option<i64>) -
         version: String::from(LAST_CACHE_VERSION),
         modules,
         // Not the capture devices, whose keys would let anyone with the copy manage them.
-        settings: Settings { capture_devices: Vec::new(), ..source.settings.clone() },
+        settings: Settings {
+            capture_devices: Vec::new(),
+            ..source.settings.clone()
+        },
         offline: true,
         as_of,
         // A site of its own, made when it is first used.
@@ -360,11 +374,16 @@ pub fn profile_cache_usage(profile_name: &str) -> anyhow::Result<ProfileCacheUsa
         *usage.plugins.entry(module).or_default() += bytes;
     }
     let profiles: ProfileFile = read_profile_file()?;
-    let site = profiles.iter()
+    let site = profiles
+        .iter()
         .find(|profile| profile_names_equal(&profile.name, profile_name))
         .and_then(|profile| profile.site.as_deref())
         .and_then(|site| bruce_db::Id::parse(site).ok());
-    if let Some(dir) = site.map(|site| crate::store::site_dir(&site)).transpose()?.filter(|dir| dir.exists()) {
+    if let Some(dir) = site
+        .map(|site| crate::store::site_dir(&site))
+        .transpose()?
+        .filter(|dir| dir.exists())
+    {
         usage.plugins.insert(String::from("store"), disk_usage(&dir)?);
     }
     Ok(usage)
@@ -378,18 +397,18 @@ fn cache_usage_in(cache_dir: &Path, profile_name: &str) -> anyhow::Result<Profil
         for entry in read_dir {
             let entry = entry?;
             let file_name = entry.file_name().to_string_lossy().to_string();
-            let Some(rest) = file_name.strip_prefix(&prefix) else { continue };
+            let Some(rest) = file_name.strip_prefix(&prefix) else {
+                continue;
+            };
             let path = entry.path();
             let plugin = if entry.file_type()?.is_dir() {
                 usage.data_dirs.push(path.clone());
                 rest
-            }
-            else if let Some(plugin) = rest.strip_suffix(".json") {
+            } else if let Some(plugin) = rest.strip_suffix(".json") {
                 usage.token_files.push(path.clone());
                 plugin
-            }
-            else {
-                continue
+            } else {
+                continue;
             };
             *usage.plugins.entry(plugin.to_string()).or_default() += disk_usage(&path)?;
         }
@@ -406,8 +425,7 @@ fn disk_usage(path: &Path) -> anyhow::Result<u64> {
             total += disk_usage(&entry?.path())?;
         }
         Ok(total)
-    }
-    else {
+    } else {
         Ok(metadata.len())
     }
 }
@@ -422,7 +440,8 @@ pub fn delete_profile(profile_name: &str, active_profile: &str) -> anyhow::Resul
     let mut profiles: ProfileFile = read_profile_file()?;
     let count = profiles.len();
     // Its site's store goes to the trash with its other data, see store.rs.
-    let site_dir = profiles.iter()
+    let site_dir = profiles
+        .iter()
         .find(|profile| profile_names_equal(&profile.name, profile_name))
         .and_then(|profile| profile.site.as_deref())
         .map(|site| bruce_db::Id::parse(site).and_then(|site| crate::store::site_dir(&site)))
@@ -440,7 +459,13 @@ pub fn delete_profile(profile_name: &str, active_profile: &str) -> anyhow::Resul
     }
     // The log files go to the trash with the data.
     let logs = crate::logging::log_files(profile_name)?;
-    let trashed: Vec<PathBuf> = usage.data_dirs.iter().cloned().chain(logs.into_iter().filter(|log| log.exists())).chain(site_dir).collect();
+    let trashed: Vec<PathBuf> = usage
+        .data_dirs
+        .iter()
+        .cloned()
+        .chain(logs.into_iter().filter(|log| log.exists()))
+        .chain(site_dir)
+        .collect();
     if !trashed.is_empty() {
         trash::delete_all(&trashed)?;
     }
@@ -464,8 +489,13 @@ fn new_profile_name<'a>(profiles: &ProfileFile, name: &'a str) -> anyhow::Result
 /// The path of one of a profile's files, path, as another profile's, e.g. n2-octopus as n3-octopus, as the profile's
 /// name ends at the first hyphen, see is_valid_profile_name, or its log, e.g. n2.log as n3.log.
 fn renamed(path: &Path, from: &str, to: &str) -> anyhow::Result<PathBuf> {
-    let file_name = path.file_name().and_then(|name| name.to_str()).ok_or_else(|| anyhow!("{} has no name", path.display()))?;
-    let rest = file_name.strip_prefix(from).ok_or_else(|| anyhow!("{} is not of profile {from}", path.display()))?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow!("{} has no name", path.display()))?;
+    let rest = file_name
+        .strip_prefix(from)
+        .ok_or_else(|| anyhow!("{} is not of profile {from}", path.display()))?;
     Ok(path.with_file_name(format!("{to}{rest}")))
 }
 
@@ -473,18 +503,27 @@ fn renamed(path: &Path, from: &str, to: &str) -> anyhow::Result<PathBuf> {
 /// cached data and logins, and its log.
 pub fn rename_profile(from: &str, to: &str, active_profile: &str) -> anyhow::Result<()> {
     if profile_names_equal(from, active_profile) {
-        return Err(anyhow!("The active profile \"{}\" cannot be renamed, change to another one first", from));
+        return Err(anyhow!(
+            "The active profile \"{}\" cannot be renamed, change to another one first",
+            from
+        ));
     }
     let mut profiles: ProfileFile = read_profile_file()?;
     let to = new_profile_name(&profiles, to)?;
-    let profile = profiles.iter_mut()
+    let profile = profiles
+        .iter_mut()
         .find(|profile| profile_names_equal(&profile.name, from))
         .ok_or_else(|| anyhow!("No such profile \"{}\"", from))?;
     // As it is saved, as the match is not case sensitive.
     let from = profile.name.clone();
     let usage = profile_cache_usage(&from)?;
     let logs = crate::logging::log_files(&from)?;
-    for path in usage.data_dirs.iter().chain(&usage.token_files).chain(logs.iter().filter(|log| log.exists())) {
+    for path in usage
+        .data_dirs
+        .iter()
+        .chain(&usage.token_files)
+        .chain(logs.iter().filter(|log| log.exists()))
+    {
         fs::rename(path, renamed(path, &from, to)?)?;
     }
     profile.name = to.to_string();
@@ -514,7 +553,8 @@ fn copy_dir(from: &Path, to: &Path) -> anyhow::Result<()> {
 pub fn copy_profile(from: &str, to: &str, offline: bool) -> anyhow::Result<()> {
     let mut profiles: ProfileFile = read_profile_file()?;
     let to = new_profile_name(&profiles, to)?;
-    let source = profiles.iter()
+    let source = profiles
+        .iter()
         .find(|profile| profile_names_equal(&profile.name, from))
         .ok_or_else(|| anyhow!("No such profile \"{}\"", from))?
         .clone();
@@ -534,10 +574,14 @@ pub fn copy_profile(from: &str, to: &str, offline: bool) -> anyhow::Result<()> {
             let location = format!("file://{}", crate::store::store_dir()?.display());
             bruce_db::Store::copy_site(&location, &from, &site)?;
             Some(site.to_string())
-        },
+        }
         _ => None,
     };
-    let mut copy = Profile { name: to.to_string(), site, ..source };
+    let mut copy = Profile {
+        name: to.to_string(),
+        site,
+        ..source
+    };
     if offline {
         copy.offline = true;
         copy.as_of = copy.as_of.or_else(|| Some(crate::clock::now_utc().unix_timestamp()));
@@ -571,7 +615,7 @@ pub enum ProfileVersionState {
     OlderThanCurrent,
     Current,
     NewerThanCurrent,
-    Invalid
+    Invalid,
 }
 
 impl ProfileVersionState {
@@ -582,7 +626,6 @@ impl ProfileVersionState {
             return Ok(ProfileVersionState::OlderThanCurrent);
         }
 
-
         let current_version = Version::parse(CURRENT_VERSION).unwrap();
         Ok(if let Ok(version) = Version::parse(version) {
             match version.cmp(&current_version) {
@@ -590,14 +633,13 @@ impl ProfileVersionState {
                 std::cmp::Ordering::Equal => Self::Current,
                 std::cmp::Ordering::Greater => Self::NewerThanCurrent,
             }
-        }
-        else {
+        } else {
             Self::Invalid
         })
     }
 }
 
-fn default_profile_version() ->String {
+fn default_profile_version() -> String {
     "0.0.0".to_string()
 }
 
@@ -653,7 +695,9 @@ pub struct Settings {
 impl Settings {
     /// The categories a load can be, the built-in ones, then those added, see categories.
     pub fn all_categories(&self) -> Vec<String> {
-        crate::power::topology::BUILT_IN_CATEGORIES.iter().map(|category| category.to_string())
+        crate::power::topology::BUILT_IN_CATEGORIES
+            .iter()
+            .map(|category| category.to_string())
             .chain(self.categories.iter().cloned())
             .collect()
     }
@@ -662,7 +706,8 @@ impl Settings {
 /// Saves the settings of the profile.
 pub fn update_settings(profile_name: &str, settings: &Settings) -> anyhow::Result<()> {
     let mut profile_file: ProfileFile = read_profile_file()?;
-    let profile = profile_file.iter_mut()
+    let profile = profile_file
+        .iter_mut()
         .find(|profile| profile_names_equal(&profile.name, profile_name))
         .ok_or_else(|| anyhow!("No such profile \"{}\"", profile_name))?;
     // Whether the help is shown is saved by update_help_settings, from any window, the capture devices by
@@ -684,9 +729,13 @@ pub fn update_settings(profile_name: &str, settings: &Settings) -> anyhow::Resul
 }
 
 /// Saves the capture devices the profile has adopted, see capture_device.rs.
-pub fn update_capture_devices(profile_name: &str, devices: &[crate::capture_device::DeviceProfile]) -> anyhow::Result<()> {
+pub fn update_capture_devices(
+    profile_name: &str,
+    devices: &[crate::capture_device::DeviceProfile],
+) -> anyhow::Result<()> {
     let mut profile_file: ProfileFile = read_profile_file()?;
-    let profile = profile_file.iter_mut()
+    let profile = profile_file
+        .iter_mut()
         .find(|profile| profile_names_equal(&profile.name, profile_name))
         .ok_or_else(|| anyhow!("No such profile \"{}\"", profile_name))?;
     profile.settings.capture_devices = devices.to_vec();
@@ -698,7 +747,8 @@ pub fn update_capture_devices(profile_name: &str, devices: &[crate::capture_devi
 /// are saved, which may be newer than the settings the page has, returning them as they are now.
 pub fn update_settings_with(profile_name: &str, change: impl FnOnce(&mut Settings)) -> anyhow::Result<Settings> {
     let mut profile_file: ProfileFile = read_profile_file()?;
-    let profile = profile_file.iter_mut()
+    let profile = profile_file
+        .iter_mut()
         .find(|profile| profile_names_equal(&profile.name, profile_name))
         .ok_or_else(|| anyhow!("No such profile \"{}\"", profile_name))?;
     change(&mut profile.settings);
@@ -710,7 +760,8 @@ pub fn update_settings_with(profile_name: &str, change: impl FnOnce(&mut Setting
 /// Saves the site's topology, see power::topology, or clears it if it is None.
 pub fn update_topology(profile_name: &str, topology: Option<&crate::power::topology::Circuit>) -> anyhow::Result<()> {
     let mut profile_file: ProfileFile = read_profile_file()?;
-    let profile = profile_file.iter_mut()
+    let profile = profile_file
+        .iter_mut()
         .find(|profile| profile_names_equal(&profile.name, profile_name))
         .ok_or_else(|| anyhow!("No such profile \"{}\"", profile_name))?;
     profile.settings.topology = topology.cloned();
@@ -721,7 +772,8 @@ pub fn update_topology(profile_name: &str, topology: Option<&crate::power::topol
 /// The ID of the profile's site, see Profile::site, made and saved if it has none yet.
 pub fn ensure_site(profile_name: &str) -> anyhow::Result<bruce_db::Id> {
     let mut profile_file: ProfileFile = read_profile_file()?;
-    let profile = profile_file.iter_mut()
+    let profile = profile_file
+        .iter_mut()
         .find(|profile| profile_names_equal(&profile.name, profile_name))
         .ok_or_else(|| anyhow!("No such profile \"{}\"", profile_name))?;
     if let Some(site) = &profile.site {
@@ -736,7 +788,8 @@ pub fn ensure_site(profile_name: &str) -> anyhow::Result<bruce_db::Id> {
 /// Saves the help settings of the profile, see help::set_shown.
 pub fn update_help_settings(profile_name: &str, help: &crate::help::HelpSettings) -> anyhow::Result<()> {
     let mut profile_file: ProfileFile = read_profile_file()?;
-    let profile = profile_file.iter_mut()
+    let profile = profile_file
+        .iter_mut()
         .find(|profile| profile_names_equal(&profile.name, profile_name))
         .ok_or_else(|| anyhow!("No such profile \"{}\"", profile_name))?;
     profile.settings.help = help.clone();
@@ -780,7 +833,10 @@ mod tests {
         let usage = cache_usage_in(&dir, "p").unwrap();
         fs::remove_dir_all(&dir).unwrap();
 
-        assert_eq!(usage.plugins.into_iter().collect::<Vec<_>>(), [(String::from("octopus"), 110), (String::from("other"), 1)]);
+        assert_eq!(
+            usage.plugins.into_iter().collect::<Vec<_>>(),
+            [(String::from("octopus"), 110), (String::from("other"), 1)]
+        );
         assert_eq!(usage.data_dirs, [dir.join("p-octopus")]);
         let mut token_files = usage.token_files;
         token_files.sort();
@@ -790,8 +846,14 @@ mod tests {
     #[test]
     fn a_profiles_files_are_renamed_from_the_start_of_their_names() {
         let dir = Path::new("/cache");
-        assert_eq!(renamed(&dir.join("n2-octopus"), "n2", "home").unwrap(), dir.join("home-octopus"));
-        assert_eq!(renamed(&dir.join("n2.log.old"), "n2", "home").unwrap(), dir.join("home.log.old"));
+        assert_eq!(
+            renamed(&dir.join("n2-octopus"), "n2", "home").unwrap(),
+            dir.join("home-octopus")
+        );
+        assert_eq!(
+            renamed(&dir.join("n2.log.old"), "n2", "home").unwrap(),
+            dir.join("home.log.old")
+        );
         assert!(renamed(&dir.join("other-octopus"), "n2", "home").is_err());
     }
 
@@ -802,7 +864,10 @@ mod tests {
         fs::write(dir.join("from/2026/November/3#snapshots"), "data").unwrap();
         fs::write(dir.join("from/top"), "top").unwrap();
         copy_dir(&dir.join("from"), &dir.join("to")).unwrap();
-        let copied = (fs::read_to_string(dir.join("to/2026/November/3#snapshots")).unwrap(), fs::read_to_string(dir.join("to/top")).unwrap());
+        let copied = (
+            fs::read_to_string(dir.join("to/2026/November/3#snapshots")).unwrap(),
+            fs::read_to_string(dir.join("to/top")).unwrap(),
+        );
         fs::remove_dir_all(&dir).unwrap();
         assert_eq!(copied, (String::from("data"), String::from("top")));
     }

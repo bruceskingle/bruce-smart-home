@@ -115,7 +115,9 @@ impl GlobirdContext {
         if let Some(bill) = self.bills.lock().unwrap().get(&document_id) {
             return bill.clone();
         }
-        let bill = bills::document(&self.cache_config, document_id).and_then(|pdf| bills::read_bill(&pdf)).map_err(|error| format!("{error:#}"));
+        let bill = bills::document(&self.cache_config, document_id)
+            .and_then(|pdf| bills::read_bill(&pdf))
+            .map_err(|error| format!("{error:#}"));
         self.bills.lock().unwrap().insert(document_id, bill.clone());
         bill
     }
@@ -141,7 +143,10 @@ impl GlobirdModule {
         }
     }
 
-    pub fn constructor(context: Arc<MarcoSparkoContext>, json_profile: Option<serde_json::Value>) -> anyhow::Result<Arc<dyn ModuleFactory>> {
+    pub fn constructor(
+        context: Arc<MarcoSparkoContext>,
+        json_profile: Option<serde_json::Value>,
+    ) -> anyhow::Result<Arc<dyn ModuleFactory>> {
         let args = GlobirdArgs::parse_from(context.args.module_args(MODULE_ID).unwrap_or_default());
         let mut profile: Profile = match json_profile {
             Some(json) => serde_json::from_value(json)?,
@@ -160,7 +165,12 @@ impl GlobirdModule {
             println!("GloBird Module Profile: {:?}", profile);
         }
         let cache_config = context.create_cache_config(MODULE_ID)?;
-        Ok(Arc::new(GlobirdModuleFactory { context, profile, cache_config, verbose }))
+        Ok(Arc::new(GlobirdModuleFactory {
+            context,
+            profile,
+            cache_config,
+            verbose,
+        }))
     }
 }
 
@@ -172,7 +182,10 @@ impl Module for GlobirdModule {
 
     /// The meter's readings.
     fn electricity_source(&self) -> Option<Arc<dyn crate::power::ElectricitySource>> {
-        Some(Arc::new(electricity::GlobirdElectricity { context: self.context.clone(), register: None }))
+        Some(Arc::new(electricity::GlobirdElectricity {
+            context: self.context.clone(),
+            register: None,
+        }))
     }
 
     /// The billing meter, its import and export registers.
@@ -195,10 +208,22 @@ impl Module for GlobirdModule {
 
     fn get_page_list(&self) -> Vec<PageInfo> {
         vec![
-            PageInfo { label: "Meters", path: "meters" },
-            PageInfo { label: "Days", path: "days" },
-            PageInfo { label: "Bills", path: "bills" },
-            PageInfo { label: "Cache Files", path: "cache" },
+            PageInfo {
+                label: "Meters",
+                path: "meters",
+            },
+            PageInfo {
+                label: "Days",
+                path: "days",
+            },
+            PageInfo {
+                label: "Bills",
+                path: "bills",
+            },
+            PageInfo {
+                label: "Cache Files",
+                path: "cache",
+            },
         ]
     }
 
@@ -213,8 +238,10 @@ impl Module for GlobirdModule {
                 // One register's readings, as Octopus's Meters page shows one meter's.
                 Some(register) => {
                     let direction = if register.starts_with('E') { "import" } else { "export" };
-                    let source: Arc<dyn crate::power::ElectricitySource> =
-                        Arc::new(electricity::GlobirdElectricity { context: self.context.clone(), register: Some(register.clone()) });
+                    let source: Arc<dyn crate::power::ElectricitySource> = Arc::new(electricity::GlobirdElectricity {
+                        context: self.context.clone(),
+                        register: Some(register.clone()),
+                    });
                     rsx! {
                         crate::views::electricity::ElectricityExplorer {
                             key: "{register}",
@@ -223,7 +250,7 @@ impl Module for GlobirdModule {
                             measurements: Vec::new(),
                         }
                     }
-                },
+                }
                 None => rsx! { MetersPage { context } },
             },
             "days" => rsx! { DaysPage { context } },
@@ -310,8 +337,18 @@ fn DaysPage(context: SharedProp<GlobirdContext>) -> Element {
     generation();
     let summaries = fetch::summaries(&context.0.cache_config);
     let latest = fetch::latest_reading(&context.0.cache_config).map(crate::util::local_date_time);
-    let bands: Vec<String> = summaries.iter().flat_map(|day| day.import.keys().cloned()).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
-    let categories: Vec<String> = summaries.iter().flat_map(|day| day.cost.keys().cloned()).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+    let bands: Vec<String> = summaries
+        .iter()
+        .flat_map(|day| day.import.keys().cloned())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let categories: Vec<String> = summaries
+        .iter()
+        .flat_map(|day| day.cost.keys().cloned())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let tariffs = rates::tariffs(&summaries);
     let fetch = move |_| {
         let context = context.clone();
@@ -379,7 +416,10 @@ fn DaysPage(context: SharedProp<GlobirdContext>) -> Element {
 /// The rates of a run of days, in cents a kWh, and the daily charge.
 #[component]
 fn TariffTable(tariff: rates::Tariff) -> Element {
-    let cents = |rate: Option<f64>| rate.map(|rate| format!("{:.2}", rate.abs() * 100.0)).unwrap_or_else(|| String::from("not known"));
+    let cents = |rate: Option<f64>| {
+        rate.map(|rate| format!("{:.2}", rate.abs() * 100.0))
+            .unwrap_or_else(|| String::from("not known"))
+    };
     rsx! {
         p { "From {tariff.first} to {tariff.last}, worked out from {tariff.days} days:" }
         table { class: "display",
@@ -413,10 +453,21 @@ fn TariffTable(tariff: rates::Tariff) -> Element {
 /// e.g. GloBird charged for 25.3 kWh, the meter says 30.3.
 fn check_text(summary: &DaySummary, tariff: Option<&rates::Tariff>) -> String {
     let Some(tariff) = tariff else { return String::new() };
-    rates::check(summary, tariff).iter().map(|check| {
-        let why = check.kwh.map(|(charged, meter)| format!(", charged for {charged:.2} kWh, the meter says {meter:.2}")).unwrap_or_default();
-        format!("{} {:+.2} from the rates{why}", check.category, check.charged - check.expected)
-    }).collect::<Vec<_>>().join("; ")
+    rates::check(summary, tariff)
+        .iter()
+        .map(|check| {
+            let why = check
+                .kwh
+                .map(|(charged, meter)| format!(", charged for {charged:.2} kWh, the meter says {meter:.2}"))
+                .unwrap_or_default();
+            format!(
+                "{} {:+.2} from the rates{why}",
+                check.category,
+                check.charged - check.expected
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// The split of a day's cost of a category, by charge type, at its rates, e.g. Peak Usage 0.23 kWh x 37.31c = $0.09.
@@ -427,18 +478,30 @@ fn cost_split(summary: &DaySummary, category: &str, tariff: Option<&rates::Tarif
         rates::SOLAR => (&summary.export_by_type, &tariff.feed_in),
         _ => return None,
     };
-    let lines: Vec<String> = rates.iter().filter_map(|rate| {
-        let kwh = *kwh.get(&rate.charge_type)?;
-        let cents = rate.rate? * 100.0;
-        Some(format!("{} {kwh:.2} kWh x {cents:.2}c = ${:.2}", rate.charge_type, kwh * cents / 100.0))
-    }).collect();
+    let lines: Vec<String> = rates
+        .iter()
+        .filter_map(|rate| {
+            let kwh = *kwh.get(&rate.charge_type)?;
+            let cents = rate.rate? * 100.0;
+            Some(format!(
+                "{} {kwh:.2} kWh x {cents:.2}c = ${:.2}",
+                rate.charge_type,
+                kwh * cents / 100.0
+            ))
+        })
+        .collect();
     (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
 #[component]
 fn DayRow(summary: DaySummary, bands: Vec<String>, categories: Vec<String>, tariff: Option<rates::Tariff>) -> Element {
-    let optional = |value: Option<&f64>, decimals: usize| value.map(|value| format!("{value:.decimals$}")).unwrap_or_default();
-    let readings = if summary.estimated { format!("{} estimated", summary.readings) } else { summary.readings.to_string() };
+    let optional =
+        |value: Option<&f64>, decimals: usize| value.map(|value| format!("{value:.decimals$}")).unwrap_or_default();
+    let readings = if summary.estimated {
+        format!("{} estimated", summary.readings)
+    } else {
+        summary.readings.to_string()
+    };
     let check = check_text(&summary, tariff.as_ref());
     rsx! {
         tr {
@@ -469,11 +532,24 @@ pub struct GlobirdModuleFactory {
 impl GlobirdModuleFactory {
     /// Logs in once, which checks the email and password, and saves them in the profile, and the session in the module's
     /// cache file.
-    async fn login(context: Arc<MarcoSparkoContext>, email: String, password: String, verbose: bool) -> anyhow::Result<()> {
+    async fn login(
+        context: Arc<MarcoSparkoContext>,
+        email: String,
+        password: String,
+        verbose: bool,
+    ) -> anyhow::Result<()> {
         let client = GlobirdClient::new(email.clone(), password.clone(), None, verbose)?;
         client.login().await?;
-        context.update_cache(MODULE_ID, &StoredSession { session_token: client.session_token() })?;
-        let profile = Profile { email: Some(email), password: Some(password) };
+        context.update_cache(
+            MODULE_ID,
+            &StoredSession {
+                session_token: client.session_token(),
+            },
+        )?;
+        let profile = Profile {
+            email: Some(email),
+            password: Some(password),
+        };
         crate::profile::update_profile(&context.profile.active_profile.name, MODULE_ID, &profile)?;
         Ok(())
     }
@@ -483,7 +559,8 @@ impl GlobirdModuleFactory {
 impl ModuleFactory for GlobirdModuleFactory {
     async fn is_ready(&self) -> anyhow::Result<bool> {
         // An offline profile has no login, it only shows its cached data, see Profile::offline.
-        Ok(self.context.profile.active_profile.offline || (self.profile.email.is_some() && self.profile.password.is_some()))
+        Ok(self.context.profile.active_profile.offline
+            || (self.profile.email.is_some() && self.profile.password.is_some()))
     }
 
     fn init_page(&self) -> Element {
@@ -575,7 +652,10 @@ impl ModuleFactory for GlobirdModuleFactory {
         let client = GlobirdClient::new(
             self.profile.email.clone().unwrap_or_default(),
             self.profile.password.clone().unwrap_or_default(),
-            self.context.read_cache::<StoredSession>(MODULE_ID).map(|stored| stored.session_token).as_deref(),
+            self.context
+                .read_cache::<StoredSession>(MODULE_ID)
+                .map(|stored| stored.session_token)
+                .as_deref(),
             self.verbose,
         )?;
         Ok(Box::new(GlobirdModule {

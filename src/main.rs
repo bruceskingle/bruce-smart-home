@@ -47,7 +47,11 @@ fn main() {
         std::process::exit(0);
     }
     if args.fetch() {
-        std::process::exit(if bruce_smart_home::fetch_latest_data(args) { 0 } else { 1 });
+        std::process::exit(if bruce_smart_home::fetch_latest_data(args) {
+            0
+        } else {
+            1
+        });
     }
 
     // For screenshots the window is the size the shot list gives, see screenshots.rs.
@@ -61,11 +65,11 @@ fn main() {
                     std::process::exit(1);
                 }
                 Some(shot_file.window)
-            },
+            }
             Err(error) => {
                 eprintln!("{error:#}");
                 std::process::exit(1);
-            },
+            }
         },
         None => None,
     };
@@ -89,12 +93,12 @@ fn main() {
 
         let config = match screenshot_size {
             // Not remembered as the size of the app's window.
-            Some(size) => config.with_window(window.with_inner_size(dioxus::desktop::LogicalSize::new(size.width, size.height))),
+            Some(size) => {
+                config.with_window(window.with_inner_size(dioxus::desktop::LogicalSize::new(size.width, size.height)))
+            }
             None => bruce_smart_home::window_state::remember_window_state(config, window),
         };
-        dioxus::LaunchBuilder::new()
-            .with_cfg(config)
-            .launch(App);
+        dioxus::LaunchBuilder::new().with_cfg(config).launch(App);
     }
 
     #[cfg(not(feature = "desktop"))]

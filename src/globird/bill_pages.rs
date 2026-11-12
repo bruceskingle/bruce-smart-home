@@ -10,10 +10,10 @@ use time::Date;
 use crate::components::error_text::ErrorText;
 use crate::util::SharedProp;
 
+use super::GlobirdContext;
 use super::bills::{self, Bill, BillLine};
 use super::fetch::{self, DaySummary};
 use super::rates::{SOLAR, SUPPLY, USAGE};
-use super::GlobirdContext;
 
 /// What the cached days add up to over a bill's period, to set beside it.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -43,14 +43,14 @@ impl Comparison {
 fn category(line: &BillLine, days: &[&DaySummary]) -> Option<&'static str> {
     if line.is_daily() {
         Some(SUPPLY)
-    }
-    else if days.iter().any(|day| day.import.contains_key(&line.description)) {
+    } else if days.iter().any(|day| day.import.contains_key(&line.description)) {
         Some(USAGE)
-    }
-    else if days.iter().any(|day| day.export_by_type.contains_key(&line.description)) {
+    } else if days
+        .iter()
+        .any(|day| day.export_by_type.contains_key(&line.description))
+    {
         Some(SOLAR)
-    }
-    else {
+    } else {
         None
     }
 }
@@ -58,7 +58,8 @@ fn category(line: &BillLine, days: &[&DaySummary]) -> Option<&'static str> {
 /// The cached days over the bill's period, see Comparison, None if it has no period.
 pub fn compare(bill: &Bill, summaries: &[DaySummary]) -> Option<Comparison> {
     let (first, last) = bill.period?;
-    let days: Vec<&DaySummary> = summaries.iter()
+    let days: Vec<&DaySummary> = summaries
+        .iter()
         .filter(|day| day.date.is_some_and(|date| first <= date && date <= last) && !day.cost.is_empty())
         .collect();
     let mut comparison = Comparison {
@@ -72,7 +73,11 @@ pub fn compare(bill: &Bill, summaries: &[DaySummary]) -> Option<Comparison> {
         comparison.lines.push(match category {
             Some(SUPPLY) => Some(days.iter().filter(|day| day.cost.contains_key(SUPPLY)).count() as f64),
             Some(USAGE) => Some(days.iter().filter_map(|day| day.import.get(&line.description)).sum()),
-            Some(SOLAR) => Some(days.iter().filter_map(|day| day.export_by_type.get(&line.description)).sum()),
+            Some(SOLAR) => Some(
+                days.iter()
+                    .filter_map(|day| day.export_by_type.get(&line.description))
+                    .sum(),
+            ),
             _ => None,
         });
         if let Some(category) = category {
@@ -98,18 +103,34 @@ fn open_pdf(cache_config: &crate::CacheConfig, title: String, document_id: i64) 
         Err(error) => {
             crate::log_warning!("Unable to open the bill's PDF, {error:#}");
             return;
-        },
+        }
     };
     if cfg!(target_os = "linux") {
         let path = std::env::temp_dir().join(format!("globird-bill-{document_id}.pdf"));
-        let written = crate::private_file::create_private_file(&path).and_then(|mut file| std::io::Write::write_all(&mut file, &pdf));
-        if let Err(error) = written.map_err(anyhow::Error::from).and_then(|_| Ok(webbrowser::open(&format!("file://{}", path.display()))?)) {
+        let written = crate::private_file::create_private_file(&path)
+            .and_then(|mut file| std::io::Write::write_all(&mut file, &pdf));
+        if let Err(error) = written
+            .map_err(anyhow::Error::from)
+            .and_then(|_| Ok(webbrowser::open(&format!("file://{}", path.display()))?))
+        {
             crate::log_warning!("Unable to open the bill's PDF, {error:#}");
         }
         return;
     }
-    crate::components::child_windows::open_shaped(&format!("globird-bill-{document_id}"), title, None, Some(pdf_window_width),
-        || VirtualDom::new_with_props(BillPdfWindow, BillPdfWindowProps { pdf: SharedProp(std::sync::Arc::new(pdf)) }));
+    crate::components::child_windows::open_shaped(
+        &format!("globird-bill-{document_id}"),
+        title,
+        None,
+        Some(pdf_window_width),
+        || {
+            VirtualDom::new_with_props(
+                BillPdfWindow,
+                BillPdfWindowProps {
+                    pdf: SharedProp(std::sync::Arc::new(pdf)),
+                },
+            )
+        },
+    );
 }
 
 /// The width of a bill's PDF window for its height, at which exactly one page shows down the window: the viewer fits
@@ -130,14 +151,18 @@ fn pdf_window_width(height: f64) -> f64 {
 fn BillPdfWindow(pdf: SharedProp<Vec<u8>>) -> Element {
     crate::components::child_windows::use_child_window();
     dioxus::desktop::use_asset_handler(PDF_HANDLER, move |_request, responder| {
-        let response = dioxus::desktop::wry::http::Response::builder().header("Content-Type", "application/pdf").body(pdf.0.as_ref().clone());
+        let response = dioxus::desktop::wry::http::Response::builder()
+            .header("Content-Type", "application/pdf")
+            .body(pdf.0.as_ref().clone());
         match response {
             Ok(response) => responder.respond(response),
             Err(error) => crate::log_warning!("Unable to give the bill's PDF, {error:#}"),
         }
     });
     use_future(|| async {
-        let mut keys = document::eval("document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { dioxus.send(true); } });");
+        let mut keys = document::eval(
+            "document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { dioxus.send(true); } });",
+        );
         while keys.recv::<bool>().await.is_ok() {
             dioxus::desktop::window().close();
         }
@@ -174,13 +199,28 @@ struct BillRow {
 fn bill_rows(context: &GlobirdContext, cached: &bills::Cached) -> Vec<BillRow> {
     let mut rows = Vec::new();
     for email in cached.bills() {
-        let documents = cached.details.get(&email.id).map(|detail| detail.document_list.clone()).unwrap_or_default();
+        let documents = cached
+            .details
+            .get(&email.id)
+            .map(|detail| detail.document_list.clone())
+            .unwrap_or_default();
         if documents.is_empty() {
-            rows.push(BillRow { email: email.clone(), document: None, bill: None });
+            rows.push(BillRow {
+                email: email.clone(),
+                document: None,
+                bill: None,
+            });
         }
         for document in documents {
-            let bill = cached.documents.contains_key(&document.document_id).then(|| context.bill(document.document_id));
-            rows.push(BillRow { email: email.clone(), document: Some(document), bill });
+            let bill = cached
+                .documents
+                .contains_key(&document.document_id)
+                .then(|| context.bill(document.document_id));
+            rows.push(BillRow {
+                email: email.clone(),
+                document: Some(document),
+                bill,
+            });
         }
     }
     rows
@@ -191,7 +231,9 @@ fn dollars(amount: f64) -> String {
 }
 
 fn period_text(period: Option<(Date, Date)>) -> String {
-    period.map(|(first, last)| format!("{first} to {last}")).unwrap_or_default()
+    period
+        .map(|(first, last)| format!("{first} to {last}"))
+        .unwrap_or_default()
 }
 
 /// The bills, and Fetch, which makes one request each time, see bills::next_request.
@@ -259,8 +301,15 @@ pub fn BillsPage(context: SharedProp<GlobirdContext>) -> Element {
 #[component]
 fn BillRowView(row: BillRow, summaries: Vec<DaySummary>, cache_config: SharedProp<crate::CacheConfig>) -> Element {
     let emailed = row.email.date().map(|date| date.to_string()).unwrap_or_default();
-    let reversed = row.document.as_ref().is_some_and(|document| document.is_reversed == Some(true));
-    let name = row.document.as_ref().and_then(|document| document.name.clone()).unwrap_or_default();
+    let reversed = row
+        .document
+        .as_ref()
+        .is_some_and(|document| document.is_reversed == Some(true));
+    let name = row
+        .document
+        .as_ref()
+        .and_then(|document| document.name.clone())
+        .unwrap_or_default();
     let (bill, error) = match &row.bill {
         Some(Ok(bill)) => (Some(bill.clone()), None),
         Some(Err(error)) => (None, Some(error.clone())),
@@ -272,14 +321,21 @@ fn BillRowView(row: BillRow, summaries: Vec<DaySummary>, cache_config: SharedPro
         (Some(_), None) => String::from("Fetch to get its PDF"),
         _ if reversed => String::from("Reversed"),
         _ => match &comparison {
-            Some(comparison) if !comparison.complete() => format!("{} of its {} days are cached", comparison.days_cached, comparison.days),
+            Some(comparison) if !comparison.complete() => {
+                format!("{} of its {} days are cached", comparison.days_cached, comparison.days)
+            }
             _ => String::new(),
         },
     };
     let document_id = row.document.as_ref().map(|document| document.document_id);
     let pdf = match (&row.document, &row.bill) {
-        (Some(document), Some(_)) => Some((cache_config.clone(),
-            bill.as_ref().map(|bill| pdf_title(bill, &name)).unwrap_or_else(|| format!("GloBird bill {name}")), document.document_id)),
+        (Some(document), Some(_)) => Some((
+            cache_config.clone(),
+            bill.as_ref()
+                .map(|bill| pdf_title(bill, &name))
+                .unwrap_or_else(|| format!("GloBird bill {name}")),
+            document.document_id,
+        )),
         _ => None,
     };
     rsx! {
@@ -330,15 +386,36 @@ pub fn BillPage(context: SharedProp<GlobirdContext>, document_id: i64) -> Elemen
     let cache_config = context.0.cache_config.clone();
     let bill = match context.0.bill(document_id) {
         Ok(bill) => bill,
-        Err(error) => return rsx! { div { class: "error", ErrorText { error, message: String::from("Unable to read the bill") } } },
+        Err(error) => {
+            return rsx! { div { class: "error", ErrorText { error, message: String::from("Unable to read the bill") } } };
+        }
     };
     let summaries = fetch::summaries(&context.0.cache_config);
     let comparison = compare(&bill, &summaries).unwrap_or_default();
     let title = pdf_title(&bill, &document_id.to_string());
     let open = move |_| open_pdf(&cache_config, title.clone(), document_id);
-    let unit_rate = |line: &BillLine| if line.per_day() { format!("{:.5}", line.rate) } else { format!("{:.3}", line.rate * 100.0) };
-    let ours = |index: usize, line: &BillLine| comparison.lines.get(index).copied().flatten()
-        .map(|value| if line.is_daily() { format!("{value:.0}") } else { format!("{value:.2}") }).unwrap_or_default();
+    let unit_rate = |line: &BillLine| {
+        if line.per_day() {
+            format!("{:.5}", line.rate)
+        } else {
+            format!("{:.3}", line.rate * 100.0)
+        }
+    };
+    let ours = |index: usize, line: &BillLine| {
+        comparison
+            .lines
+            .get(index)
+            .copied()
+            .flatten()
+            .map(|value| {
+                if line.is_daily() {
+                    format!("{value:.0}")
+                } else {
+                    format!("{value:.2}")
+                }
+            })
+            .unwrap_or_default()
+    };
     rsx! {
         h1 { "GloBird Bill {bill.invoice.clone().unwrap_or_default()}" }
         p {
@@ -419,32 +496,50 @@ mod tests {
             import: import.iter().map(|(band, kwh)| (band.to_string(), *kwh)).collect(),
             export,
             export_by_type: BTreeMap::from([(String::from("Standard Solar Feed in"), export)]),
-            cost: cost.iter().map(|(category, amount)| (category.to_string(), *amount)).collect(),
+            cost: cost
+                .iter()
+                .map(|(category, amount)| (category.to_string(), *amount))
+                .collect(),
             ..Default::default()
         }
     }
 
     #[test]
     fn a_bill_is_set_beside_the_days_of_its_period() {
-        let bill = bills::parse_bill("Billing Period: 01-Jan-2027 to 02-Jan-2027 (2 days)
+        let bill = bills::parse_bill(
+            "Billing Period: 01-Jan-2027 to 02-Jan-2027 (2 days)
 Daily Charge 01-Jan - 02-Jan 2 Days x $1.00000 $2.00
 Peak Usage 01-Jan - 02-Jan 3.00 kWh x $0.40000 $1.20
 Offpeak Usage 01-Jan - 02-Jan 10.00 kWh x $0.20000 $2.00
 Standard Solar Feed in 01-Jan - 02-Jan 4.00 kWh x -$0.05000 -$0.20
 Late Payment Credit 01-Jan - 02-Jan 1 Days x -$0.50000 -$0.50
 TOTAL (including $0.41 GST) $4.50
-");
+",
+        );
         let days = [
-            day(1, &[("Peak Usage", 1.0), ("Offpeak Usage", 6.0)], 3.0, &[(USAGE, 1.6), (SOLAR, -0.15), (SUPPLY, 1.0)]),
-            day(2, &[("Peak Usage", 2.0), ("Offpeak Usage", 4.0)], 1.0, &[(USAGE, 1.6), (SOLAR, -0.05), (SUPPLY, 1.0)]),
+            day(
+                1,
+                &[("Peak Usage", 1.0), ("Offpeak Usage", 6.0)],
+                3.0,
+                &[(USAGE, 1.6), (SOLAR, -0.15), (SUPPLY, 1.0)],
+            ),
+            day(
+                2,
+                &[("Peak Usage", 2.0), ("Offpeak Usage", 4.0)],
+                1.0,
+                &[(USAGE, 1.6), (SOLAR, -0.05), (SUPPLY, 1.0)],
+            ),
             // Outside the bill's period.
             day(3, &[("Peak Usage", 9.0)], 9.0, &[(USAGE, 9.0)]),
         ];
         let comparison = compare(&bill, &days).unwrap();
         assert_eq!((comparison.days, comparison.days_cached), (2, 2));
         assert!(comparison.complete());
-        assert_eq!(comparison.lines, vec![Some(2.0), Some(3.0), Some(10.0), Some(4.0), None],
-            "a credit of so much a day is not the daily charge");
+        assert_eq!(
+            comparison.lines,
+            vec![Some(2.0), Some(3.0), Some(10.0), Some(4.0), None],
+            "a credit of so much a day is not the daily charge"
+        );
         assert_eq!(comparison.categories.get(SUPPLY), Some(&(2.0, 2.0)));
         assert_eq!(comparison.categories.get(USAGE), Some(&(3.2, 3.2)));
         assert_eq!(comparison.categories.get(SOLAR), Some(&(-0.2, -0.2)));
@@ -453,8 +548,13 @@ TOTAL (including $0.41 GST) $4.50
 
     #[test]
     fn a_bill_whose_days_are_not_all_cached_is_not_complete() {
-        let bill = Bill { period: Some((Date::from_calendar_date(2027, time::Month::January, 1).unwrap(),
-            Date::from_calendar_date(2027, time::Month::January, 31).unwrap())), ..Default::default() };
+        let bill = Bill {
+            period: Some((
+                Date::from_calendar_date(2027, time::Month::January, 1).unwrap(),
+                Date::from_calendar_date(2027, time::Month::January, 31).unwrap(),
+            )),
+            ..Default::default()
+        };
         let comparison = compare(&bill, &[day(1, &[], 0.0, &[(USAGE, 1.0)])]).unwrap();
         assert_eq!((comparison.days, comparison.days_cached), (31, 1));
         assert!(!comparison.complete());

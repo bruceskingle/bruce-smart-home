@@ -10,7 +10,8 @@ pub fn ToggleButton(
     label: String,
     active: bool,
     /// Disabled with no explanation.
-    #[props(default)] disabled: bool,
+    #[props(default)]
+    disabled: bool,
     #[props(default)] unavailable: Option<String>,
     onclick: EventHandler<()>,
 ) -> Element {

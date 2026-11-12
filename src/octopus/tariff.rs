@@ -43,21 +43,31 @@ impl CheapTimes {
             let mut parts = time.split(':');
             Some(parts.next()?.parse::<i64>().ok()? * 60 + parts.next()?.parse::<i64>().ok()?)
         };
-        let slots: Vec<(String, i64, i64)> = timeslots.iter()
+        let slots: Vec<(String, i64, i64)> = timeslots
+            .iter()
             .map(|(name, from, to)| Some((name.to_uppercase(), minutes(from)?, minutes(to)?)))
             .collect::<Option<_>>()?;
         if slots.len() < 2 {
             return None;
         }
-        let named: Vec<(i64, i64)> = slots.iter()
-            .filter(|(name, _, _)| ["NIGHT", "OFF_PEAK", "OFFPEAK", "LOW", "CHEAP"].iter().any(|word| name.contains(word)))
+        let named: Vec<(i64, i64)> = slots
+            .iter()
+            .filter(|(name, _, _)| {
+                ["NIGHT", "OFF_PEAK", "OFFPEAK", "LOW", "CHEAP"]
+                    .iter()
+                    .any(|word| name.contains(word))
+            })
             .map(|(_, from, to)| (*from, *to))
             .collect();
         let length = |(from, to): &(i64, i64)| (to - from).rem_euclid(24 * 60);
         let cheap = if named.is_empty() {
-            slots.iter().map(|(_, from, to)| (*from, *to)).min_by_key(length).into_iter().collect()
-        }
-        else {
+            slots
+                .iter()
+                .map(|(_, from, to)| (*from, *to))
+                .min_by_key(length)
+                .into_iter()
+                .collect()
+        } else {
             named
         };
         Some(Self(cheap))
@@ -65,7 +75,13 @@ impl CheapTimes {
 
     /// Whether the minute from midnight is in the cheap times.
     fn contains(&self, minute: i64) -> bool {
-        self.0.iter().any(|(from, to)| if from <= to { (*from..*to).contains(&minute) } else { minute >= *from || minute < *to })
+        self.0.iter().any(|(from, to)| {
+            if from <= to {
+                (*from..*to).contains(&minute)
+            } else {
+                minute >= *from || minute < *to
+            }
+        })
     }
 }
 
@@ -90,7 +106,9 @@ impl Tariff for OctopusTariff {
     }
 
     fn cheap_time(&self, half_hour: i64) -> Option<bool> {
-        let time = time::OffsetDateTime::from_unix_timestamp(half_hour).ok()?.to_timezone(self.tz);
+        let time = time::OffsetDateTime::from_unix_timestamp(half_hour)
+            .ok()?
+            .to_timezone(self.tz);
         Some(self.cheap.contains(time.hour() as i64 * 60 + time.minute() as i64))
     }
 }
@@ -100,15 +118,27 @@ mod tests {
     use super::*;
 
     fn slots(slots: &[(&str, &str, &str)]) -> Vec<(String, String, String)> {
-        slots.iter().map(|(name, from, to)| (name.to_string(), from.to_string(), to.to_string())).collect()
+        slots
+            .iter()
+            .map(|(name, from, to)| (name.to_string(), from.to_string(), to.to_string()))
+            .collect()
     }
 
     #[test]
     fn the_cheap_times_are_the_night_timeslot_or_else_the_shortest() {
-        let go = CheapTimes::from_timeslots(&slots(&[("ECO7_DAY", "05:30:00", "23:30:00"), ("ECO7_NIGHT", "23:30:00", "05:30:00")]));
+        let go = CheapTimes::from_timeslots(&slots(&[
+            ("ECO7_DAY", "05:30:00", "23:30:00"),
+            ("ECO7_NIGHT", "23:30:00", "05:30:00"),
+        ]));
         assert_eq!(go, Some(CheapTimes(vec![(1410, 330)])));
         let go = go.unwrap();
-        assert!(go.contains(23 * 60 + 30) && go.contains(0) && go.contains(5 * 60) && !go.contains(5 * 60 + 30) && !go.contains(12 * 60));
+        assert!(
+            go.contains(23 * 60 + 30)
+                && go.contains(0)
+                && go.contains(5 * 60)
+                && !go.contains(5 * 60 + 30)
+                && !go.contains(12 * 60)
+        );
         let unnamed = CheapTimes::from_timeslots(&slots(&[("A", "07:00", "02:00"), ("B", "02:00", "07:00")]));
         assert_eq!(unnamed, Some(CheapTimes(vec![(120, 420)])));
         assert_eq!(CheapTimes::from_timeslots(&slots(&[("ALL", "00:00", "00:00")])), None);
@@ -116,15 +146,32 @@ mod tests {
 
     #[test]
     fn charging_is_low_rate_outside_the_cheap_times_only_on_intelligent_octopus() {
-        let cheap = CheapTimes::from_timeslots(&slots(&[("ECO7_DAY", "05:30", "23:30"), ("ECO7_NIGHT", "23:30", "05:30")])).unwrap();
-        let tariff = OctopusTariff { cheap, intelligent: true, tz: time_tz::timezones::db::europe::LONDON };
+        let cheap = CheapTimes::from_timeslots(&slots(&[
+            ("ECO7_DAY", "05:30", "23:30"),
+            ("ECO7_NIGHT", "23:30", "05:30"),
+        ]))
+        .unwrap();
+        let tariff = OctopusTariff {
+            cheap,
+            intelligent: true,
+            tz: time_tz::timezones::db::europe::LONDON,
+        };
         // 1 November 2026, in GMT, so the times are UTC.
         let day = 1_793_491_200;
         assert_eq!(tariff.estimated_rate(day + 5 * 3600, false).as_deref(), Some(LOW_RATE));
-        assert_eq!(tariff.estimated_rate(day + 6 * 3600, false).as_deref(), Some(STANDARD_RATE));
+        assert_eq!(
+            tariff.estimated_rate(day + 6 * 3600, false).as_deref(),
+            Some(STANDARD_RATE)
+        );
         assert_eq!(tariff.estimated_rate(day + 6 * 3600, true).as_deref(), Some(LOW_RATE));
-        assert_eq!((tariff.cheap_time(day), tariff.cheap_time(day + 12 * 3600)), (Some(true), Some(false)));
-        let go = OctopusTariff { intelligent: false, ..tariff };
+        assert_eq!(
+            (tariff.cheap_time(day), tariff.cheap_time(day + 12 * 3600)),
+            (Some(true), Some(false))
+        );
+        let go = OctopusTariff {
+            intelligent: false,
+            ..tariff
+        };
         assert_eq!(go.estimated_rate(day + 6 * 3600, true).as_deref(), Some(STANDARD_RATE));
     }
 }

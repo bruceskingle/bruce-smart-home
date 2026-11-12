@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder};
 use bruce_graphql::types::DateTime;
+use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder};
 
 use crate::CacheConfig;
 use crate::data_set::MultiQueryDataSet;
@@ -24,7 +24,12 @@ pub struct MeterAgreementDataSet {
 }
 
 impl MeterAgreementDataSet {
-    pub async fn new(config: &CacheConfig, request_manager: &impl GraphQLCaller, account_number: &str, meter_node_ids: &Vec<String>) -> anyhow::Result<Self> {
+    pub async fn new(
+        config: &CacheConfig,
+        request_manager: &impl GraphQLCaller,
+        account_number: &str,
+        meter_node_ids: &Vec<String>,
+    ) -> anyhow::Result<Self> {
         let hash_key = format!("{}#MeterAgreements", account_number);
         let the_beginning: DateTime = DateTime::from_calendar_date(2000, time::Month::January, 1)?;
         let mut queries = Vec::new();
@@ -37,19 +42,17 @@ impl MeterAgreementDataSet {
 
             queries.push(query);
         }
-        let data = MultiQueryDataSet::new(
-            &hash_key,
-            Duration::from_hours(24),
-            queries,
-            config,
-            request_manager).await?;
+        let data =
+            MultiQueryDataSet::new(&hash_key, Duration::from_hours(24), queries, config, request_manager).await?;
 
         if !data._attributes.cached {
-            if let Err(error) = config.store().and_then(|store| record_tariffs(store, account_number, &data.data)) {
+            if let Err(error) = config
+                .store()
+                .and_then(|store| record_tariffs(store, account_number, &data.data))
+            {
                 crate::log_warning!("Unable to record the tariffs' history, {error:#}");
             }
         }
-
 
         let mut export_electricity_map = HashMap::new();
         let mut import_electricity_map = HashMap::new();
@@ -59,32 +62,39 @@ impl MeterAgreementDataSet {
             match response.node_ {
                 meter::meter_agreements::Node::ElectricityMeterType(electricity_meter_type) => {
                     if electricity_meter_type.import_meter_.is_some() {
-                        export_electricity_map.insert(electricity_meter_type.node_id_, electricity_meter_type.meter_point_.agreements_);
+                        export_electricity_map.insert(
+                            electricity_meter_type.node_id_,
+                            electricity_meter_type.meter_point_.agreements_,
+                        );
+                    } else {
+                        import_electricity_map.insert(
+                            electricity_meter_type.node_id_,
+                            electricity_meter_type.meter_point_.agreements_,
+                        );
                     }
-                    else {
-                        import_electricity_map.insert(electricity_meter_type.node_id_, electricity_meter_type.meter_point_.agreements_);
-                    }
-                },
+                }
                 meter::meter_agreements::Node::GasMeterType(gas_meter_type) => {
                     gas_map.insert(gas_meter_type.node_id_, gas_meter_type.meter_point_.agreements_);
-                },
-                _ => unreachable!()
+                }
+                _ => unreachable!(),
             }
         }
-        
+
         Ok(Self {
             export_electricity_map,
             import_electricity_map,
             gas_map,
         })
     }
-
 }
 
 /// The account's DataSet of each type of meter's tariffs, import, export or gas, by the hash of the account's number.
 pub(super) fn history_key(store: &bruce_db::Store, account_number: &str, kind: &str) -> anyhow::Result<String> {
     let account = bruce_db::Id::of(&serde_json::json!({"octopus": account_number}))?;
-    store.hash_key("octopus.tariff", &[bruce_db::Part::Id(account), bruce_db::Part::from(kind)])
+    store.hash_key(
+        "octopus.tariff",
+        &[bruce_db::Part::Id(account), bruce_db::Part::from(kind)],
+    )
 }
 
 /// The agreement with its unit rates sorted, so that the same rates in another order are not a change.
@@ -102,43 +112,62 @@ fn comparable(agreement: &serde_json::Value) -> serde_json::Value {
 /// it was seen and the agreement's ID, so that every change is kept. Octopus only returns a tariff as it is now, e.g.
 /// the unit rates which apply now, so this is the only record of what it was before, and of when it changed.
 /// Agreements which have ended are left as they were last recorded, as Octopus returns nulls for their rates.
-fn record_tariffs(store: &bruce_db::Store, account_number: &str, responses: &[meter::meter_agreements::Response]) -> anyhow::Result<()> {
+fn record_tariffs(
+    store: &bruce_db::Store,
+    account_number: &str,
+    responses: &[meter::meter_agreements::Response],
+) -> anyhow::Result<()> {
     let now = DateTime::from_unix_timestamp(crate::clock::now_utc().unix_timestamp())?;
-    let in_force = |valid_from: &DateTime, valid_to: &Option<DateTime>| valid_from <= &now && valid_to.as_ref().is_none_or(|valid_to| valid_to > &now);
+    let in_force = |valid_from: &DateTime, valid_to: &Option<DateTime>| {
+        valid_from <= &now && valid_to.as_ref().is_none_or(|valid_to| valid_to > &now)
+    };
     let mut agreements = Vec::new();
     for response in responses {
         match &response.node_ {
             meter::meter_agreements::Node::ElectricityMeterType(meter) => {
-                let kind = if meter.import_meter_.is_some() { "export" } else { "import" };
+                let kind = if meter.import_meter_.is_some() {
+                    "export"
+                } else {
+                    "import"
+                };
                 for agreement in &meter.meter_point_.agreements_ {
                     if in_force(&agreement.valid_from_, &agreement.valid_to_) {
                         agreements.push((kind, serde_json::to_value(agreement)?));
                     }
                 }
-            },
+            }
             meter::meter_agreements::Node::GasMeterType(meter) => {
                 for agreement in &meter.meter_point_.agreements_ {
                     if in_force(&agreement.valid_from_, &agreement.valid_to_) {
                         agreements.push(("gas", serde_json::to_value(agreement)?));
                     }
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
     for (kind, agreement) in agreements {
         let Some(id) = agreement["id"].as_i64() else { continue };
         let hk = history_key(store, account_number, kind)?;
         // The last recorded of this agreement, records being in the order seen.
-        let previous = store.all(&hk)?.into_iter().rev()
+        let previous = store
+            .all(&hk)?
+            .into_iter()
+            .rev()
             .filter_map(|item| item.attributes)
             .find(|record| record["agreement"]["id"].as_i64() == Some(id));
-        if previous.as_ref().is_some_and(|previous| comparable(&previous["agreement"]) == comparable(&agreement)) {
+        if previous
+            .as_ref()
+            .is_some_and(|previous| comparable(&previous["agreement"]) == comparable(&agreement))
+        {
             continue;
         }
         if previous.is_some() {
-            crate::log_info!("The {kind} tariff {} {} has changed", agreement["tariff"]["displayName"].as_str().unwrap_or(""),
-                agreement["tariff"]["tariffCode"].as_str().unwrap_or(""));
+            crate::log_info!(
+                "The {kind} tariff {} {} has changed",
+                agreement["tariff"]["displayName"].as_str().unwrap_or(""),
+                agreement["tariff"]["tariffCode"].as_str().unwrap_or("")
+            );
         }
         let version = crate::store::version_now();
         let seen = version.time.to_text();
@@ -149,7 +178,13 @@ fn record_tariffs(store: &bruce_db::Store, account_number: &str, responses: &[me
 }
 
 impl MeterAgreementDataSet {
-    pub fn get_in_scope(self, meter_type: &MeterType, is_export: bool, start_date: &DateTime, end_date: &DateTime) -> Vec<MeterAgreement> {
+    pub fn get_in_scope(
+        self,
+        meter_type: &MeterType,
+        is_export: bool,
+        start_date: &DateTime,
+        end_date: &DateTime,
+    ) -> Vec<MeterAgreement> {
         let mut in_scope_agreements = Vec::new();
 
         match meter_type {
@@ -159,32 +194,46 @@ impl MeterAgreementDataSet {
                         if &agreement.valid_from_ <= end_date {
                             if let Some(valid_to) = &agreement.valid_to_ {
                                 if valid_to >= start_date {
-                                    in_scope_agreements.push(MeterAgreement { agreement_id: agreement.id_.to_string(), tariff: Tariff::Gas(agreement.tariff_) });
+                                    in_scope_agreements.push(MeterAgreement {
+                                        agreement_id: agreement.id_.to_string(),
+                                        tariff: Tariff::Gas(agreement.tariff_),
+                                    });
                                 }
-                            }
-                            else {
-                                in_scope_agreements.push(MeterAgreement { agreement_id: agreement.id_.to_string(), tariff: Tariff::Gas(agreement.tariff_) });
+                            } else {
+                                in_scope_agreements.push(MeterAgreement {
+                                    agreement_id: agreement.id_.to_string(),
+                                    tariff: Tariff::Gas(agreement.tariff_),
+                                });
                             }
                         }
                     }
                 }
-            },
+            }
             MeterType::Electricity => {
-                for (_meter_node_id, agreement_vec) in if is_export {self.export_electricity_map} else {self.import_electricity_map} {
+                for (_meter_node_id, agreement_vec) in if is_export {
+                    self.export_electricity_map
+                } else {
+                    self.import_electricity_map
+                } {
                     for agreement in agreement_vec {
                         if &agreement.valid_from_ <= end_date {
                             if let Some(valid_to) = &agreement.valid_to_ {
                                 if valid_to >= start_date {
-                                    in_scope_agreements.push(MeterAgreement { agreement_id: agreement.id_.to_string(), tariff: Tariff::Electricity(agreement.tariff_) });
+                                    in_scope_agreements.push(MeterAgreement {
+                                        agreement_id: agreement.id_.to_string(),
+                                        tariff: Tariff::Electricity(agreement.tariff_),
+                                    });
                                 }
-                            }
-                            else {
-                                in_scope_agreements.push(MeterAgreement { agreement_id: agreement.id_.to_string(), tariff: Tariff::Electricity(agreement.tariff_) });
+                            } else {
+                                in_scope_agreements.push(MeterAgreement {
+                                    agreement_id: agreement.id_.to_string(),
+                                    tariff: Tariff::Electricity(agreement.tariff_),
+                                });
                             }
                         }
                     }
                 }
-            },
+            }
         }
 
         in_scope_agreements
@@ -248,7 +297,10 @@ mod tests {
         assert_eq!(last["meter"], "import");
         assert_eq!(last["agreement"]["id"], 1, "only the agreement in force is recorded");
         assert_eq!(last["agreement"]["tariff"]["standingCharge"], 55.0);
-        assert_eq!(last["agreement"]["tariff"]["unitRates"][0]["rateType"], "EV_DEVICE_PEAK", "kept in the order Octopus gave them");
+        assert_eq!(
+            last["agreement"]["tariff"]["unitRates"][0]["rateType"], "EV_DEVICE_PEAK",
+            "kept in the order Octopus gave them"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
