@@ -1,5 +1,5 @@
-//! The store, bruce-db, which the modules keep their data in, see bruce-db's docs/design.md: a directory of sites in
-//! the data home, one site for each profile, see Profile::site.
+//! The store, bruce-db, which the modules keep their data in, see docs/Store.md and bruce-db's docs/design.md: a
+//! directory of sites in the data home, one site for each profile, see Profile::site.
 //!
 //! What a source gave is kept as it gave it, and anything worked out from it, if it is kept at all, in kinds of its
 //! own, see AGENTS.md's "Caches hold only what the source sent". Versions written by the app have this installation's
@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 use bruce_db::{Id, Micros, Store, Version};
 
@@ -35,18 +36,43 @@ pub fn for_profile(profile_name: &str) -> anyhow::Result<Arc<Store>> {
     let store = Arc::new(open(profile_name)?);
     stores.insert(profile_name.to_string(), store.clone());
     drop(stores);
-    // The journal's days before yesterday are folded into the DataSets' files, leaving a day for late records, see
-    // bruce-db's design, so that the journal, which is kept in memory, stays small.
-    if let Some(before) = Micros::now().date().ok().and_then(|today| today.previous_day()) {
-        if let Err(error) = store.compact(before) {
-            crate::log_warning!("Unable to compact the store, {error:#}");
-        }
-    }
+    compact_in_background(profile_name, store.clone());
     Ok(store)
 }
 
+/// How long after a store is opened its journal is first compacted, so that the first page is drawn before it: a
+/// compaction holds the store until it is done, see bruce-db's file.rs, and pages wait for it.
+const FIRST_COMPACTION: Duration = Duration::from_secs(60);
+
+/// How often the journal is compacted after that, so that an app left running for days keeps it small. When there is
+/// nothing to compact, it only lists the journal's files.
+const COMPACTION_INTERVAL: Duration = Duration::from_secs(60 * 60);
+
+/// Compacts the store's journal on a thread of its own, see FIRST_COMPACTION and COMPACTION_INTERVAL: its days before
+/// yesterday are folded into the DataSets' files, leaving a day for late records, see bruce-db's design, so that the
+/// journal, which is kept in memory and read whenever the store is opened, stays small. How long it takes is in the
+/// profile's log, from bruce-db.
+fn compact_in_background(profile_name: &str, store: Arc<Store>) {
+    let spawned = std::thread::Builder::new()
+        .name(format!("compact {profile_name}"))
+        .spawn(move || {
+            std::thread::sleep(FIRST_COMPACTION);
+            loop {
+                if let Some(before) = Micros::now().date().ok().and_then(|today| today.previous_day())
+                    && let Err(error) = store.compact(before)
+                {
+                    crate::log_warning!("Unable to compact the store, {error:#}");
+                }
+                std::thread::sleep(COMPACTION_INTERVAL);
+            }
+        });
+    if let Err(error) = spawned {
+        crate::log_warning!("Unable to start compacting the store, {error:#}");
+    }
+}
+
 /// A part of a hash key for a capture device, its ID, a MAC address, in lowercase without its colons, e.g.
-/// 441bf6cc7fcc, which is also its origin, see the design's keys.
+/// 441bf6cc7fcc, which is also its origin, see docs/Store.md's kinds.
 pub fn device_part(device_id: &str) -> String {
     crate::device_kinds::device_part(device_id)
 }

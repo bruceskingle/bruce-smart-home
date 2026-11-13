@@ -1086,7 +1086,7 @@ async fn set_up_store_once(device: &DeviceProfile, site: &str) -> anyhow::Result
 }
 
 /// Pulls the changes a device on the store has made since the app last did, putting each into store as from the
-/// device, see the design's capture devices on the store, and returns what the device says of itself, or None if its
+/// device, see docs/Store.md's capture devices on the store, and returns what the device says of itself, or None if its
 /// firmware is from before the store, so that it is read as it was. The cursor is the app's, in store, with the
 /// device's store's ID, so that a device whose store is new, e.g. a changed card, is pulled from the start again.
 pub async fn replicate(

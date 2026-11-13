@@ -332,6 +332,40 @@ pub fn log(level: Level, message: String) {
     }
 }
 
+/// Forwards the records of the `log` crate from Bruce's libraries, e.g. bruce-db's timings of opening and compacting a
+/// store and its warnings of lines it could not read, into this log, as they have no log of their own. Other crates'
+/// records, e.g. an HTTP client's, are left out, as they are about how it works, not what the app did. Called once, at
+/// the start; a second call changes nothing.
+pub fn forward_libraries() {
+    /// The `log` crate's logger, see forward_libraries.
+    struct Libraries;
+
+    impl log::Log for Libraries {
+        fn enabled(&self, metadata: &log::Metadata) -> bool {
+            metadata.level() <= log::Level::Info && metadata.target().starts_with("bruce_")
+        }
+
+        fn log(&self, record: &log::Record) {
+            if !self.enabled(record.metadata()) {
+                return;
+            }
+            let level = match record.level() {
+                log::Level::Error => Level::Error,
+                log::Level::Warn => Level::Warning,
+                _ => Level::Info,
+            };
+            log(level, record.args().to_string());
+        }
+
+        fn flush(&self) {}
+    }
+
+    static LIBRARIES: Libraries = Libraries;
+    if log::set_logger(&LIBRARIES).is_ok() {
+        log::set_max_level(log::LevelFilter::Info);
+    }
+}
+
 /// The current log file, which changes when the profile does.
 pub fn current_path() -> Option<PathBuf> {
     LOGGER.lock().unwrap().as_ref().map(|logger| logger.path.clone())

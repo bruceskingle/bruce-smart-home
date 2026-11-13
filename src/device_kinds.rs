@@ -1,7 +1,7 @@
 //! The kinds of records a capture device writes, and how each record becomes an item of the store, shared by the app,
 //! whose modules write the same kinds when they poll the sources themselves, and the capture firmware, which includes
 //! this file with `#[path]`, see capture/src/db.rs, so that a device writes exactly the items the app would, and the
-//! two cannot drift, see bruce-db's docs/design.md, "Capture devices on the store".
+//! two cannot drift, see docs/Store.md, "Kinds" and "Capture devices on the store".
 //!
 //! It uses only bruce-db, serde_json and anyhow, as the firmware has none of the app's other crates, and it names no
 //! module's code, only the kinds, which the app's modules and the firmware's features both write.

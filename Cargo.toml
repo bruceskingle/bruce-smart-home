@@ -27,7 +27,9 @@ rust_decimal_macros = "1.36.0"
 bruce-graphql = {version = "0.5.0", path = "../bruce-graphql" }
 # The store every module keeps its data in, see store.rs; a git-ignored .cargo/config.toml may patch in a checkout of
 # bruce-db next to this one, to work on both.
-bruce-db = "0.1.0"
+bruce-db = "0.2.0"
+# The log records of Bruce's libraries, e.g. bruce-db's timings, which logging.rs puts into the profile's log.
+log = "0.4"
 # Flashing the capture firmware to boards on USB, from bruce-embedded-flash, checked out next to this repo.
 bruce-embedded-flash-ui = { path = "../bruce-embedded-flash/bruce-embedded-flash-ui" }
 #serde_with = "3.9.0"

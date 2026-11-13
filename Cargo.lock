@@ -570,9 +570,9 @@ dependencies = [
 
 [[package]]
 name = "bruce-db"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "940a408519a476c864b5514339d8c0a1987bff9b7e007f0a970d2fbd7557a481"
+checksum = "c31d99b08ebcb9c21767a2532434015279980a641a26a060ca05484a2734f6b7"
 dependencies = [
  "anyhow",
  "base64",
@@ -600,6 +600,8 @@ dependencies = [
 [[package]]
 name = "bruce-embedded-firmware-record"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5880821c9abff5fc57482b0a702e8b472af04c7eef60ff9bdbdbeb809f48858"
 
 [[package]]
 name = "bruce-embedded-flash"
@@ -679,6 +681,7 @@ dependencies = [
  "hmac 0.12.1",
  "indexmap",
  "keyring",
+ "log",
  "md-5 0.10.6",
  "objc2",
  "objc2-app-kit",
@@ -8583,7 +8586,3 @@ dependencies = [
  "syn 3.0.9",
  "winnow 1.0.5",
 ]
-
-[[patch.unused]]
-name = "bruce-db"
-version = "0.2.0"

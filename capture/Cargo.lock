@@ -132,6 +132,8 @@ dependencies = [
 [[package]]
 name = "bruce-db"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c31d99b08ebcb9c21767a2532434015279980a641a26a060ca05484a2734f6b7"
 dependencies = [
  "anyhow",
  "base64",
@@ -148,6 +150,8 @@ dependencies = [
 [[package]]
 name = "bruce-embedded-firmware-record"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5880821c9abff5fc57482b0a702e8b472af04c7eef60ff9bdbdbeb809f48858"
 
 [[package]]
 name = "bruce-embedded-std"

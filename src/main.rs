@@ -1,6 +1,8 @@
 use bruce_smart_home::components::app::App;
 
 fn main() {
+    // The libraries' own log records, e.g. the store's timings, go to the profile's log once it is started.
+    bruce_smart_home::logging::forward_libraries();
     // With --fetch the latest data is fetched without a window, e.g. from a scheduled task, then the app exits.
     let args = bruce_smart_home::Args::parse_all();
     // With --redact a profile's data is copied to a redacted, offline, profile, then the app exits.
