@@ -87,6 +87,9 @@ pub trait Split {
 
 /// Where a module's measurements come from, e.g. the Tesla module's capture device's snapshots.
 pub trait MeasurementSource {
+    /// What the measurements are of, for progress and the log, e.g. "Tesla".
+    fn name(&self) -> &str;
+
     /// The measurements from start to end, unix timestamps.
     fn load(&self, start: i64, end: i64) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn Measurements>>>>>;
 }

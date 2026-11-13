@@ -12,4 +12,9 @@ help. Click ![Help](../help/icons/help.svg) at the top right to hide it, or show
 
 Clickable links in the user interface will highlight if you hover the mouse over them. In this case the ```Home``` item on the menu bar at the top (which brings you back to this page) and the names of modules in the list (just ```octopus``` at the moment) are clickable.
 
+On macOS, a window from the Keychain may ask for your Mac's password, so that Bruce's Smart Home can read the key which
+unlocks the logins it keeps, e.g. your Octopus API key. You will see it after you have saved a login, the first time a
+new version of the app starts, e.g. after an update. Enter your password and choose **Always Allow**; see
+[Your secrets and the Keychain](cachedData.md#your-secrets-and-the-keychain) for why it asks.
+
 The first step is to login to your Octopus account.

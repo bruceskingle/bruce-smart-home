@@ -1,18 +1,19 @@
 #!/bin/bash
-# The release process for bruce-smart-home and bruce-graphql, see docs/Release.md
+# The release process for bruce-smart-home, see docs/Release.md
 #
 # The version comes from the version in bruce-smart-home's Cargo.toml, which "start" sets at the beginning of each release
-# cycle. Each command checks that the repos are in the state it expects before changing anything, and stops at the
-# first problem.
+# cycle. Each command checks that the repo is in the state it expects before changing anything, and stops at the first
+# problem.
 #
-# This is for macOS (it uses BSD sed) with both repos checked out side by side, e.g. ~/git/bruce-smart-home and
-# ~/git/bruce-graphql, and needs the GitHub CLI (gh) signed in. sync and download also work in Git Bash on Windows, to
-# test there.
+# Its libraries, e.g. bruce-graphql and bruce-db, are released on their own, to crates.io, with bruce-method-release,
+# before the app which uses them, which depends on their published versions, see release_version.
+#
+# This is for macOS (it uses BSD sed), and needs the GitHub CLI (gh) signed in. sync and download also work in Git Bash
+# on Windows, to test there.
 
 set -euo pipefail
 
-# bruce-graphql first, as bruce-smart-home depends on it.
-REPOS="bruce-graphql bruce-smart-home"
+REPOS="bruce-smart-home"
 WORKFLOW=release.yml
 # The installers attached to each release, with VERSION replaced by the version. The Intel Mac's was _x64.dmg before
 # dx 0.7.10.
@@ -27,20 +28,18 @@ github_owner() {
     git -C "$GIT_ROOT/$1" remote get-url origin | sed -E 's#^.*github\.com[:/]([^/]+)/.*$#\1#'
 }
 OWNER=$(github_owner bruce-smart-home)
-[ "$(github_owner bruce-graphql)" = "$OWNER" ] \
-    || { echo "ERROR: bruce-smart-home is from $OWNER but bruce-graphql is from $(github_owner bruce-graphql)" >&2; exit 1; }
 
 usage() {
     cat <<EOF
 Usage: $(basename "$0") <command>
 
-  status           Show the state of both repos, the tags and the GitHub release
-  start [version]  Start the next release: create the vX.X.X branches from main and set the version
+  status           Show the state of the repo, the tags and the GitHub release
+  start [version]  Start the next release: create the vX.X.X branch from main and set the version
                    (default: the next minor version after the one on main, e.g. 0.5.0 after 0.4.4; give a patch
                    version, e.g. 0.4.5, for a fix to the last release)
-  try              Build the installers from the release branches, without merging, and download them
-  merge            Squash merge the release branches to main, tag them releaseX.X.X, and merge main back
-  check            Clean build and run the tagged source, then go back to the release branches
+  try              Build the installers from the release branch, without merging, and download them
+  merge            Squash merge the release branch to main, tag it releaseX.X.X, and merge main back
+  check            Clean build and run the tagged source, then go back to the release branch
   build            Create a draft GitHub release, with the notes from the ChangeLog, build and attach the installers,
                    and download them
   notes            Replace the draft release's notes with the release's section of the ChangeLog, as it is at the tag
@@ -48,8 +47,8 @@ Usage: $(basename "$0") <command>
   untag            Delete the release tags (and draft release) to make more changes before releasing
   watch            Watch the latest run of try or build again, e.g. after Ctrl+C, and download its installers
   download         Download the installer for this machine from the latest try or build, e.g. on another machine
-  sync [branch]    On another machine, e.g. to build and test there: fetch both repos and check out and update the
-                   same branch in each, e.g. 0.4.4, v0.4.4 or main (default: the latest vX.X.X release branch)
+  sync [branch]    On another machine, e.g. to build and test there: fetch the repo and check out and update a
+                   branch, e.g. 0.4.4, v0.4.4 or main (default: the latest vX.X.X release branch)
 EOF
     exit 1
 }
@@ -72,15 +71,15 @@ cargo_version() {
     sed -n 's/^version = "\(.*\)"/\1/p' "$1/Cargo.toml" | head -1
 }
 
-# The version being released, from bruce-smart-home's Cargo.toml, after checking that bruce-graphql has the same version.
+# The version being released, from bruce-smart-home's Cargo.toml, after checking that it takes no library by path, e.g.
+# bruce-graphql from a checkout next to it, which the workflow, which builds only this repo, would not find.
 release_version() {
-    local version graphql_version dependency_version
+    local version by_path
     version=$(cargo_version "$(repo_dir bruce-smart-home)")
-    graphql_version=$(cargo_version "$(repo_dir bruce-graphql)")
-    dependency_version=$(sed -n 's/^bruce-graphql = {version = "\([^"]*\)".*/\1/p' "$(repo_dir bruce-smart-home)/Cargo.toml")
     [ -n "$version" ] || die "No version in bruce-smart-home/Cargo.toml"
-    [ "$graphql_version" = "$version" ] || die "bruce-graphql is version $graphql_version but bruce-smart-home is $version"
-    [ "$dependency_version" = "$version" ] || die "bruce-smart-home depends on bruce-graphql $dependency_version but is version $version"
+    by_path=$(grep -E '^[A-Za-z0-9_-]+ *= *\{.*path *=' "$(repo_dir bruce-smart-home)/Cargo.toml" | sed -E 's/ *=.*//' | tr '\n' ' ')
+    [ -z "$by_path" ] || die "bruce-smart-home takes ${by_path}by path. Release them first, and take them from crates.io,
+       see: bruce-method-release dependencies"
     echo "$version"
 }
 
@@ -302,7 +301,7 @@ cmd_sync() {
         branch=$(latest_release_branch)
         [ -n "$branch" ] || die "There is no vX.X.X release branch on GitHub, give the branch, e.g. main"
     fi
-    # Checked before changing either repo.
+    # Checked before changing anything.
     for repo in $REPOS; do
         require_clean "$repo"
         info "$repo: fetching"
@@ -326,7 +325,7 @@ cmd_sync() {
             || die "$repo: $branch has commits on this machine which are not on GitHub, push or remove them first"
         info "$repo: on $branch at $(git -C "$dir" log -1 --format='%h %s')"
     done
-    info "Both repos are on $branch, build with: dx serve"
+    info "On $branch, build with: dx serve"
 }
 
 cmd_status() {
@@ -385,13 +384,9 @@ cmd_start() {
     done
 
     info "Setting the version to $new_version"
-    sed -i '' "1,/^version = /s/^version = .*/version = \"$new_version\"/" "$(repo_dir bruce-graphql)/Cargo.toml"
-    sed -i '' -e "1,/^version = /s/^version = .*/version = \"$new_version\"/" \
-        -e "s/^bruce-graphql = {version = \"[^\"]*\"/bruce-graphql = {version = \"$new_version\"/" \
-        "$(repo_dir bruce-smart-home)/Cargo.toml"
-    release_version >/dev/null
+    sed -i '' -e "1,/^version = /s/^version = .*/version = \"$new_version\"/" "$(repo_dir bruce-smart-home)/Cargo.toml"
 
-    # Updates the Cargo.lock files.
+    # Updates Cargo.lock.
     for repo in $REPOS; do
         info "Building $repo"
         (cd "$(repo_dir "$repo")" && cargo build -q)
@@ -406,7 +401,7 @@ cmd_start() {
         git -C "$dir" push -q -u origin "v$new_version"
         info "$repo: v$new_version pushed"
     done
-    info "Release $new_version started, commit to the v$new_version branches"
+    info "Release $new_version started, commit to the v$new_version branch"
 }
 
 cmd_try() {
@@ -434,25 +429,17 @@ cmd_merge() {
     local version
     require_gh
     version=$(release_version)
-    local tagged=0
     for repo in $REPOS; do
         require_branch "$repo" "v$version"
         require_clean "$repo"
         require_pushed "$repo"
-        if remote_tag_exists "$repo" "release$version"; then
-            tagged=$((tagged + 1))
-        fi
+        ! remote_tag_exists "$repo" "release$version" \
+            || die "$repo is already tagged release$version, run untag first to make more changes"
     done
-    [ "$tagged" -lt 2 ] || die "Both repos are already tagged release$version, run untag first to make more changes"
 
     for repo in $REPOS; do
         local dir
         dir=$(repo_dir "$repo")
-        # Carries on after a merge which failed part way.
-        if remote_tag_exists "$repo" "release$version"; then
-            info "$repo: already merged and tagged release$version"
-            continue
-        fi
         if [ -z "$(gh pr list -R "$OWNER/$repo" --head "v$version" --state open --json number --jq '.[].number')" ]; then
             info "$repo: creating a pull request"
             gh pr create -R "$OWNER/$repo" --base main --head "v$version" --title "V$version" --body "Release $version"
@@ -631,7 +618,7 @@ cmd_untag() {
         info "$repo: deleting $tag"
         delete_tag "$repo" "$tag"
     done
-    info "Make the changes on the v$version branches, then run merge again"
+    info "Make the changes on the v$version branch, then run merge again"
 }
 
 # In braces, with exit, so that bash reads all of this before running it, and never reads any more of the file, which

@@ -589,6 +589,8 @@ dependencies = [
 [[package]]
 name = "bruce-embedded-firmware"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71396b4c16a98fe586d888048e1e63c4d85407022a2ebe8793cad0a276013e83"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
@@ -606,6 +608,8 @@ checksum = "c5880821c9abff5fc57482b0a702e8b472af04c7eef60ff9bdbdbeb809f48858"
 [[package]]
 name = "bruce-embedded-flash"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7ed527613ebb51da520a2e6748d09a4463c5dbc09be94f0b735063cba93929b"
 dependencies = [
  "anyhow",
  "bruce-embedded-firmware",
@@ -623,6 +627,8 @@ dependencies = [
 [[package]]
 name = "bruce-embedded-flash-ui"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07efec3c222d686687e2223ed769e73f46dd91040aa29902b0a9079df6caeb31"
 dependencies = [
  "anyhow",
  "bruce-embedded-firmware",
@@ -634,6 +640,8 @@ dependencies = [
 [[package]]
 name = "bruce-graphql"
 version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c4624e6c81f2388033ac5c9f7a60cf28a05e99be01c91e2b06911f17ec2f8b3"
 dependencies = [
  "display_json",
  "indexmap",
@@ -648,7 +656,9 @@ dependencies = [
 
 [[package]]
 name = "bruce-graphql-builder"
-version = "0.1.0"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "933da21371cdd8bbebe4cac51ee1e934931e4442bb9956ef9f8250c614d7839c"
 dependencies = [
  "graphql-parser",
  "indexmap",

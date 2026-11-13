@@ -1314,11 +1314,14 @@ impl SlotSource for MeasurementsConsumptionSource {
         //     )
         // }
 
+        // Another page only if Octopus says there is one: the last page has a cursor too, and asking after it costs
+        // a request of the measurements' rate limit for an empty page.
+        let page_info = &Self::get_measurements(last_response)?.page_info;
         Ok(
-            if let Some(end_cursor) = Self::get_measurements(&last_response)?
-                .page_info
+            if let Some(end_cursor) = page_info
                 .end_cursor
                 .as_ref()
+                .filter(|_| page_info.has_next_page)
                 .cloned()
             {
                 Some(
@@ -1379,8 +1382,10 @@ impl SlotSource for MeasurementsConsumptionSource {
         ))
     }
 
+    /// Octopus gives a day's readings some time the day after, and may revise those of the last few days, so a month
+    /// which is not complete is fetched again at most every 8 hours, or when reloaded.
     fn refresh_after(&self) -> Duration {
-        Duration::from_hours(24)
+        Duration::from_hours(8)
     }
 
     fn is_partial(&self, value: &Self::Value) -> bool {

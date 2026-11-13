@@ -156,6 +156,8 @@ checksum = "c5880821c9abff5fc57482b0a702e8b472af04c7eef60ff9bdbdbeb809f48858"
 [[package]]
 name = "bruce-embedded-std"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f556999b2e167f80b350901e15d567af2ce94e82cfe451088afc2e5a7ec50cc"
 dependencies = [
  "ahrs",
  "anyhow",
@@ -175,6 +177,8 @@ dependencies = [
 [[package]]
 name = "bruce-embedded-std-derive"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c5d32a3671aba9384bcd7d00b5628343e146cdaf367012e535f14b7d638d6ce"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -184,6 +188,8 @@ dependencies = [
 [[package]]
 name = "bruce-esp-idf"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7028cf28383065b620ab74d531990983c344159163340f1575a5eeda66682f3c"
 dependencies = [
  "anyhow",
  "bruce-embedded-firmware-record",

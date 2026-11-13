@@ -30,8 +30,8 @@ md-5 = "0.10"
 # The store the device keeps its records in, as the app does, see ../docs/Store.md, "Capture devices on the store".
 bruce-db = "0.2.0"
 
-bruce-embedded-std = { path = "../../bruce-embedded-std/bruce-embedded-std" }
-bruce-esp-idf = { path = "../../bruce-esp-idf/bruce-esp-idf", features = ["sd-card"] }
+bruce-embedded-std = "0.1.0"
+bruce-esp-idf = { version = "0.1.0", features = ["sd-card"] }
 
 esp-idf-svc = { version = "0.52.1", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
 # Remove `generic-queue-8` if you plan to use `embassy-time` WITH `embassy-executor`

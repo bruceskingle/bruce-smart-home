@@ -1,5 +1,5 @@
 # Builds the macOS and Windows installers for a tag, tests them, and keeps them on the run's page under Artifacts.
-# The tag (e.g. release0.4.4) must exist in both bruce-smart-home and bruce-graphql.
+# The tag is e.g. release0.4.4. The libraries the app uses, e.g. bruce-graphql, come from crates.io.
 #
 # With attach, the installers are also attached to the draft GitHub release for the tag, ready to be tried before the
 # release is published. A published release is never changed.
@@ -55,7 +55,7 @@ jobs:
         working-directory: bruce-smart-home
 
     steps:
-      # The two repos are checked out side by side, as in ~/git, because Cargo.toml refers to ../bruce-graphql
+      # In a directory of its own, as on a developer's computer, which the later steps run in.
       - name: Check out bruce-smart-home
         uses: actions/checkout@v7
         with:
@@ -63,14 +63,6 @@ jobs:
           path: bruce-smart-home
           # The build records the tag and branch, so it needs the history.
           fetch-depth: 0
-
-      - name: Check out bruce-graphql
-        uses: actions/checkout@v7
-        with:
-          # From the same account as this repo, so that forks build their own bruce-graphql.
-          repository: ${{ github.repository_owner }}/bruce-graphql
-          ref: ${{ env.TAG }}
-          path: bruce-graphql
 
       # The Windows ARM runner may not have Rust installed.
       - name: Install rustup
@@ -210,7 +202,7 @@ jobs:
           # Installed for the current user in LOCALAPPDATA, or for everyone in Program Files. The uninstaller is in the
           # same directory, so is left out.
           $exe = Get-ChildItem "$env:LOCALAPPDATA", "$env:LOCALAPPDATA\Programs", "$env:ProgramFiles" -Recurse -Depth 1 -Filter *.exe -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like '*marco*' -and $_.Name -notlike '*uninstall*' } |
+            Where-Object { $_.Name -like '*smart*home*' -and $_.Name -notlike '*uninstall*' } |
             Select-Object -First 1
           if (-not $exe) {
             throw "The installed app was not found"

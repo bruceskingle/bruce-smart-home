@@ -399,7 +399,13 @@ impl AgreementLineItems {
                 let continuation_query_provider =
                     |_bucket_start: &Date, last_response: &meter::gas_agreement_line_items::Response| {
                         let agreement = last_response.gas_agreement_.as_gas_agreement_ref();
-                        if let Some(end_cursor) = agreement.line_items_.page_info.end_cursor.clone() {
+                        if let Some(end_cursor) = agreement
+                            .line_items_
+                            .page_info
+                            .end_cursor
+                            .clone()
+                            .filter(|_| agreement.line_items_.page_info.has_next_page)
+                        {
                             let start_date = agreement.line_items_.edges.last().unwrap().node.start_at_.clone();
                             Some(
                                 meter::gas_agreement_line_items::Query::builder()
@@ -476,7 +482,13 @@ impl AgreementLineItems {
                         // let end_cursor = last_response.electricity_agreement_.get_line_items().last().unwrap().cursor;
 
                         let agreement = last_response.electricity_agreement_.as_electricity_agreement_ref();
-                        if let Some(end_cursor) = agreement.line_items_.page_info.end_cursor.clone() {
+                        if let Some(end_cursor) = agreement
+                            .line_items_
+                            .page_info
+                            .end_cursor
+                            .clone()
+                            .filter(|_| agreement.line_items_.page_info.has_next_page)
+                        {
                             let start_date = agreement.line_items_.edges.last().unwrap().node.start_at_.clone();
                             Some(
                                 meter::electricity_agreement_line_items::Query::builder()

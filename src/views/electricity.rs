@@ -219,22 +219,29 @@ pub fn ElectricityExplorer(
                 let (start, end) = dates.map_err(|error| anyhow!(error))?;
                 let mut electricity = Vec::new();
                 for source in &sources {
+                    let started = std::time::Instant::now();
                     electricity.push(
                         source
                             .0
                             .load(start, end, reload_period, progress, token.clone())
                             .await?,
                     );
+                    crate::logging::log_if_slow(&format!("{}'s electricity", source.0.name()), started);
                 }
                 // The half hours either side too, as a split may need them.
                 let mut loaded = Vec::new();
                 for measurements in &measurements {
+                    let name = measurements.0.name().to_string();
+                    let mut progress = progress;
+                    progress.set(format!("{name}: Loading what it measured"));
+                    let started = std::time::Instant::now();
                     loaded.push(
                         measurements
                             .0
                             .load(start.unix_timestamp() - 1800, end.unix_timestamp() + 1800)
                             .await?,
                     );
+                    crate::logging::log_if_slow(&format!("{name}'s measurements"), started);
                 }
                 let measurements = loaded;
                 if reload_period.is_some() {

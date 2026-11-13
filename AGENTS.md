@@ -26,8 +26,8 @@ Read the note for a kind of work before starting it:
   see [docs/Store.md](docs/Store.md) for how they use it, and bruce-db's docs/design.md for the store itself.
 - `src/redact.rs`: redacted, offline copies of a profile, for the docs and for testing without an account.
 - `graphql/octopus/`: the Octopus schema and the queries, from which `build.rs` generates the typed code, using the
-  `bruce-graphql` crates in a checkout of [bruce-graphql](https://github.com/bruceskingle/bruce-graphql) next to this
-  one, on the branch of the same name.
+  [bruce-graphql](https://github.com/bruceskingle/bruce-graphql) crates from crates.io, or from a checkout next to this
+  one while they are changed with the app, linked with bruce-method-release.
 - `capture/`: firmware for the ESP32 capture devices, built separately, see [capture/README.md](capture/README.md)
   and [agents/CaptureDevices.md](agents/CaptureDevices.md).
 - `docs/`: the user guide, an mdBook, whose `docs/help/` pages are also built into the app's help panel.
@@ -44,8 +44,10 @@ Read the note for a kind of work before starting it:
 - Try changes with a redacted, offline profile, `--redact <profile> <new profile>`, see
   [docs/Redaction.md](docs/Redaction.md), or with `--home=<an empty directory>`, not with a real account.
 
-Each release is developed on a `vX.Y.Z` branch, here and in bruce-graphql, squash merged to `main` when released, see
-[docs/Release.md](docs/Release.md). Base a pull request on the release branch, not on `main`.
+Each release is developed on a `vX.Y.Z` branch, squash merged to `main` when released, see
+[docs/Release.md](docs/Release.md). Base a pull request on the release branch, not on `main`. The libraries the app uses,
+e.g. bruce-graphql and bruce-db, are released to crates.io first, with bruce-method-release, and the app uses their
+published versions.
 
 ## Conventions
 

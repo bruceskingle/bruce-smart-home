@@ -319,6 +319,10 @@ impl ElectricitySource for OctopusElectricity {
         self.context.billing_timezone
     }
 
+    fn name(&self) -> &str {
+        "Octopus"
+    }
+
     fn kind(&self) -> SourceKind {
         SourceKind::Supplier
     }
@@ -358,6 +362,7 @@ impl ElectricitySource for OctopusElectricity {
                     progress.set(format!("{what}: {message}"))
                 }
             };
+            let started = std::time::Instant::now();
             let import = MeasurementsDataSet::new(
                 &account_id,
                 &import_mpan,
@@ -372,6 +377,8 @@ impl ElectricitySource for OctopusElectricity {
                 &*context.request_manager,
             )
             .await?;
+            crate::logging::log_if_slow("The import meter's readings", started);
+            let started = std::time::Instant::now();
             let export = match &export_mpan {
                 Some(export_mpan) => Some(
                     MeasurementsDataSet::new(
@@ -391,6 +398,11 @@ impl ElectricitySource for OctopusElectricity {
                 ),
                 None => None,
             };
+            crate::logging::log_if_slow("The export meter's readings", started);
+            // The Home Mini only says what it is doing when it fetches, so that a slow read of what is stored says so.
+            let mut home_mini_progress = progress;
+            home_mini_progress.set(String::from("Home Mini: Loading cached data"));
+            let started = std::time::Instant::now();
             let (home_mini, home_mini_error) = match &esme_id {
                 Some(esme_id) => match telemetry::fetch(
                     &account_id,
@@ -417,6 +429,7 @@ impl ElectricitySource for OctopusElectricity {
                 },
                 None => (Vec::new(), None),
             };
+            crate::logging::log_if_slow("The Home Mini's readings", started);
             // The half hours either side too, for whether the car was charging in them, see electricity::combine.
             let (before, after) = (
                 DateTime::from_unix_timestamp(start.unix_timestamp() - 1800)?,

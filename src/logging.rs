@@ -440,6 +440,18 @@ fn read_lines(path: &Path, offset: u64) -> Option<(Vec<LogEntry>, u64)> {
     Some((entries, offset + whole as u64))
 }
 
+/// How long loading something for a page may take before it is logged, as the page shows that it is loading after
+/// half a second, see .reload-overlay in main.css, so that what makes it slow can be found.
+const SLOW_LOAD: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Logs how long loading what took since started, if it took longer than SLOW_LOAD.
+pub fn log_if_slow(what: &str, started: std::time::Instant) {
+    let took = started.elapsed();
+    if took > SLOW_LOAD {
+        crate::log_info!("{what} took {took:.2?} to load");
+    }
+}
+
 /// Logs an INFO entry, e.g. log_info!("Fetched {count} readings").
 #[macro_export]
 macro_rules! log_info {

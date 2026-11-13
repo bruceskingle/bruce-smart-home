@@ -150,6 +150,9 @@ pub enum SourceKind {
 
 /// Where a site's electricity comes from, for the Electricity page, see views/electricity.rs.
 pub trait ElectricitySource {
+    /// What the readings are from, for the log, e.g. "Octopus".
+    fn name(&self) -> &str;
+
     /// Whether it is a supplier's or a device's.
     fn kind(&self) -> SourceKind;
 

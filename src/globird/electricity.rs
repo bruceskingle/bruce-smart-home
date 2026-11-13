@@ -117,6 +117,10 @@ fn site_data(readings: &[Reading], days: &[DaySummary], register: Option<&str>) 
 }
 
 impl ElectricitySource for GlobirdElectricity {
+    fn name(&self) -> &str {
+        "GloBird"
+    }
+
     fn kind(&self) -> SourceKind {
         SourceKind::Supplier
     }

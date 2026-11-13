@@ -4,7 +4,8 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use bruce_graphql::types::DateTime;
 use dioxus::prelude::*;
@@ -19,11 +20,61 @@ use crate::power::{ElectricitySource, LoadResult, LoadedElectricity, SiteData, S
 /// What a period's electricity is said to be from.
 const NAME: &str = "Tesla";
 
-/// The registers from start to end, read from the day files, which are large, off the page's thread.
+/// The registers last read, kept briefly so that the Electricity page, which asks for them both as an electricity
+/// source and as measurements of the site's use, for nearly the same range, reads the snapshots once rather than
+/// twice: they are thousands a day, and reading a week of them takes about a second.
+struct ReadRegisters {
+    /// The store they were read from, by its address, as a profile has a store of its own.
+    store: usize,
+    start: i64,
+    end: i64,
+    read_at: Instant,
+    registers: Arc<Vec<SiteRegisters>>,
+}
+
+static LAST_READ: Mutex<Option<ReadRegisters>> = Mutex::new(None);
+
+/// How long registers read are used again, long enough for one load of a page, short enough that the next one, e.g.
+/// after going back to the page, sees what the capture devices have saved since.
+const REUSE_FOR: Duration = Duration::from_secs(10);
+
+/// How much more than asked for is read, so that the page's other request, for the half hours either side, is in it.
+const MARGIN: i64 = 1800;
+
+/// The registers from start to end, read from the day files, which are large, off the page's thread, or else from
+/// those read moments ago, see ReadRegisters.
 async fn load_registers(store: Arc<bruce_db::Store>, start: i64, end: i64) -> Vec<SiteRegisters> {
-    tokio::task::spawn_blocking(move || super::snapshot::registers(&store, start, end))
-        .await
-        .unwrap_or_default()
+    let address = Arc::as_ptr(&store) as usize;
+    let within = |registers: &[SiteRegisters]| {
+        registers
+            .iter()
+            .filter(|registers| (start as f64..=end as f64).contains(&registers.time))
+            .cloned()
+            .collect()
+    };
+    if let Some(read) = LAST_READ.lock().unwrap().as_ref()
+        && read.store == address
+        && read.start <= start
+        && end <= read.end
+        && read.read_at.elapsed() < REUSE_FOR
+    {
+        return within(&read.registers);
+    }
+    let (from, to) = (start - MARGIN, end + MARGIN);
+    let registers = Arc::new(
+        tokio::task::spawn_blocking(move || super::snapshot::registers(&store, from, to))
+            .await
+            .unwrap_or_default(),
+    );
+    let result = within(&registers);
+    *LAST_READ.lock().unwrap() = Some(ReadRegisters {
+        store: address,
+        start: from,
+        end: to,
+        read_at: Instant::now(),
+        registers,
+    });
+    result
 }
 
 /// The registers as measurements of the site's use.
@@ -32,6 +83,10 @@ pub struct TeslaMeasurements {
 }
 
 impl MeasurementSource for TeslaMeasurements {
+    fn name(&self) -> &str {
+        NAME
+    }
+
     fn load(&self, start: i64, end: i64) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn Measurements>>>>> {
         let store = self.store.clone();
         Box::pin(async move {
@@ -60,6 +115,10 @@ const PERIODS: [Period; 6] = [
 ];
 
 impl ElectricitySource for TeslaElectricity {
+    fn name(&self) -> &str {
+        NAME
+    }
+
     fn kind(&self) -> SourceKind {
         SourceKind::Device
     }

@@ -202,6 +202,10 @@ pub struct ZappiMeasurementSource {
 }
 
 impl MeasurementSource for ZappiMeasurementSource {
+    fn name(&self) -> &str {
+        "myenergi"
+    }
+
     fn load(&self, start: i64, end: i64) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn Measurements>>>>> {
         let store = self.store.clone();
         Box::pin(async move {

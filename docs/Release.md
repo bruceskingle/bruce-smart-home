@@ -1,15 +1,30 @@
 # bruce-smart-home
 # Release Process
 
-Each release is developed on a branch called `vX.X.X` in both bruce-graphql and bruce-smart-home, which is squash
-merged to `main` and tagged `releaseX.X.X`. The installers are built on GitHub and attached to a draft release, which
-is published once they have been tried. Then the branches for the next version are started.
+Each release is developed on a branch called `vX.X.X`, which is squash merged to `main` and tagged `releaseX.X.X`.
+The installers are built on GitHub and attached to a draft release, which is published once they have been tried.
+Then the branch for the next version is started.
 
-The steps are run with [scripts/release.sh](../scripts/release.sh) on the main dev machine, with both repos checked
-out side by side in `~/git`. It needs the GitHub CLI, `gh`, signed in with `gh auth login`. The version comes from
-bruce-smart-home's Cargo.toml, which `start` sets at the beginning of each release, so it never needs to be typed again.
-Each command checks that both repos are in the state it expects (the right branch, nothing uncommitted, the tags it
-needs) and stops with an explanation at the first problem.
+The steps are run with [scripts/release.sh](../scripts/release.sh) on the main dev machine. It needs the GitHub CLI,
+`gh`, signed in with `gh auth login`. The version comes from bruce-smart-home's Cargo.toml, which `start` sets at the
+beginning of each release, so it never needs to be typed again. Each command checks that the repo is in the state it
+expects (the right branch, nothing uncommitted, the tags it needs) and stops with an explanation at the first problem.
+
+## 0. Release the Libraries
+
+The app's libraries, e.g. bruce-graphql, bruce-db and bruce-embedded-flash, are separate repositories, published to
+crates.io, and the app is built with their published versions, as the workflow checks out only this repo. While one is
+being changed with the app, the app takes it from its checkout next to this one, by path or a link, so release those
+first, with [bruce-method-release](https://github.com/bruceskingle/bruce-method-release):
+
+```
+cd ~/git/bruce-smart-home
+bruce-method-release dependencies
+```
+
+lists them in the order to release them, a tick for each one which is ready and a cross and what to do for each which
+is not. Releasing a library makes the app take it from crates.io. The release script's commands stop while the app
+still takes a library by path.
 
 ```
 cd ~/git/bruce-smart-home
@@ -28,8 +43,8 @@ version in `RELEASE`, e.g. `export RELEASE=0.4.4`.
 ./scripts/release.sh try
 ```
 
-Builds the installers from the release branches before anything is merged, to try them on other machines. It tags both
-release branches `testX.X.X` (moving the tags if they exist), runs the workflow, watches it (about 30 to 40 minutes,
+Builds the installers from the release branch before anything is merged, to try them on other machines. It tags the
+release branch `testX.X.X` (moving the tag if it exists), runs the workflow, watches it (about 30 to 40 minutes,
 the Intel Mac is the slowest) and downloads the installers, each in a folder named after its build:
 
 ```
@@ -39,7 +54,7 @@ the Intel Mac is the slowest) and downloads the installers, each in a folder nam
 ~/Downloads/bruce-smart-home-X.X.X-test/windows-x64/BrucesSmartHome_X.X.X_x64-setup.exe      Intel or AMD PC
 ```
 
-Each run of `try` replaces them. Run it again after fixing anything. The test tags are deleted by `merge`.
+Each run of `try` replaces them. Run it again after fixing anything. The test tag is deleted by `merge`.
 
 If a build fails, it shows the commands to see why and to re-run the failed jobs.
 
@@ -57,13 +72,9 @@ To try the installer on another machine, see
 <summary>Manual commands</summary>
 
 ```
-for repo in bruce-graphql bruce-smart-home; do
-  cd ~/git/$repo
-  git tag -f test$RELEASE
-  git push -f origin test$RELEASE
-done
-
 cd ~/git/bruce-smart-home
+git tag -f test$RELEASE
+git push -f origin test$RELEASE
 gh workflow run release.yml --ref v$RELEASE -f tag=test$RELEASE
 ```
 
@@ -136,14 +147,12 @@ gh api repos/bruceskingle/bruce-smart-home/actions/jobs/<job id>/logs | grep -B2
 gh run rerun $RUN --failed
 ```
 
-Delete the test tags afterwards:
+Delete the test tag afterwards:
 
 ```
-for repo in bruce-graphql bruce-smart-home; do
-  cd ~/git/$repo
-  git tag -d test$RELEASE
-  git push origin --delete test$RELEASE
-done
+cd ~/git/bruce-smart-home
+git tag -d test$RELEASE
+git push origin --delete test$RELEASE
 ```
 
 </details>
@@ -154,10 +163,9 @@ done
 ./scripts/release.sh merge
 ```
 
-For each repo, bruce-graphql first: creates a pull request from the release branch (unless there is one), squash
-merges it to `main` (`gh` asks for confirmation), and tags `main` `releaseX.X.X`. It then merges `main` back into the
-release branch, which changes no files but means a later pull request only shows new changes, and deletes the test
-tags. If it fails part way, run it again and it carries on.
+Creates a pull request from the release branch (unless there is one), squash merges it to `main` (`gh` asks for
+confirmation), and tags `main` `releaseX.X.X`. It then merges `main` back into the release branch, which changes no
+files but means a later pull request only shows new changes, and deletes the test tag.
 
 To make more changes after merging, before the release is published:
 
@@ -165,46 +173,38 @@ To make more changes after merging, before the release is published:
 ./scripts/release.sh untag
 ```
 
-deletes the release tags (and the draft release, if `build` has made one). Commit the changes to the release
-branches, then run `merge` again.
+deletes the release tag (and the draft release, if `build` has made one). Commit the changes to the release branch,
+then run `merge` again.
 
 <details>
 <summary>Manual commands</summary>
 
 ```
-for repo in bruce-graphql bruce-smart-home; do
-  cd ~/git/$repo
-  git checkout v$RELEASE
-  git status --short
-  git push
-  gh pr create --base main --head v$RELEASE --title "V$RELEASE" --body "Release $RELEASE"
-  gh pr merge v$RELEASE --squash
-done
+cd ~/git/bruce-smart-home
+git checkout v$RELEASE
+git status --short
+git push
+gh pr create --base main --head v$RELEASE --title "V$RELEASE" --body "Release $RELEASE"
+gh pr merge v$RELEASE --squash
 ```
 
-The pull requests can be merged on GitHub instead, choose **Squash and merge**. Then tag `main` and merge it back
-into the release branches:
+The pull request can be merged on GitHub instead, choose **Squash and merge**. Then tag `main` and merge it back into
+the release branch:
 
 ```
-for repo in bruce-graphql bruce-smart-home; do
-  cd ~/git/$repo
-  git fetch origin
-  git tag release$RELEASE origin/main
-  git push origin release$RELEASE
-  git merge origin/main -m "Merge main after squash merge"
-  git push
-done
+git fetch origin
+git tag release$RELEASE origin/main
+git push origin release$RELEASE
+git merge origin/main -m "Merge main after squash merge"
+git push
 ```
 
-To make more changes, delete the draft release (if there is one) and the release tags:
+To make more changes, delete the draft release (if there is one) and the release tag:
 
 ```
 gh release delete release$RELEASE --yes
-for repo in bruce-graphql bruce-smart-home; do
-  cd ~/git/$repo
-  git tag -d release$RELEASE
-  git push origin --delete release$RELEASE
-done
+git tag -d release$RELEASE
+git push origin --delete release$RELEASE
 ```
 
 </details>
@@ -215,30 +215,25 @@ done
 ./scripts/release.sh check
 ```
 
-Checks out the release tags in both repos, does a clean build and runs the app. Click around, then quit the app and it
-switches both repos back to the release branches. If something needs fixing, use `untag` as in step 2.
+Checks out the release tag, does a clean build and runs the app. Click around, then quit the app and it switches back to
+the release branch. If something needs fixing, use `untag` as in step 2.
 
 <details>
 <summary>Manual commands</summary>
 
 ```
-cd ~/git/bruce-graphql
-git checkout release$RELEASE
 cd ~/git/bruce-smart-home
 git checkout release$RELEASE
 cargo clean
 dx run --release
 ```
 
-Then go back to the release branches. If Cargo.lock shows as changed, it was regenerated (e.g. by the editor) and it
-is safe to discard it:
+Then go back to the release branch. If Cargo.lock shows as changed, it was regenerated (e.g. by the editor) and it is
+safe to discard it:
 
 ```
-for repo in bruce-graphql bruce-smart-home; do
-  cd ~/git/$repo
-  git restore Cargo.lock
-  git checkout v$RELEASE
-done
+git restore Cargo.lock
+git checkout v$RELEASE
 ```
 
 </details>
@@ -365,12 +360,11 @@ or choose **Publish release** on the draft's edit page on GitHub.
 ./scripts/release.sh start
 ```
 
-Creates the `vX.X.X` branches for the next minor version (e.g. 0.5.0 after 0.4.4) in both repos from `main`, sets
-the version in both Cargo.toml files and the version of bruce-graphql which bruce-smart-home uses, builds to update the
-Cargo.lock files, commits and pushes. For a different version, give it, e.g. `./scripts/release.sh start 0.4.5`. If
-the branches already exist it switches to them.
+Creates the `vX.X.X` branch for the next minor version (e.g. 0.5.0 after 0.4.4) from `main`, sets the version in
+Cargo.toml, builds to update Cargo.lock, commits and pushes. For a different version, give it, e.g.
+`./scripts/release.sh start 0.4.5`. If the branch already exists it switches to it.
 
-Then commit to the `vX.X.X` branches and push as usual. When it is ready to release, go back to step 1.
+Then commit to the `vX.X.X` branch and push as usual. When it is ready to release, go back to step 1.
 
 ### Patch Releases
 
@@ -383,12 +377,11 @@ release from it, e.g. while 0.5.0 is being developed:
 ```
 
 Make the fix and release it as usual. Then merge `main` into the release branch for the next minor version, so that it
-has the fix too, keeping its own version where the Cargo.toml files conflict:
+has the fix too, keeping its own version where Cargo.toml conflicts:
 
 ```
 ./scripts/release.sh sync v0.5.0
 git -C ~/git/bruce-smart-home merge origin/main
-git -C ~/git/bruce-graphql merge origin/main
 ```
 
 If a change needs its own branch, e.g. because someone else is working on it, branch from the release branch and
@@ -409,45 +402,31 @@ git push
 ```
 export RELEASE=0.4.5
 
-for repo in bruce-graphql bruce-smart-home; do
-  cd ~/git/$repo
-  git checkout main
-  git pull
-  git checkout -b v$RELEASE
-done
-
-cd ~/git/bruce-graphql
+cd ~/git/bruce-smart-home
+git checkout main
+git pull
+git checkout -b v$RELEASE
 sed -i '' "1,/^version = /s/^version = .*/version = \"$RELEASE\"/" Cargo.toml
 cargo build
-
-cd ~/git/bruce-smart-home
-sed -i '' -e "1,/^version = /s/^version = .*/version = \"$RELEASE\"/" \
-  -e "s/^bruce-graphql = {version = \"[^\"]*\"/bruce-graphql = {version = \"$RELEASE\"/" Cargo.toml
-cargo build
-
-for repo in bruce-graphql bruce-smart-home; do
-  cd ~/git/$repo
-  git diff --stat
-  git commit -am "Start v$RELEASE"
-  git push -u origin v$RELEASE
-done
+git diff --stat
+git commit -am "Start v$RELEASE"
+git push -u origin v$RELEASE
 ```
 
 </details>
 
 ## Other Build and Test Machines
 
-To build and test the latest release branch on another machine, with both repos checked out side by side there too:
+To build and test the latest release branch on another machine:
 
 ```
 ./scripts/release.sh sync
 ```
 
-Fetches both repos and checks out and updates the latest `vX.X.X` branch in each, so that bruce-smart-home is built with
-the matching bruce-graphql. For another branch, give it, e.g. `./scripts/release.sh sync 0.4.4` or
-`./scripts/release.sh sync main`. It does not need `gh`. It stops without changing anything if either repo has
-uncommitted changes, and only fast forwards, so it stops if a branch has commits on that machine which are not on
-GitHub. Then build as usual, e.g. `dx serve`.
+Fetches the repo and checks out and updates the latest `vX.X.X` branch. For another branch, give it, e.g.
+`./scripts/release.sh sync 0.4.4` or `./scripts/release.sh sync main`. It does not need `gh`. It stops without changing
+anything if the repo has uncommitted changes, and only fast forwards, so it stops if the branch has commits on that
+machine which are not on GitHub. Then build as usual, e.g. `dx serve`.
 
 <details>
 <summary>Manual commands</summary>
@@ -455,12 +434,10 @@ GitHub. Then build as usual, e.g. `dx serve`.
 ```
 export RELEASE=0.4.4
 
-for repo in bruce-graphql bruce-smart-home; do
-  cd ~/git/$repo
-  git fetch
-  git checkout v$RELEASE
-  git pull --ff-only
-done
+cd ~/git/bruce-smart-home
+git fetch
+git checkout v$RELEASE
+git pull --ff-only
 ```
 
 </details>
@@ -474,7 +451,7 @@ When `try` or `build` has finished on the main dev machine, on the other machine
 ./scripts/release.sh download
 ```
 
-`sync` puts the repos on the release branch, which `download` needs because the version comes from them. `download`
+`sync` puts the repo on the release branch, which `download` needs because the version comes from them. `download`
 then downloads just the installer for that machine, from the latest run: the `.dmg` for an Apple silicon or Intel Mac,
 or the `setup.exe` for an ARM or Intel/AMD PC. It stops if the run has not finished, so wait for it with `watch` first.
 

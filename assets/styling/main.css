@@ -575,6 +575,18 @@ h6 {
     align-items: center;
     justify-content: center;
     background: rgba(0, 0, 0, 0.4);
+    /* Shown only if loading takes a while, e.g. a fetch from the server, so that reading what is already stored, e.g.
+       on each zoom, does not flash it up. It still stops clicks on the page while it is hidden. */
+    animation: reload-overlay-appear 0.15s ease-in 0.5s both;
+}
+
+@keyframes reload-overlay-appear {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
 }
 
 /* Modal dialog, e.g. the meter consumption date range */
