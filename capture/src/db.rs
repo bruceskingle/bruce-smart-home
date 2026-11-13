@@ -40,8 +40,43 @@ const PANEL_ORDER: u8 = 9;
 const MAX_CHANGES: usize = 1000;
 const DEFAULT_CHANGES: usize = 500;
 
-/// When the journal's finished days are compacted, at night, when little is polled, see CompactTask.
-const COMPACT_SCHEDULE: &str = "0 7 3 * * *";
+/// The minutes past the hour at which compaction may start, leaving out those at which Octopus is polled, :29, :30,
+/// :59 and :00, see compact_schedule.
+const COMPACT_MINUTES: std::ops::RangeInclusive<u64> = 1..=56;
+
+/// How long after starting the device compacts, at the earliest, to fold in any days it missed while it was off, see
+/// CompactTask; each device adds up to as long again, from its ID, so that devices restarted together, e.g. by a power
+/// cut, do not compact together.
+const COMPACT_AFTER_START: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// The file, in the store's directory on the SD card, which says that a compaction was started, and by which build of
+/// the firmware, see CompactGuard.
+const COMPACTING_FILE: &str = "compacting";
+
+/// When this device compacts the journal's finished days, as a schedule, at night, when little is polled, at a time
+/// from its ID, between 01:01 and 04:58, so that two devices capturing the same sources are unlikely to compact at
+/// once: on 12 and 13 November 2026 both ran out of memory compacting at 03:07, the same time, and each lost the
+/// minutes it took to start again. A stopgap until the devices agree among themselves who does what when.
+fn compact_schedule(device: &str) -> String {
+    let hash = device_hash(device);
+    let minutes = COMPACT_MINUTES.end() - COMPACT_MINUTES.start() + 1;
+    let slot = hash % (4 * minutes);
+    let hour = 1 + slot / minutes;
+    let mut minute = COMPACT_MINUTES.start() + slot % minutes;
+    // Past :28, step over :29 and :30.
+    if minute >= 29 {
+        minute += 2;
+    }
+    format!("0 {minute} {hour} * * *")
+}
+
+/// A number from the device's ID, the same each time, to spread devices' work over time, see compact_schedule.
+fn device_hash(device: &str) -> u64 {
+    // FNV-1a, which needs nothing more and is stable across builds, unlike std's hasher.
+    device.bytes().fold(0xcbf29ce484222325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+    })
+}
 
 #[derive(FeatureConfig)]
 #[config(label = "Store")]
@@ -69,6 +104,8 @@ struct State {
     store: Option<Arc<Store>>,
     /// Why there is no store, or why the last put failed.
     problem: Option<String>,
+    /// Why the last compaction failed, or was not started, see CompactGuard.
+    compaction_problem: Option<String>,
 }
 
 impl Db {
@@ -91,6 +128,11 @@ impl Db {
     /// Why there is no store, or why the last put failed, for the screen and the app.
     pub fn problem(&self) -> Option<String> {
         self.state.lock().unwrap().problem.clone()
+    }
+
+    /// Where the SD card is mounted, if it is.
+    fn mount_point(&self) -> Option<PathBuf> {
+        self.state.lock().unwrap().mount_point.clone()
     }
 
     /// Puts the item make makes of a record, written by this device, if there is a store, and make makes one,
@@ -249,6 +291,7 @@ impl Db {
             "store": store.as_ref().map(|store| store.store_id()),
             "format": 1,
             "problem": self.problem(),
+            "compactionProblem": self.state.lock().unwrap().compaction_problem.clone(),
             "sdCard": self.sd_card(),
             "features": features,
         })
@@ -315,13 +358,23 @@ impl Feature for StoreFeature {
             });
         })?;
 
-        initializer.add_task(
-            Box::new(CompactTask {
-                db: self.db.clone(),
-                running: Arc::new(AtomicBool::new(false)),
-            }),
-            COMPACT_SCHEDULE,
-        )?;
+        let schedule = compact_schedule(&device);
+        info!("The store is compacted at {schedule}, and once after starting");
+        let compact = CompactTask {
+            db: self.db.clone(),
+            running: Arc::new(AtomicBool::new(false)),
+        };
+        // Once soon after starting, for any days missed while the device was off, e.g. at its time.
+        let after_start =
+            COMPACT_AFTER_START + COMPACT_AFTER_START.mul_f64((device_hash(&device) % 1000) as f64 / 1000.0);
+        let mut once = compact.clone();
+        std::thread::Builder::new().stack_size(8 * 1024).spawn(move || {
+            std::thread::sleep(after_start);
+            if let Err(error) = once.start() {
+                warn!("Unable to compact the store, {error:#}");
+            }
+        })?;
+        initializer.add_task(Box::new(compact), &schedule)?;
 
         let db = self.db.clone();
         platform.api_get("/api/store/info", move |request| {
@@ -334,35 +387,111 @@ impl Feature for StoreFeature {
 }
 
 /// Compacts the journal's days before yesterday, see bruce-db's design, in a thread of its own, as it takes a while,
-/// and the scheduler runs the polls.
+/// and the scheduler runs the polls, unless a compaction by this build of the firmware did not finish, see
+/// CompactGuard.
+#[derive(Clone)]
 struct CompactTask {
     db: Arc<Db>,
     running: Arc<AtomicBool>,
 }
 
-impl ScheduledTask<Esp32Platform> for CompactTask {
-    fn run(&mut self, _platform: &mut Esp32Platform) -> anyhow::Result<()> {
-        let Some(store) = self.db.store() else { return Ok(()) };
+impl CompactTask {
+    /// Starts compacting, unless it already is, or there is no store.
+    fn start(&mut self) -> anyhow::Result<()> {
+        let (Some(store), Some(mount_point)) = (self.db.store(), self.db.mount_point()) else {
+            return Ok(());
+        };
         if self.running.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
-        let running = self.running.clone();
+        let guard = CompactGuard {
+            path: mount_point.join("store").join(COMPACTING_FILE),
+            build: build_id(),
+        };
+        let (db, running) = (self.db.clone(), self.running.clone());
         std::thread::Builder::new().stack_size(16 * 1024).spawn(move || {
             if let Some(before) = Micros::now().date().ok().and_then(|today| today.previous_day()) {
-                info!("Compacting the store's journal before {before}");
-                match store.compact(before) {
-                    Ok(()) => info!("Compacted the store"),
-                    Err(error) => warn!("Unable to compact the store, {error:#}"),
+                let problem = match guard.begin() {
+                    Err(problem) => Some(problem),
+                    Ok(()) => {
+                        info!("Compacting the store's journal before {before}");
+                        let result = store.compact(before);
+                        guard.end();
+                        match result {
+                            Ok(()) => {
+                                info!("Compacted the store");
+                                None
+                            }
+                            Err(error) => Some(format!("Unable to compact the store, {error:#}")),
+                        }
+                    }
+                };
+                if let Some(problem) = &problem {
+                    warn!("{problem}");
                 }
+                db.state.lock().unwrap().compaction_problem = problem;
             }
             running.store(false, Ordering::SeqCst);
         })?;
         Ok(())
     }
+}
+
+impl ScheduledTask<Esp32Platform> for CompactTask {
+    fn run(&mut self, _platform: &mut Esp32Platform) -> anyhow::Result<()> {
+        self.start()
+    }
 
     fn name(&self) -> &str {
         "Store Compaction"
     }
+}
+
+/// A file on the SD card which says that a compaction was started, and by which build of the firmware, written before
+/// it starts and deleted when it ends, so that if the device restarts while compacting, e.g. as it ran out of memory,
+/// that build does not compact again, which would only fail again, every night, losing what the device would have
+/// captured while it started again. A new build, e.g. with a fix, tries again. The store stays whole: the journal is
+/// only deleted once compaction has finished.
+struct CompactGuard {
+    path: PathBuf,
+    build: String,
+}
+
+impl CompactGuard {
+    /// Notes that a compaction is starting, or says why it should not.
+    fn begin(&self) -> Result<(), String> {
+        if let Ok(text) = std::fs::read_to_string(&self.path) {
+            let mut lines = text.lines();
+            if lines.next() == Some(self.build.as_str()) {
+                let started = lines.next().unwrap_or("an unknown time");
+                return Err(format!(
+                    "A compaction of the store started at {started} did not finish, e.g. as the device ran out of \
+                     memory, so this firmware does not compact it again: update the firmware"
+                ));
+            }
+        }
+        std::fs::write(&self.path, format!("{}\n{}\n", self.build, Micros::now().to_text()))
+            .map_err(|error| format!("Unable to note that a compaction is starting, {error:#}"))
+    }
+
+    /// Notes that the compaction has ended, whether or not it succeeded, as one which failed without a restart can be
+    /// tried again.
+    fn end(&self) {
+        if let Err(error) = std::fs::remove_file(&self.path) {
+            warn!("Unable to note that the compaction has ended, {error:#}");
+        }
+    }
+}
+
+/// This build of the firmware, the SHA-256 of its ELF file, as hex, so that a new build can be told from the one
+/// before even when its version is the same, see CompactGuard.
+fn build_id() -> String {
+    let mut buffer = [0u8; 65];
+    let written =
+        unsafe { esp_idf_sys::esp_app_get_elf_sha256(buffer.as_mut_ptr() as *mut core::ffi::c_char, buffer.len()) };
+    String::from_utf8_lossy(&buffer[..written.max(0) as usize])
+        .trim_end_matches('\0')
+        .to_string()
 }
 
 /// Responds to a request for the store's changes after the sequence number in its since parameter, 0 if it has none,

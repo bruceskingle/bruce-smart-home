@@ -131,9 +131,7 @@ dependencies = [
 
 [[package]]
 name = "bruce-db"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "940a408519a476c864b5514339d8c0a1987bff9b7e007f0a970d2fbd7557a481"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -2942,7 +2940,3 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
-
-[[patch.unused]]
-name = "bruce-db"
-version = "0.2.0"
