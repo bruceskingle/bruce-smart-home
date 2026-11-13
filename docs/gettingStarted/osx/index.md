@@ -1,41 +1,54 @@
 # Installing on macOS
 
-How to download Bruce's Smart Home for your Mac, install it in Applications, and allow it to run. The app is not signed by
-Apple, so there is one extra step after installing it, which removes the warning macOS would otherwise show.
+How to download Bruce's Smart Home for your Mac and install it in Applications. The app is signed with a Developer ID
+and notarized by Apple, so it opens like any other app downloaded from the internet.
 
 ## Download the Release Binary
 
-Navigate to [https://github.com/bruceskingle/bruce-smart-home/releases/](https://github.com/bruceskingle/bruce-smart-home/releases/) to find the
-latest release: 
+Go to [https://github.com/bruceskingle/bruce-smart-home/releases/](https://github.com/bruceskingle/bruce-smart-home/releases/)
+to find the latest release:
 
 ![Download Page](../download.png)
 
-Look for the one with the <img src="../latest.png" width="60"> label, and then select the correct version for your computer, either
-```BrucesSmartHome_0.4.2_x64.dmg``` for Intel based computers or ```BrucesSmartHome_0.4.2_aarch64.dmg``` for Apple Silicone based computers (the version number ```0.4.2``` may be different of course).
+Look for the one with the <img src="../latest.png" width="60"> label, and download the `.dmg` for your Mac:
+`BrucesSmartHome_0.5.0_aarch64.dmg` for a Mac with Apple silicon, e.g. an M1 or later, or
+`BrucesSmartHome_0.5.0_x86_64.dmg` for an Intel Mac. The version number, `0.5.0` here, may be different. **About This
+Mac**, in the Apple menu, says which chip your Mac has.
 
-When the file has downloaded click on the ```Downloads``` icon in the Dock and click on the ```.dmg``` file to open it. Alternatively open ```Finder``` go to the ```Downloads``` folder and click on it from there.
+## Install It
+
+When the file has downloaded, click the **Downloads** icon in the Dock and click the `.dmg` file to open it, or open it
+from the **Downloads** folder in **Finder**.
 
 <img src="Screenshot1.png" width="275">
 
-The distribution file will open as an attached drive like the image below, drag and drop the application icon onto the Applications shortcut.
+It opens as a drive, like the image below. Drag the app's icon onto the **Applications** shortcut.
 
 <img src="Screenshot2.png" width="550">
 
-If you have installed the application before you will see this dialog, if so then click ```Replace```
+If you have installed the app before, macOS asks whether to replace it. Click **Replace**.
 
 <img src="Screenshot3.png" width="550">
 
-Finally right click on the distribution file window and select on ```Eject "BrucesSmartHome"```
+Then right click in the drive's window and choose **Eject "BrucesSmartHome"**.
 
 <img src="Screenshot4.png" width="550">
 
-Since this app is not signed you will need to open a ```Terminal``` window and execute the following command to remove the file from quarantine:
+The first time you open the app, macOS says that it was downloaded from the internet and asks whether to open it.
+Click **Open**.
 
-```
-xattr -d com.apple.quarantine /Applications/BrucesSmartHome.app 
-```
+Versions before 0.5.0 were not signed, and needed the command `xattr -d com.apple.quarantine` to open. That is no
+longer needed.
 
-If you wish to execute the app from the command line directly or from a shell script, the full path to the executable is
+## The Keychain
+
+After you have saved a login, the Keychain may ask for your Mac's password, so that the app can read the key which
+unlocks your logins, see [Your secrets and the Keychain](../cachedData.md#your-secrets-and-the-keychain).
+
+## From the Command Line
+
+To run the app from the command line or a script, e.g. a [scheduled fetch](../../ScheduledFetch.md), its full path is
+
 ```
 /Applications/BrucesSmartHome.app/Contents/MacOS/bruce-smart-home
 ```

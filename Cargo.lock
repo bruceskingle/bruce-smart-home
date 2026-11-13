@@ -570,9 +570,9 @@ dependencies = [
 
 [[package]]
 name = "bruce-db"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c31d99b08ebcb9c21767a2532434015279980a641a26a060ca05484a2734f6b7"
+checksum = "45a060067465297bb5104ecfef1af809a3ce5f57a1f462a98c22530abe41f359"
 dependencies = [
  "anyhow",
  "base64",

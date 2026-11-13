@@ -2,7 +2,66 @@
 
 What has changed in each release of Bruce's Smart Home, called Marco Sparko before 0.5.0, the newest first: the new features, the improvements to existing
 ones, and the problems which have been fixed. The releases themselves are on
-[GitHub](https://github.com/bruceskingle/marco-sparko/releases).
+[GitHub](https://github.com/bruceskingle/bruce-smart-home/releases).
+
+## Release 0.5.0
+
+> **Marco Sparko is now Bruce's Smart Home.** It keeps its profiles and data in new places, `.bruce-smart-home` and
+> `.bruce-smart-home-data` in your home directory, and does not read Marco Sparko's, so set up your profiles again, see
+> [Profiles](gettingStarted/profiles.md). Once you no longer need Marco Sparko's files, `.marco-sparko` and
+> `.marco-sparko-cache`, you can delete them, see [Your Data](gettingStarted/cachedData.md#before-version-050).
+
+### New
+- **More than Octopus.** Each source of data is a module, and a profile can use several:
+  - **myenergi**: a zappi's records of what it charged the car with, and of its grid clamp, fetched from myenergi.
+  - **Tesla**: the Powerwall gateway's readings of the grid, the Powerwalls, the solar panels and the house, read from
+    the gateway on your home network. The app only reads it, so it works alongside e.g. Home Assistant.
+  - **GloBird**: a GloBird Energy customer's smart meter readings every 5 minutes, with each day's costs, and the
+    bills, from GloBird's customer portal.
+- **Electricity**, Home's first page, puts the modules together: your supplier's meter readings, which are what you
+  are billed for, the Home Mini's readings every 10 seconds, and what the Tesla gateway and the zappi measured, which
+  split the import into what the house, the car and the Powerwalls used. Each use is at the rates it was billed at,
+  and the kWh and the cost at each rate agree with your bill. Until the meter's readings arrive, a few days later, the
+  rate is estimated from your tariff and when the car was charging, and shown as estimated. Its **Flows** view shows
+  where the energy went in each period.
+- **Site**, a diagram of where in your house each module measures, from the grid connection through the circuits each
+  one feeds, its **topology**, which the Electricity page needs to split the import correctly, as it differs from house
+  to house, e.g. whether the car's charger is inside the Tesla gateway's grid clamp. The page suggests one from the last
+  week's measurements, and checks any you draw against them.
+- **Live**, the site's diagram with what each circuit is taking or giving now, with dots moving the way the energy
+  flows, faster the more power there is.
+- **Capture devices.** Small, always-on ESP32 boards with a screen, e.g. the Waveshare ESP32-S3-RLCD-4.2 or the
+  Guition JC3248W535C, which fetch the Tesla gateway's, the zappi's and Octopus's data every few minutes while your
+  computer is asleep or the app is closed, keep it on their SD cards, and show the latest on their screens. The app
+  reads what they took when it next runs. Adopt one on the **Devices** page, which also shows each device's state and
+  settings, and can flash the capture firmware onto a board plugged in by USB, refusing firmware built for another
+  board.
+- **Temperature and humidity.** Capture devices with a sensor of their own keep its readings, which Home's Temperature
+  and Humidity page shows as graphs, a line for each room.
+- **Polling.** While the app is open it keeps the data which is only available for a while, such as the Tesla gateway's
+  and the zappi's, and the charging Octopus planned and carried out, every 5 or 15 minutes. Home's Polling section shows
+  what each module did last and when it polls next, with **Poll Now**.
+- **Copy and rename profiles**, from the **…** beside each profile in the profile menu. An offline copy shows the data
+  as it was when copied, without logging in or fetching anything, e.g. to try a change to its topology.
+
+### Improved
+- **The macOS app is signed and notarized** by Apple, so it opens like any other app downloaded from the internet,
+  without the `xattr` command earlier versions needed, see [Installing on macOS](gettingStarted/osx/index.md).
+- **Your logins are encrypted.** API keys, passwords and tokens are encrypted in the settings files, with a key kept in
+  your computer's own store of secrets, so a copy of the files, e.g. in a backup, does not give them away. On macOS the
+  Keychain asks for your password to let the app read the key, see
+  [Your secrets and the Keychain](gettingStarted/cachedData.md#your-secrets-and-the-keychain).
+- **Everything is kept in one store**, each profile's in a directory of its own, which the capture devices keep theirs
+  in too, so what they take is copied to the app as it is.
+- **Fewer requests to Octopus.** The meters' readings are fetched a month at a time, and a month already fetched is not
+  fetched again for 8 hours, so moving around the graphs, e.g. zooming in, no longer fetches anything, and the Loading
+  dialog only shows when something takes a while.
+- **EV charging split.** The car's share of each half hour's import follows what the car was measured to take where it
+  was measured, with Octopus's own split shown alongside to compare.
+
+### Fixed
+- A property with more than one electricity meter, e.g. an old one which no longer works beside its replacement, now
+  shows the readings of the meter with the active agreement, rather than the first one Octopus lists.
 
 ## Release 0.4.4
 
