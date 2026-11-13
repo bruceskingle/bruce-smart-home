@@ -769,7 +769,15 @@ fn AddDevice(profile_name: String) -> Element {
             busy.set(true);
             // The last action's message, which this replaces.
             status.set(None);
-            match capture_device::adopt(&device, &code()).await {
+            let site = match crate::profile::ensure_site(&profile_name) {
+                Ok(site) => site.to_string(),
+                Err(error) => {
+                    status.set(Some(Err(format!("Not adopted, as the profile has no site, {error:#}"))));
+                    busy.set(false);
+                    return;
+                }
+            };
+            match capture_device::adopt(&device, &code(), &site).await {
                 Ok(adopted) => {
                     let mut devices = settings.read().capture_devices.clone();
                     devices.retain(|other| other.id != adopted.id);

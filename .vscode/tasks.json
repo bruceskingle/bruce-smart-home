@@ -8,12 +8,12 @@
 			// whose port is /dev/cu.usbserial-*, its USB chip's, showing its progress, then shows the device's log. It flashes
 			// with bruce-embedded-flash, from the bruce-embedded-flash repo, which refuses firmware built for another board than
 			// the one on the port, and asks which board it is if its firmware does not say. Ctrl+R
-			// restarts the device, Ctrl+C stops showing the log, the device runs on. 460800 baud is 4 times faster than
-			// espflash's default (921600 fails on the CYD), take --baud out if flashing fails. Stop Device: Log CYD first, as
-			// it holds the port.
+			// restarts the device, Ctrl+C stops showing the log, the device runs on. It flashes at the bootloader's own
+			// 115200 baud, slow but the only rate the CYD's USB chip flashes at (460800 failed). Stop Device: Log CYD first,
+			// as it holds the port.
 			"label": "Device: Flash CYD",
 			"type": "shell",
-			"command": "./build-firmware.sh cyd-esp32-28 && bruce-embedded-flash flash --port \"$(ls /dev/cu.usbserial-* | head -1)\" --baud 460800 --monitor \"$(./build-firmware.sh --path cyd-esp32-28)\"",
+			"command": "./build-firmware.sh cyd-esp32-28 && bruce-embedded-flash flash --port \"$(ls /dev/cu.usbserial-* | head -1)\" --monitor \"$(./build-firmware.sh --path cyd-esp32-28)\"",
 			"options": { "cwd": "${workspaceFolder}/capture" },
 			"problemMatcher": [],
 			"presentation": { "reveal": "always", "focus": true, "panel": "dedicated" }

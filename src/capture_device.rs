@@ -510,8 +510,10 @@ pub async fn start_pairing(found: &FoundDevice) -> anyhow::Result<Duration> {
         .await
 }
 
-/// Adopts a found device with the code on its screen, giving it a new key, and returns it for the profile.
-pub async fn adopt(found: &FoundDevice, code: &str) -> anyhow::Result<DeviceProfile> {
+/// Adopts a found device with the code on its screen, giving it a new key, and returns it for the profile. Its store,
+/// if its firmware has one, is set up for the profile's site, see set_up_store, taking it over from any other site, as
+/// the device is the profile's now; if that fails, the device is still adopted, and replicate sets its store up later.
+pub async fn adopt(found: &FoundDevice, code: &str, site: &str) -> anyhow::Result<DeviceProfile> {
     let key: String = rand::random::<[u8; 32]>()
         .iter()
         .map(|byte| format!("{byte:02x}"))
@@ -521,12 +523,66 @@ pub async fn adopt(found: &FoundDevice, code: &str) -> anyhow::Result<DeviceProf
         .post("adopt", &serde_json::json!({ "code": code.trim(), "key": key }))
         .await?;
     crate::log_info!("Adopted the capture device {} at {}", found.info.id, found.address);
-    Ok(DeviceProfile {
+    let adopted = DeviceProfile {
         id: found.info.id.clone(),
         address: found.address.clone(),
         fingerprint: found.fingerprint.clone(),
         key,
-    })
+    };
+    if let Err(error) = set_up_store(&adopted, site, true).await {
+        crate::log_warning!(
+            "Unable to set up the store of the capture device {}, {error:#}",
+            adopted.id
+        );
+    }
+    Ok(adopted)
+}
+
+/// The capture firmware's feature which keeps the device's store, and its setting of the site whose store it is, see
+/// the capture firmware's db.rs. The store opens only when the feature is on and the site set.
+const STORE_FEATURE: &str = "Store";
+const STORE_SITE_SETTING: &str = "store_site";
+
+/// The change to the device's config, from GET /api/config, which sets its store up for the site, or None if there is
+/// none to make: its firmware has no store, e.g. it is from before the store, or the store is on and keeps the site
+/// already, or, unless take_over, it keeps another site, which is not changed, as its records would then go to the
+/// wrong store.
+fn store_update(config: &Value, site: &str, take_over: bool) -> Option<Value> {
+    let feature = config["features"]
+        .as_array()?
+        .iter()
+        .find(|feature| feature["name"] == STORE_FEATURE)?;
+    let enabled = feature["enabled"] == serde_json::json!(true) || feature["enabled"] == serde_json::json!("required");
+    let current = feature["settings"]
+        .as_array()?
+        .iter()
+        .find(|setting| setting["name"] == STORE_SITE_SETTING)?["value"]
+        .as_str()
+        .map(str::trim)
+        .filter(|current| !current.is_empty());
+    match current {
+        Some(current) if current == site && enabled => None,
+        Some(current) if current != site && !take_over => None,
+        _ => Some(serde_json::json!({
+            "features": { STORE_FEATURE: { "enabled": true, "settings": { STORE_SITE_SETTING: site } } }
+        })),
+    }
+}
+
+/// Sets the device's store up for the site, see store_update, and restarts it, as it reads its config only as it
+/// starts. Returns whether anything changed.
+pub async fn set_up_store(device: &DeviceProfile, site: &str, take_over: bool) -> anyhow::Result<bool> {
+    let client = DeviceClient::for_device(device)?;
+    let Some(update) = store_update(&client.config().await?, site, take_over) else {
+        return Ok(false);
+    };
+    client.update_config(&update).await?;
+    client.restart().await?;
+    crate::log_info!(
+        "Set up the store of the capture device {} for the site {site}, and restarted it",
+        device.id
+    );
+    Ok(true)
 }
 
 /// How long to wait before asking a device which did not answer again, see CaptureReader::read_device.
@@ -1001,6 +1057,34 @@ static REPLICATIONS: Mutex<
     std::collections::BTreeMap<String, Arc<tokio::sync::Mutex<Option<(std::time::Instant, StoreInfo)>>>>,
 > = Mutex::new(std::collections::BTreeMap::new());
 
+/// Sets the device's store up for the profile's site, see set_up_store, if it is off or keeps no site, but not if it
+/// keeps another site, the first time replicate finds it so, once each time the app runs, as a device from before the
+/// store has none, and is read as before. Setting it up restarts it, which loses nothing, as with its store off it
+/// keeps nothing; it is an error then, so that the device's status says so until it is replicated.
+async fn set_up_store_once(device: &DeviceProfile, site: &str) -> anyhow::Result<()> {
+    static CHECKED: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
+    if !CHECKED.lock().unwrap().insert(device.id.clone()) {
+        return Ok(());
+    }
+    match set_up_store(device, site, false).await {
+        Ok(true) => anyhow::bail!(
+            "The capture device {} kept no store, so it has been set up for this profile's site, and the device \
+            restarted",
+            device.id
+        ),
+        Ok(false) => Ok(()),
+        Err(error) => {
+            // Tried again at the next read.
+            CHECKED.lock().unwrap().remove(&device.id);
+            crate::log_warning!(
+                "Unable to set up the store of the capture device {}, {error:#}",
+                device.id
+            );
+            Ok(())
+        }
+    }
+}
+
 /// Pulls the changes a device on the store has made since the app last did, putting each into store as from the
 /// device, see the design's capture devices on the store, and returns what the device says of itself, or None if its
 /// firmware is from before the store, so that it is read as it was. The cursor is the app's, in store, with the
@@ -1039,6 +1123,7 @@ pub async fn replicate(
             Err(error) => crate::log_info!("Unable to get the name of the capture device {}, {error:#}", device.id),
         }
     }
+    let site = store.site().to_string();
     let info: StoreInfo = match client.get_signed("store/info", &[], false).await {
         Ok(json) => serde_json::from_value(json)?,
         Err(error)
@@ -1046,14 +1131,19 @@ pub async fn replicate(
                 .downcast_ref::<StatusError>()
                 .is_some_and(|error| error.status == 404) =>
         {
+            // Firmware from before the store, or with its store off, e.g. on a device adopted before the store, which
+            // then keeps nothing the app can read.
+            set_up_store_once(device, &site).await?;
             return Ok(None);
         }
         Err(error) => return Err(error),
     };
     if let Some(problem) = &info.problem {
+        if info.site.is_none() {
+            set_up_store_once(device, &site).await?;
+        }
         anyhow::bail!("The capture device {} keeps no store, {problem}", device.id);
     }
-    let site = store.site().to_string();
     if info.site.as_deref() != Some(site.as_str()) {
         anyhow::bail!(
             "The capture device {} keeps the site {}, not this profile's",
@@ -1136,6 +1226,65 @@ pub async fn replicate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A device's config, as GET /api/config gives it, with its Store feature on or off, keeping the site, if any.
+    fn config(enabled: Value, site: Option<&str>) -> Value {
+        serde_json::json!({ "features": [
+            { "name": "core", "label": "Network and Time", "enabled": "required", "settings": [] },
+            { "name": "Store", "label": "Store", "enabled": enabled, "settings": [
+                { "name": "store_site", "type": "string", "required": false, "value": site }
+            ] }
+        ] })
+    }
+
+    fn turns_on_with(update: Option<Value>, site: &str) -> bool {
+        update
+            == Some(
+                serde_json::json!({ "features": { "Store": { "enabled": true, "settings": { "store_site": site } } } }),
+            )
+    }
+
+    /// The CYD and the Waveshare were adopted before the store, and kept nothing after being flashed, 12 Nov 2026.
+    #[test]
+    fn a_store_which_is_off_or_keeps_no_site_is_set_up_for_the_site() {
+        use serde_json::json;
+        assert!(turns_on_with(
+            store_update(&config(json!(false), None), "s1", false),
+            "s1"
+        ));
+        assert!(turns_on_with(
+            store_update(&config(json!(true), None), "s1", false),
+            "s1"
+        ));
+        assert!(turns_on_with(
+            store_update(&config(json!(true), Some(" ")), "s1", false),
+            "s1"
+        ));
+        assert!(turns_on_with(
+            store_update(&config(json!(false), Some("s1")), "s1", false),
+            "s1"
+        ));
+    }
+
+    #[test]
+    fn a_store_set_up_already_or_for_another_site_is_left_unless_taken_over() {
+        use serde_json::json;
+        assert_eq!(store_update(&config(json!(true), Some("s1")), "s1", false), None);
+        assert_eq!(store_update(&config(json!(true), Some("s1")), "s1", true), None);
+        assert_eq!(store_update(&config(json!(true), Some("s2")), "s1", false), None);
+        assert_eq!(store_update(&config(json!(false), Some("s2")), "s1", false), None);
+        assert!(turns_on_with(
+            store_update(&config(json!(true), Some("s2")), "s1", true),
+            "s1"
+        ));
+    }
+
+    #[test]
+    fn firmware_without_a_store_is_left_as_it_is() {
+        let before = serde_json::json!({ "features": [ { "name": "core", "enabled": "required", "settings": [] } ] });
+        assert_eq!(store_update(&before, "s1", true), None);
+        assert_eq!(store_update(&serde_json::json!({}), "s1", true), None);
+    }
 
     #[test]
     fn a_chip_is_described_as_the_device_describes_it() {

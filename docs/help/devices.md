@@ -15,8 +15,14 @@ your Wi-Fi. Once it is on the Wi-Fi, adopt it here:
 
 1. Enter its IP address under **Add a Capture Device**, and click **Find**. The app shows what the device is.
 2. Click **Show Pairing Code**. The device shows a 6 digit code on its screen for 2 minutes.
-3. Type the code and click **Adopt**. The app then reads what the device has taken that it does not have yet, as
-   its modules poll straight away, see Polling in Home.
+3. Type the code and click **Adopt**. The app turns on the device's **Store**, which keeps what it takes on its SD
+   card, for this profile, and restarts it. Once it is back, the app reads what the device has taken that it does not
+   have yet, see Polling in Home.
+
+A device adopted before devices had a store, whose **Store** is off, or keeps no site, keeps nothing the app can read.
+The first time the app finds one so, it turns its store on for this profile and restarts it, which loses nothing, and
+its status says so. A device whose store keeps another profile's site is left as it is, and its status says so: adopt
+it again in this profile to move it here.
 
 The screen also shows the start of the device's certificate, which should be the same as the **Certificate** the app
 shows. If it is not, something else on the network may be pretending to be the device, so do not adopt it.
