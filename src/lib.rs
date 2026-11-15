@@ -263,6 +263,9 @@ pub fn fetch_latest_data(args: Args) -> bool {
                 match capture_device::replicate(&store, device, progress).await {
                     Ok(Some(_)) => println!("Capture device {}: done", device.id),
                     Ok(None) => println!("Capture device {}: its firmware is from before the store", device.id),
+                    Err(error) if error.downcast_ref::<capture_device::NoStore>().is_some() => {
+                        println!("Capture device {}: skipped, {error:#}", device.id)
+                    }
                     Err(error) => {
                         println!("Capture device {}: FAILED: {error:#}", device.id);
                         log_error!("Replicating the capture device {} failed: {error:#}", device.id);

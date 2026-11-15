@@ -96,6 +96,22 @@ impl Records {
         Ok(())
     }
 
+    /// Puts each of puts, a sort key and its value, as put does, as one batch on a blocking thread, see
+    /// store::write_batch, so that a reply of thousands of samples is saved in milliseconds without stopping the window.
+    pub async fn put_all(&self, puts: Vec<(String, Value)>) -> anyhow::Result<()> {
+        if puts.is_empty() {
+            return Ok(());
+        }
+        let hk = self.hk.clone();
+        crate::store::write_batch(self.store.clone(), move |store| {
+            for (sk, value) in puts {
+                store.put(&Item::new(&hk, &sk, crate::store::version_now(), value))?;
+            }
+            Ok(())
+        })
+        .await
+    }
+
     /// Deletes a record, e.g. one the server no longer has.
     pub fn delete(&self, sk: &str) -> anyhow::Result<()> {
         self.store

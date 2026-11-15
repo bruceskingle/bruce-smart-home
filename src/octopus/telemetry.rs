@@ -335,16 +335,19 @@ pub async fn fetch(
             match call_unless_cancelled(request_manager, &query, cancel, progress, &message, &rate_limit).await {
                 Ok(None) => break,
                 Ok(Some(response)) => {
-                    // Readings are added, never removed, see the module comment, each kept as the server gave it.
+                    // Readings are added, never removed, see the module comment, each kept as the server gave it, and
+                    // put as one batch, off the main thread, as a response is thousands of them, see Records::put_all.
+                    let mut puts = Vec::new();
                     for item in response.smart_meter_telemetry_ {
                         let kept = serde_json::to_value(&item)?;
                         if let Some(reading) = TelemetryReading::from(item) {
                             if readings.get(&reading.read_at) != Some(&reading) {
-                                records.put(&bruce_db::Micros(reading.read_at * 1_000_000).to_text(), kept)?;
+                                puts.push((bruce_db::Micros(reading.read_at * 1_000_000).to_text(), kept));
                             }
                             readings.insert(reading.read_at, reading);
                         }
                     }
+                    records.put_all(puts).await?;
                     fetched += 1;
                 }
                 Err(request_error) => {
@@ -357,14 +360,16 @@ pub async fn fetch(
             // What was fetched is kept even if the rest was not, but the day is only dated as fetched if all its
             // missing hours were, not just those in the range shown, so that the rest are fetched next time.
             let all_fetched = fetched == requests.len() && missing.iter().all(|hour| hours.contains(hour));
-            records.put(
-                &fetched_key(&day),
-                if all_fetched {
-                    serde_json::json!({})
-                } else {
-                    serde_json::json!({ "stale": true })
-                },
-            )?;
+            records
+                .put_all(vec![(
+                    fetched_key(&day),
+                    if all_fetched {
+                        serde_json::json!({})
+                    } else {
+                        serde_json::json!({ "stale": true })
+                    },
+                )])
+                .await?;
         }
         if let Some(error) = error {
             return Err(error);

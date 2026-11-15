@@ -29,16 +29,58 @@ fn day_windows(start: &DateTime, end: &DateTime, tz: &'static Tz) -> Vec<(i64, i
     days
 }
 
-/// Whether the final samples in data cover the whole of the window from start to end with no gaps.
-fn window_complete<V>(data: &BTreeMap<DateTime, Item<V>>, start: &DateTime, end: &DateTime) -> bool {
+/// How far from start the final samples in data cover the window to end with no gaps: the start of the first sample
+/// missing or not final, or end if there is none, so that a fetch need not ask again for what is final.
+fn first_unsettled<V>(data: &BTreeMap<DateTime, Item<V>>, start: &DateTime, end: &DateTime) -> DateTime {
     let mut covered_to = *start;
     for (sample_start, item) in data.range(start..end) {
         if *sample_start != covered_to || !item.is_final {
-            return false;
+            return covered_to;
         }
         covered_to = item.end;
     }
-    covered_to >= *end
+    covered_to.min(*end)
+}
+
+/// Whether the final samples in data cover the whole of the window from start to end with no gaps.
+fn window_complete<V>(data: &BTreeMap<DateTime, Item<V>>, start: &DateTime, end: &DateTime) -> bool {
+    first_unsettled(data, start, end) >= *end
+}
+
+/// The days of the window from start to end, split at each midnight in tz as unix timestamps, which have a hole before
+/// the end of the window's last sample: a sample missing, or one which is partial, see SlotSource::is_partial, so that
+/// each is asked for again on its own. Samples not there yet at the end of the window, e.g. today's, are not a hole, as
+/// the server gives them later.
+fn days_with_holes<V>(
+    data: &BTreeMap<DateTime, Item<V>>,
+    start: &DateTime,
+    end: &DateTime,
+    tz: &'static Tz,
+    partial: impl Fn(&V) -> bool,
+) -> anyhow::Result<Vec<(i64, i64)>> {
+    let Some(last_end) = data.range(start..end).next_back().map(|(_, item)| item.end.min(*end)) else {
+        return Ok(Vec::new());
+    };
+    let mut days = Vec::new();
+    for (day_start, day_end) in day_windows(&start.to_timezone(tz), &last_end, tz) {
+        let (from, to) = (
+            DateTime::from_unix_timestamp(day_start)?,
+            DateTime::from_unix_timestamp(day_end)?,
+        );
+        let mut covered_to = from;
+        let mut hole = false;
+        for (sample_start, item) in data.range(from..to) {
+            if *sample_start != covered_to || partial(&item.value) {
+                hole = true;
+                break;
+            }
+            covered_to = item.end;
+        }
+        if hole || covered_to < to {
+            days.push((day_start, day_end));
+        }
+    }
+    Ok(days)
 }
 
 /// The number of times a request which failed with a transient error is retried.
@@ -264,8 +306,8 @@ pub trait SlotSource {
     fn index(&self, value: &Self::Value) -> anyhow::Result<(DateTime, DateTime, bool)>;
     fn refresh_after(&self) -> Duration;
     /// Whether a sample is missing data which a request for a shorter period may provide, e.g. measurements whose
-    /// statistics the server leaves out of the whole response if any day in it has a problem. A request for more than
-    /// one day which returns such a sample is made again for each day.
+    /// statistics the server leaves out of the whole response if any day in it has a problem. A day with such a
+    /// sample is asked for again on its own, as is a day with a sample missing, see days_with_holes.
     fn is_partial(&self, _value: &Self::Value) -> bool {
         false
     }
@@ -388,11 +430,14 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
         key
     }
 
-    /// The data from start to end, from the cache, and fetched from the server a whole month at a time for each month
-    /// of the period which is due, see OpenMonthlyFixedSlotDataSet::is_due: it is not complete, and was never fetched,
-    /// or not within the source's refresh_after, or its last fetch failed. A month of half hours is one request, so a
-    /// whole month costs no more than part of one, and looking at part of a month, e.g. zooming in, fetches nothing
-    /// once the month is up to date. With reload, the period it gives is fetched again however up to date the cache is,
+    /// The data from start to end, from the cache, and fetched from the server for each month of the period which is
+    /// due, see OpenMonthlyFixedSlotDataSet::is_due: it is not complete, and was never fetched, or not within the
+    /// source's refresh_after, or its last fetch failed. A due month is fetched as one request, with its pages, from its
+    /// first sample which is missing or not final to the end of the month or now, as a month of half hours costs no more
+    /// than part of one, what is final is never asked for again, and the future has no samples; then each day of it with
+    /// a hole, see days_with_holes, is asked for on its own, as the server may give a problem day alone what it leaves
+    /// out of a longer response. So looking at part of a month, e.g. zooming in, fetches nothing once the month is up to
+    /// date. With reload, the period it gives is fetched again however up to date the cache is,
     /// as a single request even if it crosses a month boundary, and the months it covers are returned too; a reload
     /// does not change when its months count as fetched, as it may cover only part of them.
     pub async fn fetch(
@@ -448,7 +493,8 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
             if config.offline {
                 return Ok(());
             }
-            // The windows to fetch, as unix timestamps.
+            // The windows to fetch, as unix timestamps, with whether to fetch each of its days with a hole again after
+            // it, see days_with_holes, which a day's own window does not.
             let mut windows = VecDeque::new();
             if let Some((reload_start, reload_end)) = reload {
                 // The cached samples are treated as not final so that they are fetched again, as one window even across a
@@ -458,15 +504,21 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
                         item.is_final = false;
                     }
                 }
-                windows.push_back((reload_start.unix_timestamp(), reload_end.unix_timestamp()));
+                windows.push_back((reload_start.unix_timestamp(), reload_end.unix_timestamp(), true));
             } else {
                 let now = DateTime::now(tz);
                 for key in &result_keys {
                     let ods = &data_set_map[key];
                     let month_start = ods.data_set.start_date.at_midnight(tz);
                     if month_start < now && ods.is_due(&refresh_after)? {
+                        // From the first sample which is missing or not final, as what is final is not asked for
+                        // again, to the end of the month or now, as the future has no samples.
                         let month_end = ods.data_set.next_date.at_midnight(tz);
-                        windows.push_back((month_start.unix_timestamp(), month_end.unix_timestamp()));
+                        let from = first_unsettled(&ods.data_set.data, &month_start, &month_end);
+                        let to = month_end.min(now);
+                        if from < to {
+                            windows.push_back((from.unix_timestamp(), to.unix_timestamp(), true));
+                        }
                         attempted_keys.insert(*key);
                     }
                 }
@@ -479,7 +531,7 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
 
             // The number of windows fetched, windows may be added as they are split into days.
             let mut window_number = 0;
-            while let Some((window_start, window_end)) = windows.pop_front() {
+            while let Some((window_start, window_end, find_holes)) = windows.pop_front() {
                 if cancel.is_cancelled() {
                     break;
                 }
@@ -495,9 +547,6 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
                         window_start.format(&date_format).unwrap_or_default(),
                     )
                 };
-                // Whether a sample in the window is missing data which a request for each day may provide.
-                let mut partial = false;
-
                 requests += 1;
                 let query = source.initial_query(&window_start, &window_end)?;
                 let mut next_response = call_unless_cancelled(
@@ -520,9 +569,6 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
                         let value = source.value(&serde_json::from_value(stored.clone())?)?;
                         rows += 1;
                         let (start, end, is_final) = source.index(&value)?;
-                        if start >= window_start && start < window_end && source.is_partial(&value) {
-                            partial = true;
-                        }
                         let start_date = start.to_date();
                         let key = Self::key_for(&start_date);
 
@@ -601,13 +647,24 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
                         }
                     }
 
-                    // Fetch each day again, next, so that a problem with one day only loses the data for that day.
-                    if partial {
-                        let days = day_windows(&window_start, &window_end, tz);
-                        if days.len() > 1 {
-                            for day in days.into_iter().rev() {
-                                windows.push_front(day);
+                    // Fetch each day with a hole again, next, on its own, as the server may leave out a problem day's
+                    // samples, or all the statistics of a response with one, but give the day alone.
+                    if find_holes {
+                        let whole = (window_start.unix_timestamp(), window_end.unix_timestamp());
+                        let mut holes = Vec::new();
+                        for (key, part_start, part_end) in Self::window_months(&window_start, &window_end, tz) {
+                            if let Some(data_set) = data_set_map.get(&key) {
+                                holes.extend(days_with_holes(
+                                    &data_set.data_set.data,
+                                    &part_start,
+                                    &part_end,
+                                    tz,
+                                    |value| source.is_partial(value),
+                                )?);
                             }
+                        }
+                        for (day_start, day_end) in holes.into_iter().rev().filter(|day| *day != whole) {
+                            windows.push_front((day_start, day_end, false));
                         }
                     }
                 }
@@ -624,10 +681,10 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
         for key in result_keys {
             let ods = data_set_map.remove(&key).unwrap();
             let fetched = attempted_keys.contains(&key).then(|| ods.fetched && !failed);
-            result.push(ods.flush(fetched)?);
+            result.push(ods.flush(fetched).await?);
         }
         for (_key, ods) in data_set_map {
-            ods.flush(None)?;
+            ods.flush(None).await?;
         }
 
         // Report a failure now that what was fetched has been saved.
@@ -699,19 +756,22 @@ impl<S: SlotSource> OpenMonthlyFixedSlotDataSet<S> {
     /// Puts the samples which changed, and, for a month fetched whole, its #fetched record: up to date, Some(true), if
     /// the fetch completed, even if nothing changed, e.g. a month before the server has any data, so that it is not
     /// fetched again until refresh_after has passed, or stale, Some(false), so that it is fetched again next time.
-    fn flush(self, fetched: Option<bool>) -> anyhow::Result<MonthlyFixedSlotDataSet<S>> {
-        for start in &self.changed {
-            if let Some(item) = self.data_set.data.get(start) {
-                self.records.put(&super::time_key(start), item.stored.clone())?;
-            }
-        }
+    /// They are put as one batch, off the main thread, see Records::put_all, with the #fetched record last.
+    async fn flush(self, fetched: Option<bool>) -> anyhow::Result<MonthlyFixedSlotDataSet<S>> {
+        let mut puts: Vec<(String, serde_json::Value)> = self
+            .changed
+            .iter()
+            .filter_map(|start| {
+                let item = self.data_set.data.get(start)?;
+                Some((super::time_key(start), item.stored.clone()))
+            })
+            .collect();
         match fetched {
-            Some(true) => self.records.put(&self.fetched_key, serde_json::json!({}))?,
-            Some(false) => self
-                .records
-                .put(&self.fetched_key, serde_json::json!({ "stale": true }))?,
+            Some(true) => puts.push((self.fetched_key.clone(), serde_json::json!({}))),
+            Some(false) => puts.push((self.fetched_key.clone(), serde_json::json!({ "stale": true }))),
             None => {}
         }
+        self.records.put_all(puts).await?;
         Ok(self.data_set)
     }
 }
@@ -765,6 +825,83 @@ mod window_complete_tests {
         assert!(!window_complete(&samples(&[3, 4, 5, 6, 7], &[]), &time(2), &time(8)));
         assert!(!window_complete(&samples(&[2, 3, 4, 5, 6], &[]), &time(2), &time(8)));
         assert!(!window_complete(&samples(&all, &[4]), &time(2), &time(8)));
+    }
+}
+
+#[cfg(test)]
+mod fetch_window_tests {
+    use std::collections::BTreeMap;
+
+    use bruce_graphql::types::DateTime;
+
+    use super::{Item, days_with_holes, first_unsettled};
+    use crate::data_set::DataSetAttributes;
+
+    const SLOT: i64 = 1800;
+    const DAY: i64 = 48;
+
+    fn time(slot: i64) -> DateTime {
+        DateTime::from_unix_timestamp(slot * SLOT).unwrap()
+    }
+
+    /// Samples for the given slots, each valued by its slot, final unless listed in not_final.
+    fn samples(slots: impl IntoIterator<Item = i64>, not_final: &[i64]) -> BTreeMap<DateTime, Item<i64>> {
+        slots
+            .into_iter()
+            .map(|slot| {
+                (
+                    time(slot),
+                    Item {
+                        end: time(slot + 1),
+                        is_final: !not_final.contains(&slot),
+                        attributes: DataSetAttributes { cached: false },
+                        value: slot,
+                        stored: serde_json::Value::Null,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    /// A fetch starts at the first sample missing or not final, as what is final is not asked for again.
+    #[test]
+    fn a_fetch_starts_at_the_first_sample_missing_or_not_final() {
+        let end = time(10);
+        assert_eq!(first_unsettled(&samples(0..10, &[]), &time(0), &end), end);
+        assert_eq!(first_unsettled(&samples(0..10, &[6]), &time(0), &end), time(6));
+        assert_eq!(
+            first_unsettled(&samples((0..10).filter(|slot| *slot != 3), &[6]), &time(0), &end),
+            time(3)
+        );
+        assert_eq!(first_unsettled(&samples(0..0, &[]), &time(0), &end), time(0));
+    }
+
+    /// The days asked for again on their own are those with a sample missing or partial before the last sample, not
+    /// the samples which are not there yet at the end, e.g. today's.
+    #[test]
+    fn only_days_with_a_hole_before_the_last_sample_are_fetched_again() {
+        let tz = time_tz::timezones::get_by_name("UTC").unwrap();
+        let day = |n: i64| ((n * DAY) * SLOT, ((n + 1) * DAY) * SLOT);
+        // Day 0 is whole, day 1 is missing a half hour, days 2 and 4 are whole, day 3 is missing altogether, as 10
+        // November was, and day 5 has its first six half hours so far.
+        let slots = (0..5 * DAY + 6).filter(|slot| *slot != DAY + 12 && !(3 * DAY..4 * DAY).contains(slot));
+        let data = samples(slots, &[]);
+        let (start, end) = (time(0), time(31 * DAY));
+        assert_eq!(
+            days_with_holes(&data, &start, &end, tz, |_| false).unwrap(),
+            vec![day(1), day(3)]
+        );
+        // A partial sample, e.g. one without statistics, is a hole too.
+        assert_eq!(
+            days_with_holes(&data, &start, &end, tz, |slot| *slot == 2 * DAY + 5).unwrap(),
+            vec![day(1), day(2), day(3)]
+        );
+        // With nothing yet, there is no hole, only samples to come.
+        assert!(
+            days_with_holes(&samples(0..0, &[]), &start, &end, tz, |_| false)
+                .unwrap()
+                .is_empty()
+        );
     }
 }
 

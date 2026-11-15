@@ -163,6 +163,22 @@ impl std::fmt::Display for StatusError {
 
 impl std::error::Error for StatusError {}
 
+/// The device keeps no store, e.g. it has no SD card, so it has nothing to replicate, and is skipped rather than read,
+/// with why as its status's last error, see replicate.
+#[derive(Debug)]
+pub struct NoStore {
+    pub device: String,
+    pub problem: String,
+}
+
+impl std::fmt::Display for NoStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "The capture device {} keeps no store, {}", self.device, self.problem)
+    }
+}
+
+impl std::error::Error for NoStore {}
+
 fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
 }
@@ -803,7 +819,7 @@ impl CaptureReader {
     /// if none which does could be read.
     pub async fn read(
         &self,
-        store: &bruce_db::Store,
+        store: &Arc<bruce_db::Store>,
         devices: &[DeviceProfile],
         since: Option<time::OffsetDateTime>,
         save: &mut dyn FnMut(&DeviceProfile, &Value) -> anyhow::Result<bool>,
@@ -816,7 +832,7 @@ impl CaptureReader {
     /// for records which are each device's own, e.g. its temperature, rather than copies of a source's.
     pub async fn read_each(
         &self,
-        store: &bruce_db::Store,
+        store: &Arc<bruce_db::Store>,
         devices: &[DeviceProfile],
         since_for: &dyn Fn(&DeviceProfile) -> Option<time::OffsetDateTime>,
         save: &mut dyn FnMut(&DeviceProfile, &Value) -> anyhow::Result<bool>,
@@ -852,6 +868,11 @@ impl CaptureReader {
                 Ok(()) => {
                     takes = true;
                     read_any = true;
+                }
+                // It keeps nothing to read, which replicate has put in its status, so it is left out, as one which
+                // does not take them is, rather than warned about at every poll.
+                Err(error) if error.downcast_ref::<NoStore>().is_some() => {
+                    self.schedules.lock().unwrap().remove(&device.id);
                 }
                 // It does not take them.
                 Err(error)
@@ -1090,7 +1111,7 @@ async fn set_up_store_once(device: &DeviceProfile, site: &str) -> anyhow::Result
 /// firmware is from before the store, so that it is read as it was. The cursor is the app's, in store, with the
 /// device's store's ID, so that a device whose store is new, e.g. a changed card, is pulled from the start again.
 pub async fn replicate(
-    store: &bruce_db::Store,
+    store: &Arc<bruce_db::Store>,
     device: &DeviceProfile,
     progress: &mut dyn FnMut(String),
 ) -> anyhow::Result<Option<StoreInfo>> {
@@ -1142,7 +1163,14 @@ pub async fn replicate(
         if info.site.is_none() {
             set_up_store_once(device, &site).await?;
         }
-        anyhow::bail!("The capture device {} keeps no store, {problem}", device.id);
+        let no_store = NoStore {
+            device: device.id.clone(),
+            problem: problem.clone(),
+        };
+        update_status(device, |status| {
+            status.last_error = Some((crate::clock::now_utc(), no_store.to_string()))
+        });
+        return Err(no_store.into());
     }
     if info.site.as_deref() != Some(site.as_str()) {
         anyhow::bail!(
@@ -1171,19 +1199,32 @@ pub async fn replicate(
         crate::log_info!("Capture device {} GET /api/store/changes {query:?}", device.id);
         let page: ChangesPage = serde_json::from_value(client.get_query("store/changes", &query).await?)?;
         let count = page.changes.len();
-        for change in page.changes {
-            let change = bruce_db::Change::from_json(change)?;
-            if store.put_from(&change.item, &crate::store::device_part(&device.id))? == bruce_db::Put::Stored {
-                stored += 1;
+        let changes = page
+            .changes
+            .into_iter()
+            .map(bruce_db::Change::from_json)
+            .collect::<Result<Vec<_>, _>>()?;
+        // A page and the cursor after it, put as one batch, off the main thread, as it is hundreds of changes, see
+        // store::write_batch.
+        let (from, cursor_hk) = (crate::store::device_part(&device.id), hk.clone());
+        let cursor = serde_json::json!({ "store": page.store, "next": page.next });
+        stored += crate::store::write_batch(store.clone(), move |store| {
+            let mut stored = 0u64;
+            for change in changes {
+                if store.put_from(&change.item, &from)? == bruce_db::Put::Stored {
+                    stored += 1;
+                }
             }
-        }
+            store.put(&bruce_db::Item::new(
+                &cursor_hk,
+                "-",
+                crate::store::version_now(),
+                cursor,
+            ))?;
+            Ok(stored)
+        })
+        .await?;
         read += count as u64;
-        store.put(&bruce_db::Item::new(
-            &hk,
-            "-",
-            crate::store::version_now(),
-            serde_json::json!({ "store": page.store, "next": page.next }),
-        ))?;
         if let Some(error) = page.error {
             anyhow::bail!(
                 "The capture device {} could not read all its changes, {error}",

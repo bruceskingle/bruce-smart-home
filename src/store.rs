@@ -119,3 +119,24 @@ pub fn origin() -> String {
 pub fn version_now() -> Version {
     Version::new(Micros::now(), &origin())
 }
+
+/// Runs write, a batch of puts, on a blocking thread, with each put not synced to the disk on its own but the store
+/// synced once at the end, however write ends. On macOS a sync is a full flush of the disk's cache, about 10 ms, so a
+/// reply of thousands of readings put one at a time took tens of seconds, and, as pages and polling run on the main
+/// thread, froze the window. The store's sync setting is shared, so a put made elsewhere meanwhile is not synced on its
+/// own either, but is by the sync at the end.
+pub async fn write_batch<T: Send + 'static>(
+    store: Arc<Store>,
+    write: impl FnOnce(&Store) -> anyhow::Result<T> + Send + 'static,
+) -> anyhow::Result<T> {
+    tokio::task::spawn_blocking(move || {
+        store.set_sync(false);
+        let written = write(&store);
+        store.set_sync(true);
+        let synced = store.sync();
+        let written = written?;
+        synced?;
+        Ok(written)
+    })
+    .await?
+}
