@@ -132,6 +132,45 @@
         // },
         // The last build, without building it again.
         {
+            // The virtual capture device's launcher, without a board, so that it shows the window to choose one, then
+            // starts that board's firmware, see capture/README.md. The debugger stops only in the launcher, as the
+            // firmware is a program of its own: to debug the firmware, use Virtual Device: RLCD or Guitron.
+            "type": "lldb",
+            "request": "launch",
+            "name": "Virtual Device: Choose Board",
+            "presentation": { "group": "4 Virtual Device", "order": 1 },
+            "preLaunchTask": "Virtual Device: Build",
+            "program": "${workspaceFolder}/capture/target-sim/bin/bruce-smart-home-capture-sim",
+            "args": [],
+            "cwd": "${workspaceFolder}/capture",
+            "env": { "RUST_BACKTRACE": "1" }
+        },
+        {
+            // The virtual capture device's firmware for a Waveshare ESP32-S3-RLCD-4.2, run directly, so that its
+            // breakpoints stop, with its data in its usual folder, as the launcher's would be.
+            "type": "lldb",
+            "request": "launch",
+            "name": "Virtual Device: RLCD",
+            "presentation": { "group": "4 Virtual Device", "order": 2 },
+            "preLaunchTask": "Virtual Device: Build",
+            "program": "${workspaceFolder}/capture/target-sim/bin/bruce-smart-home-capture-rlcd42",
+            "args": [],
+            "cwd": "${workspaceFolder}/capture",
+            "env": { "RUST_BACKTRACE": "1" }
+        },
+        {
+            // As Virtual Device: RLCD, for a Guition JC3248W535C, the Guitron.
+            "type": "lldb",
+            "request": "launch",
+            "name": "Virtual Device: Guitron",
+            "presentation": { "group": "4 Virtual Device", "order": 3 },
+            "preLaunchTask": "Virtual Device: Build",
+            "program": "${workspaceFolder}/capture/target-sim/bin/bruce-smart-home-capture-guitron",
+            "args": [],
+            "cwd": "${workspaceFolder}/capture",
+            "env": { "RUST_BACKTRACE": "1" }
+        },
+        {
             "name": "App: Already Built, No Rebuild",
             "presentation": { "group": "1 App", "order": 3 },
             "type": "lldb",

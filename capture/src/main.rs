@@ -159,7 +159,8 @@ mod board {
         let panel = panel.clone();
         Ok(builder
             .with_feature(Box::new(crate::climate::ClimateCapture::new(panel.clone(), db.clone())))?
-            .with_feature(Box::new(
+            // Always enabled, as the screen keeps its top for it, CLOCK_HEIGHT, which a new device would leave empty.
+            .with_required_feature(Box::new(
                 AnalogClock::builder()
                     .with_layout(|bounding_box: &Rectangle| {
                         Rectangle::new(
@@ -184,11 +185,13 @@ mod board {
     /// on the /config page.
     pub fn started(runner: &Esp32PlatformRunner) -> anyhow::Result<()> {
         let speaker = runner.platform.speaker();
-        std::thread::Builder::new().stack_size(8192).spawn(move || {
-            if let Err(error) = speaker.play_wav(STARTUP_SOUND) {
-                log::error!("Unable to play the startup sound: {error:#}");
-            }
-        })?;
+        std::thread::Builder::new()
+            .stack_size(bruce_embedded_std::thread_stack(8192))
+            .spawn(move || {
+                if let Err(error) = speaker.play_wav(STARTUP_SOUND) {
+                    log::error!("Unable to play the startup sound: {error:#}");
+                }
+            })?;
         Ok(())
     }
 }

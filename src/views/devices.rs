@@ -97,6 +97,20 @@ fn status_line(status: Option<Result<String, String>>) -> Element {
 /// How often each device card asks its device what it is, see DeviceCard.
 const HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// Waits until the device answers, after it has been restarted or started, giving it a few seconds to go first, and a
+/// minute at most to come back.
+async fn await_answer(device: &DeviceProfile) {
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    for _ in 0..30 {
+        if let Ok(client) = DeviceClient::for_device(device)
+            && client.info().await.is_ok()
+        {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
+}
+
 /// How many days of a device's starts are summarised, see restarts.
 const RESTART_DAYS: i64 = 7;
 
@@ -534,12 +548,31 @@ fn DeviceCard(
                 busy.set(true);
                 // The last action's message, which this replaces.
                 status.set(None);
-                let result = async { DeviceClient::for_device(&device)?.restart().await }.await;
-                status.set(Some(match result {
-                    Ok(()) => Ok("Restarting, it takes about 20 seconds".to_string()),
-                    Err(error) => Err(format!("Unable to restart it, {error:#}")),
-                }));
+                // A device which answers restarts itself; a virtual one which does not, as its window was closed, is
+                // started again, see virtual_device.rs.
+                let answers = matches!(&*info.peek(), Some(Ok(_)));
+                let started = if !answers && crate::virtual_device::is_virtual(&device.address) {
+                    let started = crate::virtual_device::start_device(&device.id);
+                    status.set(Some(match &started {
+                        Ok(()) => Ok("Starting it, in a window of its own".to_string()),
+                        Err(error) => Err(format!("Unable to start it, {error:#}")),
+                    }));
+                    started.is_ok()
+                } else {
+                    let result = async { DeviceClient::for_device(&device)?.restart().await }.await;
+                    status.set(Some(match &result {
+                        Ok(()) => Ok("Restarting, it takes about 20 seconds".to_string()),
+                        Err(error) => Err(format!("Unable to restart it, {error:#}")),
+                    }));
+                    result.is_ok()
+                };
                 busy.set(false);
+                // Its details again once it is back, rather than when the user presses Refresh.
+                if started {
+                    await_answer(&device).await;
+                    status.set(None);
+                    generation += 1;
+                }
             });
         }
     };
@@ -672,8 +705,14 @@ fn DeviceCard(
             div { class: "settings-buttons",
                 button { r#type: "button", disabled: busy(), onclick: move |_| show_settings.set(!show_settings()), if show_settings() { "Hide Settings" } else { "Settings" } }
                 button { r#type: "button", disabled: busy(), onclick: move |_| { status.set(None); generation += 1; }, "Refresh" }
-                // Only while the device answers, as otherwise it cannot be asked.
-                button { r#type: "button", disabled: busy() || !matches!(&*info.read(), Some(Ok(_))), onclick: restart, "Restart" }
+                // Only while the device answers, as otherwise it cannot be asked, unless it is a virtual one, which the
+                // app starts again if it does not.
+                button {
+                    r#type: "button",
+                    disabled: busy() || !(matches!(&*info.read(), Some(Ok(_))) || crate::virtual_device::is_virtual(&device.address)),
+                    onclick: restart,
+                    "Restart"
+                }
                 button { r#type: "button", disabled: busy(), onclick: move |_| confirming.set(Some("release")), "Release" }
                 button { r#type: "button", disabled: busy(), onclick: move |_| confirming.set(Some("forget")), "Forget" }
             }
@@ -804,7 +843,22 @@ fn AddDevice(profile_name: String) -> Element {
         });
     };
 
+    // Why a virtual capture device could not be started, if it could not, see virtual_device.rs.
+    let mut virtual_error = use_signal(|| None::<String>);
+
     rsx! {
+        p { class: "note",
+            "No ESP32? A virtual capture device runs the same firmware on this computer, in a window. Start one and choose its board, then copy its address from its window, with a right click, and enter it below."
+        }
+        div { class: "settings-buttons",
+            button {
+                r#type: "button",
+                onclick: move |_| virtual_error.set(crate::virtual_device::start().err().map(|error| format!("{error:#}"))),
+                "Start a Virtual Device"
+            }
+            if let Some(error) = virtual_error() {
+                ErrorText { error: error.clone(), message: "Not started" }
+            }
         h2 { "Add a Capture Device" }
         p { class: "note", "Enter the device's IP address, shown on its /config page or by your router." }
         div { class: "settings-buttons",
@@ -821,6 +875,7 @@ fn AddDevice(profile_name: String) -> Element {
                 },
             }
             button { r#type: "button", disabled: busy() || address().trim().is_empty(), onclick: move |_| find(), "Find" }
+        }
         }
         if let Some(device) = found() {
             table { class: "device-details",

@@ -36,6 +36,7 @@ mod data_set;
 /// The kinds capture devices write, shared with the firmware, see device_kinds.rs.
 pub mod device_kinds;
 pub mod store;
+pub mod virtual_device;
 use cache::CacheConfig;
 
 use anyhow::anyhow;

@@ -5,8 +5,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use bruce_esp_idf::svc::http::client::EspHttpConnection;
 use embedded_svc::http::client::Client;
-use esp_idf_svc::http::client::EspHttpConnection;
 
 /// Shared by the poll which keeps it and those which release it, all of which run on the scheduler's thread.
 #[derive(Clone, Default)]

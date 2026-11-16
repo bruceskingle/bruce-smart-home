@@ -31,6 +31,20 @@ Once adopted, only this profile can change the device's settings: its own /confi
 it, unless it cannot join the Wi-Fi, when it makes its own Wi-Fi network for its settings page again, with only the
 Wi-Fi settings on it.
 
+## A virtual capture device
+
+Without an ESP32, **Start a Virtual Device** under **Add a Capture Device** runs the same firmware on this computer, in
+a window which shows the board, its screen and its buttons. Choose its board: the Waveshare ESP32-S3-RLCD-4.2, black
+and white, with the clock and the latest numbers, or the Guition JC3248W535C, in colour, with the graph. It needs no
+Wi-Fi set up. Its screen shows its address, this computer's with a port of its own, e.g. `192.168.1.190:60496`: right
+click its window, or press Cmd+C (Ctrl+C on Windows), to copy it, which also copies the pairing code while it shows
+one. Adopt it as above.
+
+It polls only while its window is open, so leave it open, minimised if need be. Once adopted, its **Restart**
+restarts it, as a real device's does, or, if its window was closed, e.g. after this computer restarted, starts it
+again, with its board, settings and address. It keeps its settings and what it fetched between runs. It has no sensors, so it shows no temperature,
+humidity or battery.
+
 ## Managing a device
 
 The page lists the devices in a table, a row each, with its name, board, address, whether it is up and for how long,

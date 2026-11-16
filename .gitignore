@@ -6,6 +6,7 @@ docs/scratch.md
 pack.temp.dmg
 *.rsrc
 /capture/target
+/capture/target-sim
 /capture/.embuild
 /.cargo/config.toml
 

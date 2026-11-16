@@ -16,13 +16,13 @@ use bruce_embedded_std::config::TypedValue;
 use bruce_embedded_std::feature::FeatureDescriptor;
 use bruce_embedded_std::platform::PlatformInitializer;
 use bruce_embedded_std::task::scheduler::ScheduledTask;
+use bruce_esp_idf::svc::http::Method;
+use bruce_esp_idf::svc::http::client::{Configuration, EspHttpConnection};
 use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
 use chrono::{DateTime, TimeDelta, Utc};
 use croner::Cron;
 use embedded_svc::http::client::Client;
 use embedded_svc::io::Write;
-use esp_idf_svc::http::Method;
-use esp_idf_svc::http::client::{Configuration, EspHttpConnection};
 use log::{info, warn};
 use serde::Deserialize;
 use serde_json::json;
@@ -413,8 +413,8 @@ impl PollTask {
     fn poll(&mut self, platform: &mut Esp32Platform, slot: Option<DateTime<Utc>>) {
         let requested = Utc::now();
         let result = self.fetch(slot, requested);
-        let heap = unsafe { esp_idf_sys::esp_get_free_heap_size() };
-        let minimum_heap = unsafe { esp_idf_sys::esp_get_minimum_free_heap_size() };
+        let heap = unsafe { bruce_esp_idf::sys::esp_get_free_heap_size() };
+        let minimum_heap = unsafe { bruce_esp_idf::sys::esp_get_minimum_free_heap_size() };
         let mut store = self.store.lock().unwrap();
         match result {
             Ok(record) => {

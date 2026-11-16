@@ -345,18 +345,20 @@ impl Feature for StoreFeature {
         // thread of their own, while the features poll; Octopus's needs its account, see octopus.rs.
         let db = self.db.clone();
         let panel = self.panel.clone();
-        std::thread::Builder::new().stack_size(16 * 1024).spawn(move || {
-            db.convert(&panel, "tesla", &|store, writer, record| {
-                Ok(Some(device_kinds::tesla_snapshot(store, record, writer)?))
-            });
-            db.convert(&panel, "myenergi", &|store, writer, record| {
-                Ok(Some(device_kinds::myenergi_status(store, record, writer)?))
-            });
-            let device = db.device();
-            db.convert(&panel, "climate", &|store, _, record| {
-                device_kinds::climate_period(store, &device, record)
-            });
-        })?;
+        std::thread::Builder::new()
+            .stack_size(bruce_embedded_std::thread_stack(16 * 1024))
+            .spawn(move || {
+                db.convert(&panel, "tesla", &|store, writer, record| {
+                    Ok(Some(device_kinds::tesla_snapshot(store, record, writer)?))
+                });
+                db.convert(&panel, "myenergi", &|store, writer, record| {
+                    Ok(Some(device_kinds::myenergi_status(store, record, writer)?))
+                });
+                let device = db.device();
+                db.convert(&panel, "climate", &|store, _, record| {
+                    device_kinds::climate_period(store, &device, record)
+                });
+            })?;
 
         let schedule = compact_schedule(&device);
         info!("The store is compacted at {schedule}, and once after starting");
@@ -368,12 +370,14 @@ impl Feature for StoreFeature {
         let after_start =
             COMPACT_AFTER_START + COMPACT_AFTER_START.mul_f64((device_hash(&device) % 1000) as f64 / 1000.0);
         let mut once = compact.clone();
-        std::thread::Builder::new().stack_size(8 * 1024).spawn(move || {
-            std::thread::sleep(after_start);
-            if let Err(error) = once.start() {
-                warn!("Unable to compact the store, {error:#}");
-            }
-        })?;
+        std::thread::Builder::new()
+            .stack_size(bruce_embedded_std::thread_stack(8 * 1024))
+            .spawn(move || {
+                std::thread::sleep(after_start);
+                if let Err(error) = once.start() {
+                    warn!("Unable to compact the store, {error:#}");
+                }
+            })?;
         initializer.add_task(Box::new(compact), &schedule)?;
 
         let db = self.db.clone();
@@ -409,30 +413,32 @@ impl CompactTask {
             build: build_id(),
         };
         let (db, running) = (self.db.clone(), self.running.clone());
-        std::thread::Builder::new().stack_size(16 * 1024).spawn(move || {
-            if let Some(before) = Micros::now().date().ok().and_then(|today| today.previous_day()) {
-                let problem = match guard.begin() {
-                    Err(problem) => Some(problem),
-                    Ok(()) => {
-                        info!("Compacting the store's journal before {before}");
-                        let result = store.compact(before);
-                        guard.end();
-                        match result {
-                            Ok(()) => {
-                                info!("Compacted the store");
-                                None
+        std::thread::Builder::new()
+            .stack_size(bruce_embedded_std::thread_stack(16 * 1024))
+            .spawn(move || {
+                if let Some(before) = Micros::now().date().ok().and_then(|today| today.previous_day()) {
+                    let problem = match guard.begin() {
+                        Err(problem) => Some(problem),
+                        Ok(()) => {
+                            info!("Compacting the store's journal before {before}");
+                            let result = store.compact(before);
+                            guard.end();
+                            match result {
+                                Ok(()) => {
+                                    info!("Compacted the store");
+                                    None
+                                }
+                                Err(error) => Some(format!("Unable to compact the store, {error:#}")),
                             }
-                            Err(error) => Some(format!("Unable to compact the store, {error:#}")),
                         }
+                    };
+                    if let Some(problem) = &problem {
+                        warn!("{problem}");
                     }
-                };
-                if let Some(problem) = &problem {
-                    warn!("{problem}");
+                    db.state.lock().unwrap().compaction_problem = problem;
                 }
-                db.state.lock().unwrap().compaction_problem = problem;
-            }
-            running.store(false, Ordering::SeqCst);
-        })?;
+                running.store(false, Ordering::SeqCst);
+            })?;
         Ok(())
     }
 }
@@ -487,8 +493,9 @@ impl CompactGuard {
 /// before even when its version is the same, see CompactGuard.
 fn build_id() -> String {
     let mut buffer = [0u8; 65];
-    let written =
-        unsafe { esp_idf_sys::esp_app_get_elf_sha256(buffer.as_mut_ptr() as *mut core::ffi::c_char, buffer.len()) };
+    let written = unsafe {
+        bruce_esp_idf::sys::esp_app_get_elf_sha256(buffer.as_mut_ptr() as *mut core::ffi::c_char, buffer.len())
+    };
     String::from_utf8_lossy(&buffer[..written.max(0) as usize])
         .trim_end_matches('\0')
         .to_string()
@@ -500,7 +507,7 @@ fn build_id() -> String {
 /// moving. Written a change at a time, as a page of them would not all fit in the RAM as one piece of JSON. If reading
 /// them fails, the error is at the end, as "error", after the changes before it, which the app can still put.
 fn changes(
-    request: esp_idf_svc::http::server::Request<&mut esp_idf_svc::http::server::EspHttpConnection<'_>>,
+    request: bruce_esp_idf::svc::http::server::Request<&mut bruce_esp_idf::svc::http::server::EspHttpConnection<'_>>,
     db: &Db,
 ) -> anyhow::Result<()> {
     let since = parameter(request.uri(), "since")
@@ -533,7 +540,7 @@ fn changes(
     let store = &store;
     let result = std::thread::scope(|scope| -> anyhow::Result<anyhow::Result<Cursor>> {
         let reader = std::thread::Builder::new()
-            .stack_size(16 * 1024)
+            .stack_size(bruce_embedded_std::thread_stack(16 * 1024))
             .spawn_scoped(scope, move || {
                 store.changes(Cursor(since), limit, None, &mut |change| {
                     sender
@@ -615,7 +622,7 @@ struct Chunks<W> {
     buffer: Vec<u8>,
 }
 
-impl<W: esp_idf_svc::io::Write> Chunks<W> {
+impl<W: bruce_esp_idf::svc::io::Write> Chunks<W> {
     fn write(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
         self.buffer.extend_from_slice(bytes);
         if self.buffer.len() >= CHUNK {

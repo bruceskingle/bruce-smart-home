@@ -28,13 +28,13 @@ use bruce_embedded_std::config::TypedValue;
 use bruce_embedded_std::feature::FeatureDescriptor;
 use bruce_embedded_std::platform::PlatformInitializer;
 use bruce_embedded_std::task::scheduler::ScheduledTask;
+use bruce_esp_idf::svc::http::Method;
+use bruce_esp_idf::svc::http::client::{Configuration, EspHttpConnection};
 use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
 use chrono::{DateTime, Local, Utc};
 use croner::Cron;
 use embedded_svc::http::client::Client;
 use embedded_svc::io::Write;
-use esp_idf_svc::http::Method;
-use esp_idf_svc::http::client::{Configuration, EspHttpConnection};
 use log::{info, warn};
 use serde::Deserialize;
 use serde_json::json;
@@ -281,7 +281,7 @@ impl Octopus {
             timeout: Some(Duration::from_secs(20)),
             // Room for the Authorization header, the token, a JWT of about 1 KB, as the default is 512 bytes.
             buffer_size_tx: Some(2048),
-            crt_bundle_attach: Some(esp_idf_sys::esp_crt_bundle_attach),
+            crt_bundle_attach: Some(bruce_esp_idf::sys::esp_crt_bundle_attach),
             ..Default::default()
         })?);
         let token = self.token(&mut client)?;
@@ -527,8 +527,8 @@ impl PollTask {
         let requested = Utc::now();
         let result = self.octopus.poll();
         let received = Utc::now();
-        let heap = unsafe { esp_idf_sys::esp_get_free_heap_size() };
-        let minimum_heap = unsafe { esp_idf_sys::esp_get_minimum_free_heap_size() };
+        let heap = unsafe { bruce_esp_idf::sys::esp_get_free_heap_size() };
+        let minimum_heap = unsafe { bruce_esp_idf::sys::esp_get_minimum_free_heap_size() };
         let mut store = self.store.lock().unwrap();
         match result {
             Ok((responses, line)) => {
@@ -570,13 +570,15 @@ impl PollTask {
                 if !self.converted {
                     self.converted = true;
                     let (db, panel) = (self.db.clone(), self.panel.clone());
-                    let converting = std::thread::Builder::new().stack_size(16 * 1024).spawn(move || {
-                        db.convert(&panel, "octopus", &|store, writer, record| {
-                            Ok(Some(crate::device_kinds::octopus_flex(
-                                store, &account, record, writer,
-                            )?))
+                    let converting = std::thread::Builder::new()
+                        .stack_size(bruce_embedded_std::thread_stack(16 * 1024))
+                        .spawn(move || {
+                            db.convert(&panel, "octopus", &|store, writer, record| {
+                                Ok(Some(crate::device_kinds::octopus_flex(
+                                    store, &account, record, writer,
+                                )?))
+                            });
                         });
-                    });
                     if let Err(error) = converting {
                         warn!("Unable to start converting the old Octopus records, {error:#}");
                         self.converted = false;

@@ -142,6 +142,10 @@ jobs:
             echo "NOTARIZED=true"
           } >> "$GITHUB_ENV"
 
+      # The virtual capture device, which the installers include, see Dioxus.toml's external_bin.
+      - name: Build the virtual capture device
+        run: capture/build-sim.sh
+
       # The defaults: a .dmg on macOS and an NSIS setup.exe on Windows.
       - name: Build the installers
         run: dx bundle --release

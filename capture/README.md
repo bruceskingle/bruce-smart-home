@@ -47,6 +47,26 @@ In VS Code, Terminal > Run Task has **Device: Flash CYD**, **Device: Flash Waves
 **Device: Flash Guitron**, **Device: Log CYD** and **Device: Log Waveshare**, which find the port. Each flash task
 builds its board's firmware with `build-firmware.sh`, then flashes its own file.
 
+## A virtual capture device
+
+Without an ESP32, the same firmware runs on a computer, macOS, Windows or Linux, in the board simulator of
+bruce-embedded-std, which shows the board's screen in a window, see its `docs/Simulator.md`. `./build-sim.sh` builds
+it into `target-sim/bin`, once for each board it simulates, with the stable toolchain, and
+`target-sim/bin/bruce-smart-home-capture-sim --board rlcd42` (or `guitron`) runs it:
+
+- **The screen** is the board's, in a frame of the board: the RLCD's black and white clock and numbers, or the
+  Guitron's colour graph. Click its buttons, KEY and BOOT, to press them, and drag on the Guitron's screen to swipe it.
+- **Its address** is the computer's, with a port of its own, chosen the first time it starts and kept, e.g.
+  `192.168.1.190:60496`, which its screen shows, for HTTP and HTTPS alike. Give the app that, port and all, on its
+  Devices page, to adopt it as a real one.
+- **Its settings and store** are kept in a folder of its own, under the computer's folder for programs' data, e.g.
+  `~/Library/Application Support/Bruce's Embedded Simulator/bruce-smart-home-capture/rlcd42` on macOS; `--data
+  <folder>` keeps them elsewhere, e.g. for a second device of the same board. It needs no Wi-Fi set up.
+- **It runs while its window is open.** It polls only then, so leave it open, minimised if need be.
+- `--screenshot <file> --after <seconds> [--headless]` saves a picture of the board, e.g. for the docs, then ends.
+
+It has no sensors: its temperature, humidity and battery read nothing. Its speaker is silent for now.
+
 ## Setting it up
 
 The first time it starts, it makes its own WiFi network: join it and the config page opens. Enter your WiFi details,

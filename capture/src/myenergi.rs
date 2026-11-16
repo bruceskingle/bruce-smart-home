@@ -17,12 +17,12 @@ use bruce_embedded_std::config::TypedValue;
 use bruce_embedded_std::feature::FeatureDescriptor;
 use bruce_embedded_std::platform::PlatformInitializer;
 use bruce_embedded_std::task::scheduler::ScheduledTask;
+use bruce_esp_idf::svc::http::Method;
+use bruce_esp_idf::svc::http::client::{Configuration, EspHttpConnection};
 use bruce_esp_idf::{Esp32Platform, Esp32PlatformInitializer, Feature};
 use chrono::{DateTime, Utc};
 use croner::Cron;
 use embedded_svc::http::client::Client;
-use esp_idf_svc::http::Method;
-use esp_idf_svc::http::client::{Configuration, EspHttpConnection};
 use log::{info, warn};
 use md5::{Digest, Md5};
 use serde_json::{Value, json};
@@ -162,7 +162,7 @@ impl Myenergi {
         crate::device::log_memory("Before myenergi");
         let mut client = Client::wrap(EspHttpConnection::new(&Configuration {
             timeout: Some(Duration::from_secs(15)),
-            crt_bundle_attach: Some(esp_idf_sys::esp_crt_bundle_attach),
+            crt_bundle_attach: Some(bruce_esp_idf::sys::esp_crt_bundle_attach),
             ..Default::default()
         })?);
         let url = format!("https://{}{path}", self.host);
@@ -176,7 +176,7 @@ impl Myenergi {
                 .ok_or_else(|| anyhow!("myenergi asked for authentication, but not digest authentication"))?;
             self.count += 1;
             let mut cnonce = [0u8; 8];
-            unsafe { esp_idf_sys::esp_fill_random(cnonce.as_mut_ptr() as *mut _, cnonce.len()) };
+            unsafe { bruce_esp_idf::sys::esp_fill_random(cnonce.as_mut_ptr() as *mut _, cnonce.len()) };
             let cnonce: String = cnonce.iter().map(|byte| format!("{byte:02x}")).collect();
             let authorization =
                 digest_authorization(&challenge, &self.hub, &self.key, "GET", path, self.count, &cnonce);
@@ -423,8 +423,8 @@ impl PollTask {
         let requested = Utc::now();
         let result = self.myenergi.get("/cgi-jstatus-*");
         let received = Utc::now();
-        let heap = unsafe { esp_idf_sys::esp_get_free_heap_size() };
-        let minimum_heap = unsafe { esp_idf_sys::esp_get_minimum_free_heap_size() };
+        let heap = unsafe { bruce_esp_idf::sys::esp_get_free_heap_size() };
+        let minimum_heap = unsafe { bruce_esp_idf::sys::esp_get_minimum_free_heap_size() };
         let mut store = self.store.lock().unwrap();
         match result {
             Ok(status) => {

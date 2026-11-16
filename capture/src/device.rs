@@ -19,8 +19,9 @@ pub fn captured_by(platform: &bruce_esp_idf::Esp32Platform) -> String {
 /// Logs the free heap and its largest free block before an internet connection, whose TLS needs tens of KB, so that a
 /// crash for want of memory can be seen coming, see bruce_esp_idf::panics.
 pub fn log_memory(what: &str) {
-    let free = unsafe { esp_idf_sys::esp_get_free_heap_size() };
-    let largest = unsafe { esp_idf_sys::heap_caps_get_largest_free_block(esp_idf_sys::MALLOC_CAP_DEFAULT) };
+    let free = unsafe { bruce_esp_idf::sys::esp_get_free_heap_size() };
+    let largest =
+        unsafe { bruce_esp_idf::sys::heap_caps_get_largest_free_block(bruce_esp_idf::sys::MALLOC_CAP_DEFAULT) };
     log::info!("{what}: free heap {free}, largest block {largest}");
 }
 
@@ -35,7 +36,7 @@ pub struct Device {
 
 impl Device {
     pub fn new(schedule: &str) -> Device {
-        let up_time = TimeDelta::microseconds(unsafe { esp_idf_sys::esp_timer_get_time() });
+        let up_time = TimeDelta::microseconds(unsafe { bruce_esp_idf::sys::esp_timer_get_time() });
         Device {
             boot_time: Utc::now() - up_time,
             reset_reason: bruce_esp_idf::reset_reason(),
@@ -57,9 +58,9 @@ impl Device {
             "storageProblem": db.problem(),
             // The SD card's size and free space, if the records are kept on one.
             "sdCard": db.sd_card(),
-            "freeHeap": unsafe { esp_idf_sys::esp_get_free_heap_size() },
-            "minimumFreeHeap": unsafe { esp_idf_sys::esp_get_minimum_free_heap_size() },
-            "largestFreeBlock": unsafe { esp_idf_sys::heap_caps_get_largest_free_block(esp_idf_sys::MALLOC_CAP_DEFAULT) },
+            "freeHeap": unsafe { bruce_esp_idf::sys::esp_get_free_heap_size() },
+            "minimumFreeHeap": unsafe { bruce_esp_idf::sys::esp_get_minimum_free_heap_size() },
+            "largestFreeBlock": unsafe { bruce_esp_idf::sys::heap_caps_get_largest_free_block(bruce_esp_idf::sys::MALLOC_CAP_DEFAULT) },
             "failedAllocations": bruce_esp_idf::panics::failed_allocations(),
             // Why it crashed before this start, if it did.
             "lastCrash": bruce_esp_idf::panics::last(),

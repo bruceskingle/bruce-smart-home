@@ -51,6 +51,8 @@ impl ScheduledTask<Esp32Platform> for BatteryTask {
                 warn!("Unable to read the battery, {error:#}");
                 (format!("Battery: {error:#}"), true)
             }
+            // The simulator's board has no battery, which it says, rather than that it cannot be read.
+            None if bruce_esp_idf::SIMULATED => (String::from("Battery: none, simulated"), false),
             None => (String::from("Battery: not readable"), true),
         };
         self.panel.set(PANEL_ORDER, vec![line]);

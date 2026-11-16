@@ -13,6 +13,13 @@ description = "Firmware for an ESP32 Capture Device, which polls what Bruce's Sm
 name = "bruce-smart-home-capture"
 harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
 
+# The virtual capture device's launcher, which starts the firmware built for a board for the simulator, see
+# src/sim_launcher.rs and build-sim.sh.
+[[bin]]
+name = "bruce-smart-home-capture-sim"
+path = "src/sim_launcher.rs"
+required-features = ["sim"]
+
 [dependencies]
 log = "0.4"
 anyhow = "1.0.102"
@@ -30,18 +37,32 @@ md-5 = "0.10"
 # The store the device keeps its records in, as the app does, see ../docs/Store.md, "Capture devices on the store".
 bruce-db = "0.2.0"
 
-bruce-embedded-std = "0.1.0"
-bruce-esp-idf = { version = "0.1.0", features = ["sd-card"] }
+# From the checkouts next to this repository, at the versions being released with the simulator, see
+# bruce-embedded-std's docs/Simulator.md: bruce-method-release takes them from crates.io instead once they are released.
+# Without bruce-esp-idf's default, espidf, so that the sim feature can choose the simulator in its place.
+bruce-embedded-std = { version = "0.2.0", path = "../../bruce-embedded-std/bruce-embedded-std" }
+bruce-esp-idf = { version = "0.2.0", path = "../../bruce-esp-idf/bruce-esp-idf", default-features = false, features = ["sd-card"] }
 
+embedded-svc = "0.29.0"
+# The launcher's window to choose a board, with the sim feature, see src/sim_launcher.rs.
+bruce-embedded-sim = { version = "0.2.0", path = "../../bruce-embedded-std/bruce-embedded-sim", optional = true }
+# Where the virtual devices keep their data, which the launcher looks in to start one by its ID, see --device.
+dirs = { version = "6", optional = true }
+
+# Only for the ESP32, not for the simulator, which has its own stand-ins, see bruce-esp-idf's svc and sys.
+[target.'cfg(target_os = "espidf")'.dependencies]
 esp-idf-svc = { version = "0.52.1", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
 # Remove `generic-queue-8` if you plan to use `embassy-time` WITH `embassy-executor`
 embassy-time = { version = "0.5", features = ["generic-queue-8"] }
-embedded-svc = "0.29.0"
 esp-idf-sys = { version = "0.37.2", features = ["binstart"] }
 
-# The board, exactly one: the CYD by default.
+# The board, exactly one: the CYD by default, with espidf, the ESP32's platform, or, in its place, sim.
 [features]
-default = ["cyd-esp32-28"]
+default = ["espidf", "cyd-esp32-28"]
+espidf = ["bruce-esp-idf/espidf"]
+# The firmware on a desktop computer, in the board simulator, for a board it can simulate, wave-esp32s3-rlcd-42 or
+# guition-jc3248w535c: a virtual capture device. See README.md.
+sim = ["bruce-esp-idf/sim", "dep:bruce-embedded-sim", "dep:dirs"]
 cyd-esp32-28 = ["bruce-esp-idf/board-cyd-esp32-28"]
 # The platform needs its IMU support, ahrs, for the board's motion sensor.
 wave-esp32c6-touch-147 = ["bruce-esp-idf/board-wave-esp32c6-touch-147", "bruce-esp-idf/ahrs", "touch"]

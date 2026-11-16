@@ -7,6 +7,14 @@ name = "Bruces Smart Home"
 icon = ["icons/icon.ico", "assets/app-icon.png"]
 identifier = "org.skingle.bruce-smart-home"
 publisher = "BruceSkingle"
+# The virtual capture device, its launcher and the firmware for each board it simulates, see capture/README.md, which
+# capture/build-sim.sh builds, each name with the target's triple, as dx's bundler, tauri-bundler, wants, and which the
+# installers put beside the app's own program, without it, where the Devices page starts it from.
+external_bin = [
+    "capture/target-sim/bundle/bruce-smart-home-capture-sim",
+    "capture/target-sim/bundle/bruce-smart-home-capture-rlcd42",
+    "capture/target-sim/bundle/bruce-smart-home-capture-guitron",
+]
 
 [bundle.windows]
 icon_path = "icons/icon.ico"

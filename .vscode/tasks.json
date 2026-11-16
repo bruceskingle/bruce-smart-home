@@ -47,6 +47,17 @@
 			"presentation": { "reveal": "always", "focus": true, "panel": "dedicated" }
 		},
 		{
+			// Builds the virtual capture device, the capture firmware for the board simulator, once for each board it
+			// simulates, and its launcher, as debug builds, into capture/target-sim/bin, see capture/README.md. The
+			// Virtual Device launch configurations run it first.
+			"label": "Virtual Device: Build",
+			"type": "shell",
+			"command": "./build-sim.sh --debug",
+			"options": { "cwd": "${workspaceFolder}/capture" },
+			"problemMatcher": ["$rustc"],
+			"presentation": { "reveal": "silent", "panel": "dedicated" }
+		},
+		{
 			// Shows the log of the CYD plugged in by USB, without restarting it, see capture/log.py. Ctrl+C stops it, the
 			// device runs on. Not espflash monitor, which stops the device even with --no-reset.
 			"label": "Device: Log CYD",

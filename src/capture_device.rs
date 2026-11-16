@@ -243,6 +243,12 @@ const PLAIN_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const INFO_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long a page of records may take, see CaptureReader::read_page.
 const PAGE_TIMEOUT: Duration = Duration::from_secs(2 * 60);
+/// How long a page of a store's changes may take, far longer than PAGE_TIMEOUT: when the profile's cursor is older than
+/// what the device's store has compacted, bruce-db reads every compacted file to find the changes after it, which takes
+/// a device over 5 minutes on its SD card. A shorter limit gives up before the first change, and asks again for ever,
+/// while the device can answer nothing else; once a page arrives, the cursor is past the compacted part, and the next
+/// pages are quick. bruce-db is to skip compacted files which are all before the cursor, see its journal's redesign.
+const CHANGES_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
 /// The Authorization header of a request, of method, for uri, its path and query as sent, signed with key, the 32 bytes
 /// of a device key as hex, at time, in seconds since 1970, as a device checks it, see bruce-esp-idf's
@@ -394,7 +400,11 @@ impl DeviceClient {
                 .plain
                 .get(url)
                 .header(reqwest::header::AUTHORIZATION, authorization)
-                .timeout(PAGE_TIMEOUT);
+                .timeout(if path.starts_with("store/changes") {
+                    CHANGES_TIMEOUT
+                } else {
+                    PAGE_TIMEOUT
+                });
             let result = Self::receive(request).await;
             drop(_turn);
             // A 404 from a device which has taken a signed request is a path it does not have, e.g. /api/store/info
@@ -1042,8 +1052,10 @@ impl CaptureReader {
     }
 }
 
-/// How many changes a device is asked for at a time, see replicate. A page of 500 takes a Guitron some 14 seconds.
-const CHANGES_PAGE: usize = 500;
+/// How many changes a device is asked for at a time, see replicate: the most a device gives, its MAX_CHANGES, so that a
+/// profile whose cursor is behind the device's compaction, each page of which takes minutes, see CHANGES_TIMEOUT, needs
+/// as few pages as can be. A page of 500 takes a Guitron some 14 seconds otherwise.
+const CHANGES_PAGE: usize = 1000;
 /// How long a device's replication is taken as current, so that the modules it takes, polled together on the same
 /// slot, do not each pull its changes, see replicate.
 const REPLICATED_FOR: Duration = Duration::from_secs(5);

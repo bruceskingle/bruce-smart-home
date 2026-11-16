@@ -158,9 +158,9 @@ impl Screen {
     /// The device's status, shown after a swipe: its name and address, how long it has been up, its heap, and the
     /// features' lines, other than the meters', which are above the graph.
     fn status(&self, platform: &Esp32Platform) -> Vec<Line> {
-        let up = unsafe { esp_idf_sys::esp_timer_get_time() } / 1_000_000;
-        let heap = unsafe { esp_idf_sys::esp_get_free_heap_size() } / 1024;
-        let minimum = unsafe { esp_idf_sys::esp_get_minimum_free_heap_size() } / 1024;
+        let up = unsafe { bruce_esp_idf::sys::esp_timer_get_time() } / 1_000_000;
+        let heap = unsafe { bruce_esp_idf::sys::esp_get_free_heap_size() } / 1024;
+        let minimum = unsafe { bruce_esp_idf::sys::esp_get_minimum_free_heap_size() } / 1024;
         let mut lines = vec![
             (captured_by(platform), false),
             (address(platform), false),
@@ -198,11 +198,9 @@ impl Screen {
     fn listen(&mut self, _platform: &Esp32Platform) {}
 }
 
-/// The device's address on the Wi-Fi, for the screen.
+/// The device's address on the Wi-Fi, for the screen, as an app is given it, with its port on the simulator.
 fn address(platform: &Esp32Platform) -> String {
-    platform
-        .ip_address()
-        .map_or_else(|| "Not on the Wi-Fi".to_string(), |address| address.to_string())
+    platform.address().unwrap_or_else(|| "Not on the Wi-Fi".to_string())
 }
 
 /// Draws lines in area, in the console's font, without its margin, which would leave room for fewer numbers.
