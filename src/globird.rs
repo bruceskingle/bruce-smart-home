@@ -84,6 +84,10 @@ fn redacted(secret: &Option<String>) -> Option<&'static str> {
     secret.as_ref().map(|_| bruce_graphql::redact::REDACTED)
 }
 
+/// How long GloBird's readings and costs are used before they are fetched again, when a page which shows them opens, see
+/// GlobirdContext::fetch_if_due.
+const FRESH_FOR: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
 /// What the pages of the module share.
 pub struct GlobirdContext {
     client: GlobirdClient,
@@ -101,6 +105,24 @@ impl GlobirdContext {
         let result = fetch::fetch(&self.client, &self.cache_config, progress).await;
         self.save_session()?;
         result.map_err(|error| self.handle_error(error))
+    }
+
+    /// Whether the readings and costs are due to be fetched: never fetched, or not for FRESH_FOR, see fetch_if_due.
+    fn fetch_due(&self) -> bool {
+        !self.cache_config.offline
+            && fetch::fetched_at(&self.cache_config)
+                .is_none_or(|fetched| time::OffsetDateTime::now_utc() - fetched >= FRESH_FOR)
+    }
+
+    /// Fetches the readings and costs if they are due, see fetch_due, when a page which shows them opens, as Octopus's
+    /// pages fetch theirs, so that GloBird is asked once a day at most, however often they are opened. Says what it did
+    /// with progress.
+    async fn fetch_if_due(&self, progress: &mut dyn FnMut(String)) -> anyhow::Result<bool> {
+        if !self.fetch_due() {
+            return Ok(false);
+        }
+        self.fetch(progress).await?;
+        Ok(true)
     }
 
     /// Brings the list of bills up to date, see bills::refresh, returning how many requests it made, and saves the
@@ -231,6 +253,10 @@ impl Module for GlobirdModule {
                 path: "meters",
             },
             PageInfo {
+                label: "Rates",
+                path: "rates",
+            },
+            PageInfo {
                 label: "Days",
                 path: "days",
             },
@@ -271,6 +297,7 @@ impl Module for GlobirdModule {
                 }
                 None => rsx! { MetersPage { context } },
             },
+            "rates" => rsx! { RatesPage { context } },
             "days" => rsx! { DaysPage { context } },
             // A bill opens in a window of its own, see bill_pages::BillWindow.
             "bills" => rsx! { bill_pages::BillsPage { context } },
@@ -283,13 +310,47 @@ impl Module for GlobirdModule {
     }
 }
 
+/// Fetches GloBird's readings and costs when the page it is on opens, if they are due, see
+/// GlobirdContext::fetch_if_due, saying what it is doing, and bumps generation once it has, so that the page shows them.
+#[component]
+fn FetchIfDue(context: SharedProp<GlobirdContext>, generation: Signal<u32>) -> Element {
+    let mut generation = generation;
+    let mut progress = use_signal(|| None::<String>);
+    let mut problem = use_signal(|| None::<String>);
+    use_future(move || {
+        let context = context.clone();
+        async move {
+            if !context.0.fetch_due() {
+                return;
+            }
+            progress.set(Some(String::from("Fetching from GloBird...")));
+            let result = context.0.fetch_if_due(&mut |message| progress.set(Some(message))).await;
+            progress.set(None);
+            problem.set(result.err().map(|error| format!("{error:#}")));
+            generation += 1;
+        }
+    });
+    rsx! {
+        if let Some(progress) = progress() {
+            p { "{progress}" }
+        }
+        if let Some(problem) = problem() {
+            p { class: "error", crate::components::error_text::ErrorText { error: problem, message: String::from("Unable to fetch from GloBird") } }
+        }
+    }
+}
+
 /// The meters, and the registers of the cached readings, each a link to its readings.
 #[component]
 fn MetersPage(context: SharedProp<GlobirdContext>) -> Element {
+    let generation = use_signal(|| 0u32);
+    generation();
     let meters = fetch::meters(&context.0.cache_config);
     let registers = fetch::registers(&context.0.cache_config);
+    let tariffs = rates::tariffs(&fetch::summaries(&context.0.cache_config));
     rsx! {
         h1 { "Meters" }
+        FetchIfDue { context: context.clone(), generation }
         p { "The meters GloBird lists for the account, and the registers of the smart meter's readings: E1 is what was imported from the grid, and B1 what was exported to it. Click a register to see its readings, by the tariff's charge types." }
         table { class: "display",
             tr {
@@ -317,6 +378,11 @@ fn MetersPage(context: SharedProp<GlobirdContext>) -> Element {
                 RegisterRow { register }
             }
         }
+        if let Some(tariff) = tariffs.last() {
+            h2 { "Rates" }
+            p { "The latest rates, worked out from the days' costs, as GloBird does not give them; the Rates page has the earlier ones, and how they are worked out." }
+            TariffTable { tariff: tariff.clone() }
+        }
     }
 }
 
@@ -342,13 +408,10 @@ fn RegisterRow(register: fetch::Register) -> Element {
     }
 }
 
-/// Each cached day's import, export and costs, the rates worked out from them, see rates.rs, and a button to fetch the
-/// latest.
+/// Each cached day's import, export and costs, each checked against the rates worked out from them, see rates.rs.
 #[component]
 fn DaysPage(context: SharedProp<GlobirdContext>) -> Element {
-    let mut generation = use_signal(|| 0u32);
-    let mut messages = use_signal(Vec::<String>::new);
-    let mut busy = use_signal(|| false);
+    let generation = use_signal(|| 0u32);
     // Read so that a fetch, which changes it, shows the new days.
     generation();
     let summaries = fetch::summaries(&context.0.cache_config);
@@ -366,42 +429,21 @@ fn DaysPage(context: SharedProp<GlobirdContext>) -> Element {
         .into_iter()
         .collect();
     let tariffs = rates::tariffs(&summaries);
-    let fetch = move |_| {
-        let context = context.clone();
-        spawn(async move {
-            busy.set(true);
-            messages.set(Vec::new());
-            if let Err(error) = context.0.fetch(&mut |message| messages.write().push(message)).await {
-                messages.write().push(format!("Failed: {error:#}"));
-            }
-            busy.set(false);
-            generation += 1;
-        });
-    };
+    let fetched = fetch::fetched_at(&context.0.cache_config).map(crate::util::local_date_time);
 
     rsx! {
         h1 { "GloBird Days" }
         p {
-            "Each day's energy from and to the grid, in kWh, as the smart meter measured it, by the tariff's charge types, and its costs in AUD, by category. Days run from midnight to midnight in AEST, UTC+10, all year, without daylight saving, as GloBird's do, so in summer a day starts at 1am by the clock in Sydney. Readings is how many of the day's 288 five minute import readings there are. GloBird keeps only a few weeks of readings, so the app keeps every day it fetches. Fetch gets the days which are not cached yet, and the last {fetch::REFETCH_DAYS} days again, as readings arrive a day or so late."
+            "Each day's energy from and to the grid, in kWh, as the smart meter measured it, by the tariff's charge types, and its costs in AUD, by category. Days run from midnight to midnight in AEST, UTC+10, all year, without daylight saving, as GloBird's do, so in summer a day starts at 1am by the clock in Sydney. Readings is how many of the day's 288 five minute import readings there are. GloBird keeps only a few weeks of readings, so the app keeps every day it fetches. The days not cached yet, and the last {fetch::REFETCH_DAYS} days again, as readings arrive a day or so late, are fetched when this page, the Meters page or the Rates page opens, once a day."
         }
-        div { style: "margin-bottom: 1em;",
-            button { disabled: busy(), onclick: fetch, if busy() { "Fetching..." } else { "Fetch" } }
+        FetchIfDue { context: context.clone(), generation }
+        p {
             if let Some(latest) = latest {
-                " Readings up to {latest}"
+                "Readings up to {latest}. "
             }
-        }
-        for message in messages.read().iter() {
-            p { "{message}" }
-        }
-        if !tariffs.is_empty() {
-            h2 { "Rates" }
-            p {
-                "The rates, as GloBird charges them, worked out from each day's costs and the meter's kWh, as the portal does not give them. Each day's cost is rounded to the cent, so the rate of a charge type little used, e.g. Peak Usage when batteries run the house then, is less exact, and one with too few kWh is not known. Days whose charges do not fit the rates are said in the Check column below; a new set of rates starts where they change."
+            if let Some(fetched) = fetched {
+                "Fetched from GloBird at {fetched}, and again when a GloBird page opens a day later."
             }
-            for tariff in tariffs.iter() {
-                TariffTable { tariff: tariff.clone() }
-            }
-            h2 { "Days" }
         }
         table { class: "display",
             tr {
@@ -425,6 +467,28 @@ fn DaysPage(context: SharedProp<GlobirdContext>) -> Element {
                     categories: categories.clone(),
                 }
             }
+        }
+    }
+}
+
+/// The rates worked out from the cached days' costs, see rates.rs, newest first, as GloBird's portal does not give them.
+#[component]
+fn RatesPage(context: SharedProp<GlobirdContext>) -> Element {
+    let generation = use_signal(|| 0u32);
+    // Read so that a fetch, which changes it, shows the new rates.
+    generation();
+    let tariffs = rates::tariffs(&fetch::summaries(&context.0.cache_config));
+    rsx! {
+        h1 { "GloBird Rates" }
+        FetchIfDue { context: context.clone(), generation }
+        p {
+            "The rates, as GloBird charges them, worked out from each day's costs and the meter's kWh, as the portal does not give them, newest first. Each day's cost is rounded to the cent, so the rate of a charge type little used, e.g. Peak Usage when batteries run the house then, is less exact, and one with too few kWh is not known. A new set of rates starts where they change; the days whose charges do not fit their rates are said in the Days page's Check column."
+        }
+        if tariffs.is_empty() {
+            p { "No days are cached yet to work them out from." }
+        }
+        for tariff in tariffs.iter().rev() {
+            TariffTable { tariff: tariff.clone() }
         }
     }
 }

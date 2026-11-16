@@ -564,7 +564,26 @@ pub async fn fetch(
         }
     }
     progress(format!("Fetched {} power service(s)", services.len()));
+    // When it was fetched, for polling, which fetches once a day, see fetched_at.
+    store.put(&Item::new(
+        &store.hash_key(ACCOUNT_KIND, &[])?,
+        FETCHED_KEY,
+        crate::store::version_now(),
+        serde_json::json!({}),
+    ))?;
     Ok(())
+}
+
+/// The sort key, beside the account's, of the record of the last fetch, see fetched_at.
+const FETCHED_KEY: &str = "#fetched";
+
+/// When the readings and costs were last fetched, in full, see fetch, None if they never have been.
+pub fn fetched_at(cache_config: &CacheConfig) -> Option<OffsetDateTime> {
+    let store = cache_config.store().ok()?;
+    let item = store
+        .get(&store.hash_key(ACCOUNT_KIND, &[]).ok()?, FETCHED_KEY)
+        .ok()??;
+    OffsetDateTime::from_unix_timestamp_nanos(item.version.time.0 as i128 * 1000).ok()
 }
 
 /// The end of the latest cached reading, to say how up to date they are.
