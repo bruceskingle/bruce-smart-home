@@ -203,6 +203,7 @@ impl Module for GlobirdModule {
             id: String::from("globird:electricity"),
             description: String::from("The electricity meter GloBird bills from"),
             use_: crate::power::topology::Use::Grid,
+            phases: None,
         }]
     }
 

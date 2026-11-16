@@ -835,6 +835,7 @@ mod tests {
             id: id.to_string(),
             description: String::new(),
             use_,
+            phases: None,
         })
         .to_vec();
         let proposed = propose(&wrong, &series, &relations(&series), &channels).unwrap();
@@ -940,6 +941,7 @@ mod tests {
             id: id.to_string(),
             description: String::new(),
             use_,
+            phases: None,
         })
         .to_vec();
         let proposed = propose(&beside, &series, &relations, &channels).unwrap();
@@ -1037,6 +1039,7 @@ mod tests {
             id: id.to_string(),
             description: String::new(),
             use_,
+            phases: None,
         })
         .to_vec();
         let proposed = propose(&behind, &series, &relations(&series), &channels).unwrap();

@@ -64,7 +64,8 @@ fn grid_channel(serial: &str) -> String {
     format!("myenergi:Z{serial}:grid")
 }
 
-/// The channels of the zappis in the latest status: each one's charging, and its grid clamp if it has one.
+/// The channels of the zappis in the latest status: each one's charging, and its grid clamps if it has any, with how
+/// many phases they measure, a clamp each, see fetch::zappis.
 pub fn channels(store: &bruce_db::Store) -> Vec<Channel> {
     fetch::zappis(store)
         .into_iter()
@@ -73,12 +74,26 @@ pub fn channels(store: &bruce_db::Store) -> Vec<Channel> {
                 id: charging_channel(&serial),
                 description: format!("What zappi {serial} charged the car with"),
                 use_: Use::car(),
+                phases: None,
             }];
-            if grid {
+            let (description, phases) = match grid {
+                None => (Some(format!("Zappi {serial}'s grid CT clamp")), None),
+                Some(0) => (None, None),
+                Some(1) => (Some(format!("Zappi {serial}'s grid CT clamp")), Some(1)),
+                Some(clamps) => (
+                    Some(format!(
+                        "Zappi {serial}'s {clamps} grid CT clamps, added up, on {clamps} phases, not the whole grid if \
+                         there are more"
+                    )),
+                    Some(clamps),
+                ),
+            };
+            if let Some(description) = description {
                 channels.push(Channel {
                     id: grid_channel(&serial),
-                    description: format!("Zappi {serial}'s grid CT clamp"),
+                    description,
                     use_: Use::Grid,
+                    phases,
                 });
             }
             channels

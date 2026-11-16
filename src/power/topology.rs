@@ -164,6 +164,11 @@ pub struct Channel {
     pub id: String,
     pub description: String,
     pub use_: Use,
+    /// How many of the supply's phases it measures, if it is CT clamps, a clamp to each, e.g. 2 for a zappi with a
+    /// grid clamp on each of two harvis, or None if it is a meter, which measures every phase, or does not say. A grid
+    /// channel of 2 can not be a whole supply, which has 1 phase, or 3, so the suggested topology does not take it to
+    /// be the grid, see suggested.
+    pub phases: Option<u32>,
 }
 
 impl Circuit {
@@ -180,7 +185,8 @@ impl Circuit {
     /// grid with whatever measures the grid connection, a gateway's site meter fed from it, if there is one, as a board
     /// feeding the batteries, the solar panels and the car, as installers fit them, and the house the rest, without
     /// the channels which measure the house, as the rest is what the others do not take. Where the car's charger
-    /// really is, only the user knows, see docs/PowerSchema.md.
+    /// really is, only the user knows, see docs/PowerSchema.md. A grid channel of two of three phases is left out, see
+    /// Channel::phases.
     pub fn suggested(channels: &[Channel]) -> Circuit {
         let ids = |use_: &Use| -> Vec<&str> {
             channels
@@ -203,7 +209,14 @@ impl Circuit {
             Some(board) => vec![Circuit::new("Gateway", Use::Board, &[board], fed)],
             None => fed,
         };
-        Circuit::new("Grid", Use::Grid, &ids(&Use::Grid), children)
+        // Not a grid channel which measures some of the phases only, see Channel::phases: a supply has 1 phase, or 3,
+        // so 2 clamps are part of a three-phase grid, e.g. a zappi's on two harvis. It is left for the user to place.
+        let grid: Vec<&str> = channels
+            .iter()
+            .filter(|channel| channel.use_ == Use::Grid && channel.phases != Some(2))
+            .map(|channel| channel.id.as_str())
+            .collect();
+        Circuit::new("Grid", Use::Grid, &grid, children)
     }
 
     /// What is wrong with it, as the Site page says, nothing if it can split the import: the top is the grid, each
@@ -686,6 +699,7 @@ pub(crate) mod tests {
             id: id.to_string(),
             description: String::new(),
             use_,
+            phases: None,
         };
         let mut channels = vec![
             channel("octopus:electricity", Use::Grid),
@@ -706,6 +720,33 @@ pub(crate) mod tests {
             .children
             .insert(2, Circuit::new("Car", Use::car(), &["myenergi:Z1"], vec![]));
         assert_eq!(Circuit::suggested(&channels), expected);
+    }
+
+    #[test]
+    fn the_suggestion_does_not_take_two_phases_grid_clamps_to_be_the_grid() {
+        // A three-phase house, as Jeff's: the meter measures every phase, and the zappi's two grid clamps, on two
+        // harvis, two of the three phases, so only the meter measures the grid.
+        let channel = |id: &str, use_, phases| Channel {
+            id: id.to_string(),
+            description: String::new(),
+            use_,
+            phases,
+        };
+        let channels = vec![
+            channel("globird:electricity", Use::Grid, None),
+            channel("myenergi:Z1", Use::car(), None),
+            channel("myenergi:Z1:grid", Use::Grid, Some(2)),
+        ];
+        let suggested = Circuit::suggested(&channels);
+        assert_eq!(suggested.channels, vec![String::from("globird:electricity")]);
+        assert!(!suggested.channel_ids().contains("myenergi:Z1:grid"));
+        assert_eq!(suggested.children[0].channels, vec![String::from("myenergi:Z1")]);
+        // One clamp, as on most single-phase houses, is the grid.
+        let one = vec![channel("myenergi:Z1:grid", Use::Grid, Some(1))];
+        assert_eq!(
+            Circuit::suggested(&one).channels,
+            vec![String::from("myenergi:Z1:grid")]
+        );
     }
 
     #[test]

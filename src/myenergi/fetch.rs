@@ -690,9 +690,11 @@ pub fn status_samples(store: &Store, limit: usize) -> Vec<StatusSample> {
     samples
 }
 
-/// The zappis in the latest status, by serial number, with whether one of its CT clamps is set to measure the grid,
-/// whose readings are its records' imp and exp, true if the status does not say.
-pub fn zappis(store: &Store) -> Vec<(String, bool)> {
+/// The zappis in the latest status, by serial number, with how many of its CT clamps are set to measure the grid, whose
+/// readings, added up, are its records' imp and exp: its own, ectt1 to ectt3, and its harvis', ectt4 to ectt6, a clamp
+/// each on a phase, e.g. 2 for a zappi with a grid clamp on each of two harvis on a three-phase supply. None if the
+/// status does not say what its clamps are, which is taken to be one grid clamp, as most have.
+pub fn zappis(store: &Store) -> Vec<(String, Option<u32>)> {
     let Some(status) = latest_saved(store).map(|saved| saved_status(&saved).clone()) else {
         return Vec::new();
     };
@@ -708,10 +710,11 @@ pub fn zappis(store: &Store) -> Vec<(String, bool)> {
                 serde_json::Value::String(text) => text.clone(),
                 _ => return None,
             };
-            let kinds: Vec<&str> = (2..=4)
+            let kinds: Vec<&str> = (1..=6)
                 .filter_map(|n| zappi.get(format!("ectt{n}"))?.as_str())
                 .collect();
-            Some((serial, kinds.is_empty() || kinds.contains(&"Grid")))
+            let grid = (!kinds.is_empty()).then(|| kinds.iter().filter(|kind| **kind == "Grid").count() as u32);
+            Some((serial, grid))
         })
         .collect()
 }

@@ -250,6 +250,7 @@ impl Module for TeslaModule {
             id: id.to_string(),
             description: description.to_string(),
             use_,
+            phases: None,
         })
         .to_vec()
     }

@@ -350,6 +350,7 @@ fn channel_choices(channels: &[Channel], circuit: &Circuit) -> Vec<Channel> {
                 id: id.clone(),
                 description: String::from("No module of this profile has this channel now"),
                 use_: circuit.use_.clone(),
+                phases: None,
             });
         }
     }
