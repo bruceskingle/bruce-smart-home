@@ -26,7 +26,7 @@ webview_install_mode = { DownloadBootstrapper = { silent = true } }
 [bundle.windows.nsis]
 # The setup.exe's own icon, which is not taken from bundle.icon.
 installer_icon = "icons/icon.ico"
-# Puts the virtual capture device beside the app, as the Windows installer leaves out external_bin, see the file.
+# Puts the virtual capture device beside the app, as dx leaves out external_bin on Windows, see the file.
 installer_hooks = "windows/installer-hooks.nsh"
 
 [web.app]

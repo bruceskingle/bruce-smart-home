@@ -38,5 +38,11 @@ copy "target-sim/rlcd42/$host/$profile/bruce-smart-home-capture-sim$exe" "target
 mkdir -p target-sim/bundle
 for program in sim rlcd42 guitron; do
     copy "target-sim/bin/bruce-smart-home-capture-$program$exe" "target-sim/bundle/bruce-smart-home-capture-$program-$host$exe"
+    # On macOS, signed ad hoc, as an Intel Mac's linker, unlike an Apple Silicon one's, leaves a program unsigned, and
+    # codesign will not sign the app's own program beside an unsigned one; dx bundle then signs the whole app, these
+    # with it, with the Developer ID, if it has one.
+    case "$host" in
+        *apple-darwin) codesign --force --sign - "target-sim/bundle/bruce-smart-home-capture-$program-$host" ;;
+    esac
 done
 echo "Built target-sim/bin and target-sim/bundle"
