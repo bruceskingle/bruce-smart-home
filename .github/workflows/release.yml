@@ -64,6 +64,23 @@ jobs:
           # The build records the tag and branch, so it needs the history.
           fetch-depth: 0
 
+      # The libraries the capture firmware takes by path, from their checkouts next to this one, as on a developer's
+      # computer, until they are released and it takes them from crates.io: the board simulator, which the virtual
+      # capture device is built on, see capture/build-sim.sh. To come out before the release, see docs/Release.md.
+      - name: Check out bruce-embedded-std
+        uses: actions/checkout@v7
+        with:
+          repository: bruceskingle/bruce-embedded-std
+          ref: v0.2.0
+          path: bruce-embedded-std
+
+      - name: Check out bruce-esp-idf
+        uses: actions/checkout@v7
+        with:
+          repository: bruceskingle/bruce-esp-idf
+          ref: v0.2.0
+          path: bruce-esp-idf
+
       # The Windows ARM runner may not have Rust installed.
       - name: Install rustup
         if: runner.os == 'Windows' && runner.arch == 'ARM64'

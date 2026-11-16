@@ -26,6 +26,12 @@ lists them in the order to release them, a tick for each one which is ready and 
 is not. Releasing a library makes the app take it from crates.io. The release script's commands stop while the app
 still takes a library by path.
 
+The capture firmware, in `capture/`, is a project of its own, which bruce-method-release does not see: until
+bruce-embedded-std 0.2.0, with bruce-embedded-sim, and bruce-esp-idf 0.2.0 are released, it takes them by path, and the
+workflow checks out their `v0.2.0` branches next to this repo, for the virtual capture device, see
+`capture/build-sim.sh`, so that `try` can build it. Before the release, release them, make `capture/Cargo.toml` take
+them from crates.io, and take the two checkouts out of `.github/workflows/release.yml`.
+
 ```
 cd ~/git/bruce-smart-home
 ./scripts/release.sh status
