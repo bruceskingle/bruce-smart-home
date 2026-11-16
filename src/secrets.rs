@@ -9,8 +9,10 @@
 //! decrypted when a file is read, wherever it is, and the values of the fields which hold secrets, see is_secret_field,
 //! are encrypted when it is saved, whichever module's they are, as are token files whole, see seal.
 //!
-//! If the key is missing, e.g. on another computer, or the credential store refuses it, reading a file with encrypted
-//! values fails, rather than dropping them, so that they are not lost when the file is next saved.
+//! If the key is missing, e.g. on another computer, or the credential store refuses it, or it is not the one any of a
+//! file's values were encrypted with, reading the file fails, rather than dropping them, so that they are not lost when
+//! the file is next saved. A value which cannot be decrypted when others can, e.g. as the file was edited by hand,
+//! cannot be decrypted with any key, so it is dropped, and reported, see decrypt_secrets.
 
 use std::sync::Mutex;
 
@@ -33,7 +35,7 @@ const KEY_USER: &str = "settings-encryption-key";
 static KEY: Mutex<Option<[u8; 32]>> = Mutex::new(None);
 
 /// The name of the credential store the key is kept in, for messages.
-fn store_name() -> &'static str {
+pub fn store_name() -> &'static str {
     if cfg!(target_os = "macos") {
         "Keychain"
     } else if cfg!(windows) {
@@ -99,7 +101,12 @@ pub fn is_encrypted(text: &str) -> bool {
 
 /// The text, encrypted.
 fn encrypt(text: &str) -> anyhow::Result<String> {
-    let cipher = XChaCha20Poly1305::new(&key(true)?.into());
+    encrypt_with(&key(true)?, text)
+}
+
+/// The text, encrypted with key.
+fn encrypt_with(key: &[u8; 32], text: &str) -> anyhow::Result<String> {
+    let cipher = XChaCha20Poly1305::new(key.into());
     let nonce: [u8; NONCE_LEN] = rand::random();
     let ciphertext = cipher
         .encrypt(&XNonce::from(nonce), text.as_bytes())
@@ -112,8 +119,30 @@ fn encrypt(text: &str) -> anyhow::Result<String> {
     ))
 }
 
+/// The error of a value which is well formed but does not decrypt with the key, i.e. it was encrypted with another key,
+/// or its ciphertext was changed, as distinct from one which is not even well formed, see decrypt_secrets.
+#[derive(Debug)]
+struct NotThisKey;
+
+impl std::fmt::Display for NotThisKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Unable to decrypt a secret, the key in the {} is not the one it was encrypted with",
+            store_name()
+        )
+    }
+}
+
+impl std::error::Error for NotThisKey {}
+
 /// The text of an encrypted value, see is_encrypted.
 fn decrypt(value: &str) -> anyhow::Result<String> {
+    decrypt_with(&key(false)?, value)
+}
+
+/// The text of an encrypted value, decrypted with key.
+fn decrypt_with(key: &[u8; 32], value: &str) -> anyhow::Result<String> {
     let encoded = value
         .strip_prefix(PREFIX)
         .ok_or_else(|| anyhow!("The value is not encrypted"))?;
@@ -125,13 +154,10 @@ fn decrypt(value: &str) -> anyhow::Result<String> {
     }
     let (nonce, ciphertext) = bytes.split_at(NONCE_LEN);
     let nonce: [u8; NONCE_LEN] = nonce.try_into()?;
-    let cipher = XChaCha20Poly1305::new(&key(false)?.into());
-    let text = cipher.decrypt(&XNonce::from(nonce), ciphertext).map_err(|_| {
-        anyhow!(
-            "Unable to decrypt a secret, the key in the {} is not the one it was encrypted with",
-            store_name()
-        )
-    })?;
+    let cipher = XChaCha20Poly1305::new(key.into());
+    let text = cipher
+        .decrypt(&XNonce::from(nonce), ciphertext)
+        .map_err(|_| anyhow::Error::new(NotThisKey))?;
     Ok(String::from_utf8(text)?)
 }
 
@@ -157,23 +183,89 @@ pub fn encrypt_secrets(value: &mut Value) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Decrypts every encrypted value, at any depth, whichever field it is in.
-pub fn decrypt_secrets(value: &mut Value) -> anyhow::Result<()> {
+/// An encrypted value which could not be decrypted, see decrypt_secrets, by where it is in the file, e.g.
+/// ["0", "modules", "octopus", "apiKey"], and why.
+#[derive(Debug)]
+pub struct UnreadableSecret {
+    pub path: Vec<String>,
+    pub error: anyhow::Error,
+}
+
+/// Decrypts every encrypted value, at any depth, whichever field it is in. A value which cannot be decrypted is made
+/// null, as if there were none, and returned, so that it does not stop the rest of the file being read, e.g. a module's
+/// login, which it then asks for again. But if none can be decrypted with the key, and one at least is well formed, the
+/// key is taken to be the wrong one, and it is an error, so that the values are kept for the right key.
+pub fn decrypt_secrets(value: &mut Value) -> anyhow::Result<Vec<UnreadableSecret>> {
+    let mut paths = Vec::new();
+    encrypted_paths(value, &mut Vec::new(), &mut paths);
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+    decrypt_secrets_with(&key(false)?, value, paths)
+}
+
+/// Decrypts the values at paths with key, see decrypt_secrets.
+fn decrypt_secrets_with(
+    key: &[u8; 32],
+    value: &mut Value,
+    paths: Vec<Vec<String>>,
+) -> anyhow::Result<Vec<UnreadableSecret>> {
+    let mut decrypted = 0;
+    let mut unreadable = Vec::new();
+    for path in paths {
+        let Some(slot) = at_path(value, &path) else {
+            continue;
+        };
+        match decrypt_with(key, slot.as_str().unwrap_or_default()) {
+            Ok(text) => {
+                *slot = Value::String(text);
+                decrypted += 1;
+            }
+            Err(error) => unreadable.push(UnreadableSecret { path, error }),
+        }
+    }
+    if decrypted == 0
+        && let Some(index) = unreadable.iter().position(|secret| secret.error.is::<NotThisKey>())
+    {
+        return Err(unreadable.swap_remove(index).error);
+    }
+    for secret in &unreadable {
+        if let Some(slot) = at_path(value, &secret.path) {
+            *slot = Value::Null;
+        }
+    }
+    Ok(unreadable)
+}
+
+/// Adds the path of every encrypted value in value, which is at path, to paths.
+fn encrypted_paths(value: &Value, path: &mut Vec<String>, paths: &mut Vec<Vec<String>>) {
     match value {
-        Value::String(text) if is_encrypted(text) => *text = decrypt(text)?,
+        Value::String(text) if is_encrypted(text) => paths.push(path.clone()),
         Value::Object(map) => {
-            for field in map.values_mut() {
-                decrypt_secrets(field)?;
+            for (name, field) in map {
+                path.push(name.clone());
+                encrypted_paths(field, path, paths);
+                path.pop();
             }
         }
         Value::Array(items) => {
-            for item in items {
-                decrypt_secrets(item)?;
+            for (index, item) in items.iter().enumerate() {
+                path.push(index.to_string());
+                encrypted_paths(item, path, paths);
+                path.pop();
             }
         }
         _ => {}
     }
-    Ok(())
+}
+
+/// The value at path in value, see encrypted_paths.
+fn at_path<'a>(value: &'a mut Value, path: &[String]) -> Option<&'a mut Value> {
+    path.iter().try_fold(value, |value, step| match value {
+        Value::Object(map) => map.get_mut(step),
+        Value::Array(items) => items.get_mut(step.parse::<usize>().ok()?),
+        _ => None,
+    })
 }
 
 /// The whole of value encrypted, as an encrypted string, for a file which is all secret, e.g. a module's tokens, or
@@ -247,6 +339,46 @@ mod tests {
         assert!(is_encrypted(sealed.as_str().unwrap()));
         assert_eq!(unseal(sealed).unwrap(), tokens);
         assert_eq!(unseal(tokens.clone()).unwrap(), tokens);
+    }
+
+    #[test]
+    fn a_damaged_value_is_dropped_and_reported_when_others_decrypt() {
+        let key = [9; 32];
+        let mut value = json!([{
+            "modules": {
+                "octopus": { "apiKey": encrypt_with(&key, "sk_live_x").unwrap() },
+                "globird": { "password": "enc:v1:garbage!" },
+            },
+        }]);
+        let damaged = {
+            let mut text = encrypt_with(&key, "hunter2").unwrap();
+            text.pop();
+            text.push(if text.ends_with('A') { 'B' } else { 'A' });
+            text
+        };
+        value[0]["modules"]["tesla"] = json!({ "password": damaged });
+        let mut paths = Vec::new();
+        encrypted_paths(&value, &mut Vec::new(), &mut paths);
+
+        let unreadable = decrypt_secrets_with(&key, &mut value, paths).unwrap();
+        let mut found: Vec<_> = unreadable.iter().map(|secret| secret.path.join("/")).collect();
+        found.sort();
+        assert_eq!(found, ["0/modules/globird/password", "0/modules/tesla/password"]);
+        assert_eq!(value[0]["modules"]["octopus"]["apiKey"], "sk_live_x");
+        assert!(value[0]["modules"]["globird"]["password"].is_null());
+        assert!(value[0]["modules"]["tesla"]["password"].is_null());
+    }
+
+    #[test]
+    fn values_of_another_key_are_an_error_and_kept() {
+        let mut value = json!({ "apiKey": encrypt_with(&[1; 32], "sk_live_x").unwrap(), "password": "enc:v1:!" });
+        let original = value.clone();
+        let mut paths = Vec::new();
+        encrypted_paths(&value, &mut Vec::new(), &mut paths);
+
+        let error = decrypt_secrets_with(&[2; 32], &mut value, paths).unwrap_err();
+        assert!(error.is::<NotThisKey>(), "{error:#}");
+        assert_eq!(value, original);
     }
 
     #[test]

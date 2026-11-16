@@ -36,6 +36,19 @@ struct LoginData {
     require_h_captcha: Option<bool>,
 }
 
+/// GloBird refused the login, e.g. as the password has changed, rather than failing to answer or asking for a captcha,
+/// so that the module removes the saved password and asks for the login again, see GlobirdContext::handle_error.
+#[derive(Debug)]
+pub struct LoginRefused(pub String);
+
+impl std::fmt::Display for LoginRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for LoginRefused {}
+
 pub struct GlobirdClient {
     http: reqwest::Client,
     email: String,
@@ -178,7 +191,8 @@ impl GlobirdClient {
     pub async fn login(&self) -> anyhow::Result<()> {
         if self.login_failed.load(Ordering::SeqCst) {
             return Err(anyhow!(
-                "An earlier login to GloBird failed, so the app will not try again until you log in on the GloBird page"
+                "An earlier login to GloBird failed, so the app will not try again until you log in again on GloBird's Log \
+                In page"
             ));
         }
         let result = self.try_login().await;
@@ -219,14 +233,18 @@ impl GlobirdClient {
                 "GloBird asked for a captcha. Log in once on the GloBird web site, then try again later"
             ));
         }
+        if status.is_server_error() {
+            return Err(anyhow!("GloBird responded {status} to the login"));
+        }
         if !status.is_success() || envelope.success != Some(true) || login.is_login_succeeded == Some(false) {
-            return Err(anyhow!(
+            return Err(LoginRefused(format!(
                 "GloBird refused the login ({status}){}",
                 envelope
                     .message
                     .map(|message| format!(", {message}"))
                     .unwrap_or_default()
-            ));
+            ))
+            .into());
         }
         crate::log_info!("Logged in to GloBird");
         Ok(())

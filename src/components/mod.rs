@@ -12,6 +12,7 @@ pub mod delete_profile;
 pub mod error_text;
 pub mod export;
 pub mod rename_profile;
+pub mod secret_input;
 pub mod stacked_bar_graph;
 pub mod toggle_button;
 pub mod tooltips;

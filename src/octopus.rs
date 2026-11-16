@@ -536,8 +536,6 @@ pub struct OctopusModuleFactory {
     request_manager: Arc<bruce_graphql::RequestManager>,
     profile: Profile,
     verbose: bool,
-    /// Why the saved login could not be used, shown on the login page. None if there was no saved login.
-    saved_login_error: std::sync::Mutex<Option<String>>,
 }
 
 /// An error from logging in, for display, including the response if the server rejected the request.
@@ -620,7 +618,8 @@ impl OctopusModuleFactory {
 
         if login_method == "email" {
             let email = values.email.as_ref().unwrap_or(&String::new()).trim().to_string();
-            let password = values.password.as_ref().unwrap_or(&String::new()).trim().to_string();
+            // A password is sent as typed, as spaces at either end may be part of it.
+            let password = values.password.clone().unwrap_or_default();
 
             if email.is_empty() {
                 errors.push("Email is required".to_string());
@@ -639,6 +638,7 @@ impl OctopusModuleFactory {
                     .await;
 
                 if let Ok(_) = Self::login(&mut errors, &token_manager).await {
+                    crate::login::cleared(&context, MODULE_ID);
                     let init_signal = try_consume_context::<Signal<InitRequested>>();
                     if let Some(mut init_sig) = init_signal {
                         init_sig.set(InitRequested(true));
@@ -667,6 +667,7 @@ impl OctopusModuleFactory {
 
                     crate::profile::update_profile(&context.profile.active_profile.name, MODULE_ID, &new_profile)
                         .unwrap_or_else(|e| println!("profile update failed: {}", e));
+                    crate::login::cleared(&context, MODULE_ID);
 
                     // Reset the app initialization to reload context with new profile
                     let init_signal = try_consume_context::<Signal<InitRequested>>();
@@ -690,32 +691,19 @@ impl ModuleFactory for OctopusModuleFactory {
         if self.context.profile.active_profile.offline {
             return Ok(true);
         }
-        let (ready, error) = match self.token_manager.get_authenticator(false).await {
-            Ok(_token) => (true, None),
-            // There is no saved login, so the login page is shown without an error.
-            Err(bruce_graphql::Error::MissingRequiredValueError(_)) => (false, None),
-            Err(error) => (
-                false,
-                Some(format!(
-                    "Unable to log in with the saved login details, {}",
-                    describe_login_error(&error)
-                )),
-            ),
-        };
-        if let Some(error) = &error {
-            crate::log_error!("{error}");
-        }
-        *self.saved_login_error.lock().unwrap() = error;
-        Ok(ready)
+        // Without a request, as for every module: a saved login which Octopus refuses is reported by the request which
+        // finds it, see OctopusTokenManager::refuse and login.rs.
+        Ok(self.token_manager.has_login().await)
     }
 
     fn init_page(&self) -> Element {
         let mut email = use_signal(|| String::new());
-        let mut password = use_signal(|| String::new());
-        let mut api_key = use_signal(|| String::new());
-        let mut login_method = use_signal(|| "email".to_string());
-        let saved_login_error = self.saved_login_error.lock().unwrap().clone();
-        let mut errors: Signal<Vec<String>> = use_signal(|| saved_login_error.into_iter().collect());
+        let password = use_signal(|| String::new());
+        let saved_api_key = self.profile.api_key.clone();
+        let login_method_default = if saved_api_key.is_some() { "api_key" } else { "email" };
+        let api_key = use_signal(|| saved_api_key.unwrap_or_default());
+        let mut login_method = use_signal(|| login_method_default.to_string());
+        let mut errors: Signal<Vec<String>> = use_signal(Vec::new);
 
         let context: Arc<AppContext> = self.context.clone();
         let token_manager: Arc<OctopusTokenManager> = self.token_manager.clone();
@@ -799,13 +787,7 @@ impl ModuleFactory for OctopusModuleFactory {
                                     label { "Password:" }
                                 }
                                 td {
-                                    input {
-                                        r#type: "password",
-                                        id: "password",
-                                        name: "password",
-                                        value: "{password}",
-                                        oninput: move |e| password.set(e.value().clone()),
-                                    }
+                                    crate::components::secret_input::SecretInput { name: "password", value: password }
                                 }
                             }
                         }
@@ -815,13 +797,7 @@ impl ModuleFactory for OctopusModuleFactory {
                                     label { "API Key:" }
                                 }
                                 td {
-                                    input {
-                                        r#type: "text",
-                                        id: "api_key",
-                                        name: "api_key",
-                                        value: "{api_key}",
-                                        oninput: move |e| api_key.set(e.value().clone()),
-                                    }
+                                    crate::components::secret_input::SecretInput { name: "api_key", value: api_key }
                                 }
                             }
                         }
@@ -947,15 +923,12 @@ impl OctopusModuleFactoryBuilder {
             context: self.context.clone(),
             octopus_args: self.octopus_args,
             cache_config,
-            token_manager: Arc::new(OctopusTokenManager::new(
-                self.context,
-                request_manager.clone(),
-                self.authenticator,
-            )),
+            token_manager: Arc::new(
+                OctopusTokenManager::new(self.context, request_manager.clone(), self.authenticator).with_saved_login(),
+            ),
             request_manager,
             profile: self.profile,
             verbose: self.verbose,
-            saved_login_error: std::sync::Mutex::new(None),
         })
     }
 }

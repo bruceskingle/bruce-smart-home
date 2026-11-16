@@ -132,7 +132,7 @@ async fn build(
     module_id: &str,
 ) -> anyhow::Result<Option<Box<dyn Module + Send>>> {
     let factory = registrations.module_factory(module_id, context).await?;
-    if !factory.is_ready().await? {
+    if !crate::login::is_ready(context, module_id, &factory).await? {
         return Ok(None);
     }
     Ok(Some(factory.build().await?))
@@ -182,7 +182,10 @@ pub fn Poller(context: crate::util::SharedProp<AppContext>) -> Element {
                         ),
                     },
                     Ok(None) => (
-                        PollState::NotPolled("It is not logged in, open it to log in".to_string()),
+                        PollState::NotPolled(match crate::login::saved_refusal(&context, &module_id) {
+                            Some(_) => "Its saved login was refused, open it to log in again".to_string(),
+                            None => "It is not logged in, open it to log in".to_string(),
+                        }),
                         None,
                     ),
                     Err(error) => (PollState::NotPolled(format!("Unable to start it, {error:#}")), None),
@@ -229,6 +232,14 @@ pub fn Poller(context: crate::util::SharedProp<AppContext>) -> Element {
                     let scheduled =
                         status.state == PollState::Waiting && status.next_time.is_none_or(|next| next <= now);
                     if !(scheduled || status.poll_now) {
+                        continue;
+                    }
+                    // Not polled once its saved login has been refused, so that it does not keep failing, or lock the
+                    // login out, until it logs in again, which starts polling afresh, see login.rs.
+                    if crate::login::saved_refusal(&context, module_id).is_some() {
+                        status.state =
+                            PollState::NotPolled("Its saved login was refused, open it to log in again".to_string());
+                        status.poll_now = false;
                         continue;
                     }
                     let slot = if status.poll_now { None } else { status.next_time };

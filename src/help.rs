@@ -93,6 +93,7 @@ static ICONS: &[(&str, &str)] = help_icons![
     "external-link",
     "previous",
     "next",
+    "show",
 ];
 
 /// The help page at path, relative to docs/help.

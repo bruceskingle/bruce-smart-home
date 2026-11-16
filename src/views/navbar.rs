@@ -134,14 +134,14 @@ pub fn Navbar() -> Element {
             div { class: "nav-right",
                 button {
                     r#type: "button",
-                    class: if show_help { "nav-icon-button active" } else { "nav-icon-button" },
+                    class: if show_help { "icon-button active" } else { "icon-button" },
                     title: if show_help { "Hide the help" } else { "Show the help" },
                     onclick: move |_| set_show_help(!show_help),
                     Icon { icon: LdCircleHelp, width: 16, height: 16 }
                 }
                 button {
                     r#type: "button",
-                    class: if show_log { "nav-icon-button active" } else { "nav-icon-button" },
+                    class: if show_log { "icon-button active" } else { "icon-button" },
                     title: if show_log { "Hide the log" } else { "Show the log" },
                     onclick: {
                         let mut set_show_log = set_show_log.clone();
@@ -355,7 +355,7 @@ pub fn Navbar() -> Element {
                 }
                 button {
                     r#type: "button",
-                    class: if matches!(current_route, Route::Settings {}) { "nav-icon-button active" } else { "nav-icon-button" },
+                    class: if matches!(current_route, Route::Settings {}) { "icon-button active" } else { "icon-button" },
                     title: "Settings",
                     onclick: move |_| { navigator.push(Route::Settings {}); },
                     Icon { icon: LdSettings, width: 16, height: 16 }

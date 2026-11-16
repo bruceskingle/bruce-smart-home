@@ -86,7 +86,30 @@ pub fn App() -> Element {
     // window.set_window_icon(window_icon);
 
     if init {
-        let app_context = AppContext::new(args)?;
+        // The settings cannot be read, e.g. the key of their secrets is missing: say why, rather than show nothing.
+        let app_context = match AppContext::new(args) {
+            Ok(app_context) => app_context,
+            Err(error) => {
+                crate::log_error!("Unable to start, {error:#}");
+                let file = AppContext::get_file_path()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default();
+                // The stylesheet is linked here too, as the layout which links it is not drawn, and without it the
+                // text is black on the window's dark background.
+                return rsx! {
+                    document::Link { rel: "stylesheet", href: MAIN_CSS }
+                    div { class: "startup-error",
+                        h1 { "Unable to read the settings" }
+                        p { class: "error", "{error:#}" }
+                        p {
+                            "The passwords and keys in the settings are encrypted, with a key kept in the {crate::secrets::store_name()}. \
+                            If it asked whether the app may use it, quit the app, open it again, and allow it."
+                        }
+                        p { "The settings are in {file}." }
+                    }
+                };
+            }
+        };
         context_signal.set(Some(app_context));
         // let x: Signal<Arc<AppContext>>;
 

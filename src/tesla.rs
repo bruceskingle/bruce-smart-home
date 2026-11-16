@@ -156,17 +156,16 @@ impl TeslaContext {
         result.map_err(|error| self.handle_error(error))
     }
 
-    /// The error, after removing the password from the profile if it was rejected.
+    /// The error, reported as a refused login if the gateway rejected the password, see login.rs. The password is
+    /// kept, so that the login page can show what it was.
     fn handle_error(&self, error: anyhow::Error) -> anyhow::Error {
         if error.is::<PasswordRejected>() {
-            let profile = Profile {
-                password: None,
-                ..self.profile.lock().unwrap().clone()
-            };
-            if let Err(save_error) = self.save_profile(profile) {
-                crate::log_error!("Unable to remove the rejected Tesla password from the profile, {save_error:#}");
-            }
-            crate::log_error!("The Tesla gateway rejected the password, log in again");
+            return crate::login::refused(
+                &self.context,
+                MODULE_ID,
+                "The Tesla gateway did not accept the saved password. Check it before logging in again, as repeated \
+                failures lock out the customer login for a while, for Home Assistant too",
+            );
         }
         error
     }
@@ -541,6 +540,7 @@ impl TeslaModuleFactory {
         if let Some(token) = client.token() {
             context.update_cache(MODULE_ID, &StoredToken { token })?;
         }
+        crate::login::cleared(&context, MODULE_ID);
         crate::log_info!("Logged in to the Tesla gateway");
         Ok(())
     }
@@ -558,15 +558,13 @@ impl ModuleFactory for TeslaModuleFactory {
     fn init_page(&self) -> Element {
         let mut host = use_signal(|| self.profile.gateway_host.clone().unwrap_or_default());
         let mut email = use_signal(|| self.profile.email.clone().unwrap_or_default());
-        let mut password = use_signal(String::new);
+        let password = use_signal(|| self.profile.password.clone().unwrap_or_default());
         let mut errors = use_signal(Vec::<String>::new);
         let mut messages = use_signal(Vec::<String>::new);
         let mut busy = use_signal(|| false);
         let context = self.context.clone();
         let profile = self.profile.clone();
         let verbose = self.verbose;
-        // Saying so, as it was removed because the gateway rejected it, see TeslaContext::handle_error.
-        let password_removed = self.profile.email.is_some() && self.profile.password.is_none();
 
         rsx! {
             for error in errors.read().iter() {
@@ -574,9 +572,6 @@ impl ModuleFactory for TeslaModuleFactory {
             }
             div {
                 h1 { "Tesla Powerwall Login" }
-                if password_removed {
-                    p { "The gateway did not accept the saved password. Check it before logging in again, as repeated failures lock out the customer login for a while, for Home Assistant too." }
-                }
                 form {
                     onsubmit: move |evt: FormEvent| {
                         evt.prevent_default();
@@ -585,7 +580,8 @@ impl ModuleFactory for TeslaModuleFactory {
                         async move {
                             let host = host().trim().to_string();
                             let email = email().trim().to_string();
-                            let password = password().trim().to_string();
+                            // A password is sent as typed, as spaces at either end may be part of it.
+                            let password = password();
                             let mut found = Vec::new();
                             if email.is_empty() {
                                 found.push("The email is required".to_string());
@@ -645,12 +641,7 @@ impl ModuleFactory for TeslaModuleFactory {
                                 label { "Password:" }
                             }
                             td {
-                                input {
-                                    r#type: "password",
-                                    name: "password",
-                                    value: "{password}",
-                                    oninput: move |e| password.set(e.value()),
-                                }
+                                crate::components::secret_input::SecretInput { name: "password", value: password }
                             }
                         }
                         tr {

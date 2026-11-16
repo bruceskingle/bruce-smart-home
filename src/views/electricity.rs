@@ -12,7 +12,6 @@ use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, icons::ld_icons::LdRefreshCw};
 use time_tz::{OffsetDateTimeExt, Tz};
 
-use crate::components::app::Route;
 use crate::components::category_filter::{CategoryFilter, CategoryFilterMenu, CategoryValues, STANDING_CHARGE_LABEL};
 use crate::components::date_range_picker::{DateRangePicker, LocalSlot, RangeSelection};
 use crate::components::error_text::ErrorText;
@@ -957,7 +956,7 @@ pub(crate) async fn find(context: Arc<AppContext>, registrations: ModuleRegistra
     };
     for module_id in context.profile.active_profile.modules.keys() {
         let factory = registrations.module_factory(module_id, &context).await?;
-        if !factory.is_ready().await? {
+        if !crate::login::is_ready(&context, module_id, &factory).await? {
             found.not_ready.push(module_id.clone());
             continue;
         }
@@ -986,11 +985,7 @@ pub fn ElectricityPage() -> Element {
     let not_ready = |not_ready: &[String]| {
         rsx! {
             for module_id in not_ready.iter() {
-                p {
-                    "Log in to "
-                    Link { to: Route::Module { module_id: module_id.clone() }, "{module_id}" }
-                    " to see its electricity here."
-                }
+                crate::login::LogInLink { module_id: module_id.clone(), what: "its electricity" }
             }
         }
     };

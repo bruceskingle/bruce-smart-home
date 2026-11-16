@@ -128,6 +128,27 @@ pub struct OctopusTokenManager {
     request_manager: Arc<RequestManager>,
     authenticator: Mutex<Option<OctopusAuthenticator>>,
     token: Mutex<Option<OctopusToken>>,
+    /// Whether the login is the saved one, so that a refused login is reported, see refuse, but not one being tried on
+    /// the login page, see set_authenticator.
+    saved_login: std::sync::atomic::AtomicBool,
+}
+
+/// The error codes with which Octopus refuses a login: a refresh token which has expired or is not right, an email
+/// address and password which are not right, and an API key which is not right.
+const REFUSED_CODES: [&str; 4] = ["KT-CT-1134", "KT-CT-1135", "KT-CT-1138", "KT-CT-1139"];
+
+/// Whether Octopus refused the login, rather than e.g. not answering.
+fn is_refusal(error: &bruce_graphql::Error) -> bool {
+    match error {
+        bruce_graphql::Error::GraphQLError(errors) => errors.iter().any(|error| {
+            error
+                .extensions
+                .get("errorCode")
+                .and_then(|code| code.as_str())
+                .is_some_and(|code| REFUSED_CODES.contains(&code))
+        }),
+        _ => false,
+    }
 }
 
 impl OctopusTokenManager {
@@ -156,17 +177,70 @@ impl OctopusTokenManager {
             request_manager,
             authenticator: Mutex::new(authenticator),
             token: Mutex::new(token),
+            saved_login: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
+    /// Says that the login is the saved one, see saved_login.
+    pub fn with_saved_login(self) -> Self {
+        self.saved_login.store(true, std::sync::atomic::Ordering::Relaxed);
+        self
+    }
+
+    /// The login to try, from the login page, which is not the saved one, see saved_login.
     pub async fn set_authenticator(&self, authenticator: OctopusAuthenticator) {
-        // let mut locked_authenticator = self.authenticator.lock().await;
+        self.saved_login.store(false, std::sync::atomic::Ordering::Relaxed);
         *self.authenticator.lock().await = Some(authenticator);
+    }
+
+    /// Whether there is a saved login which can be used without asking: a token which can still be refreshed, or an API
+    /// key. Checked without a request, so that opening the module does not need the network; a login which turns out
+    /// to be refused is reported by the request which finds it, see refuse.
+    pub async fn has_login(&self) -> bool {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as u32;
+        self.authenticator.lock().await.is_some()
+            || self
+                .token
+                .lock()
+                .await
+                .as_ref()
+                .is_some_and(|token| token.refresh_expires - GRACE_PERIOD > now)
+    }
+
+    /// Removes the token of the saved login which Octopus refused, which is no use, and reports it, see login.rs, if it
+    /// is the saved one. Any API key is kept, so that the login page can show what it was.
+    fn refuse(&self, reason: String) {
+        if !self.saved_login.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        if let Err(error) = self.context.remove_cache(crate::octopus::MODULE_ID) {
+            crate::log_error!("Unable to remove the refused Octopus token, {error:#}");
+        }
+        let _ = crate::login::refused(&self.context, crate::octopus::MODULE_ID, reason);
     }
 }
 
 impl TokenManager for OctopusTokenManager {
+    /// A token, see obtain, with a refused saved login removed and reported, see refuse.
     async fn get_authenticator(&self, refresh: bool) -> Result<Arc<String>, bruce_graphql::Error> {
+        let result = self.obtain(refresh).await;
+        match &result {
+            Err(error) if is_refusal(error) => self.refuse(format!(
+                "Octopus refused the saved login, {}",
+                super::describe_login_error(error)
+            )),
+            Err(bruce_graphql::Error::MissingRequiredValueError(_)) => {
+                self.refuse(String::from("The saved Octopus login has expired"))
+            }
+            _ => {}
+        }
+        result
+    }
+}
+
+impl OctopusTokenManager {
+    /// The current token, refreshed or obtained again if it has expired, or if refresh is set.
+    async fn obtain(&self, refresh: bool) -> Result<Arc<String>, bruce_graphql::Error> {
         let mut locked_token = self.token.lock().await;
 
         let mut current_token = None;

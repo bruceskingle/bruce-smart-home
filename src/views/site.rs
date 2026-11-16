@@ -454,7 +454,7 @@ pub fn SitePage() -> Element {
             "with it."
         }
         for module_id in not_ready.iter() {
-            p { "Log in to {module_id} to see its channels here." }
+            crate::login::LogInLink { module_id: module_id.clone(), what: "its channels" }
         }
         match edited() {
             Some(topology) => rsx! {

@@ -100,14 +100,23 @@ impl GlobirdContext {
     async fn fetch(&self, progress: &mut dyn FnMut(String)) -> anyhow::Result<()> {
         let result = fetch::fetch(&self.client, &self.cache_config, progress).await;
         self.save_session()?;
-        result
+        result.map_err(|error| self.handle_error(error))
     }
 
     /// Makes the next request for the bills, see bills::fetch_next, and saves the session if it changed.
     async fn fetch_bills(&self) -> anyhow::Result<Option<String>> {
         let result = bills::fetch_next(&self.client, &self.cache_config).await;
         self.save_session()?;
-        result
+        result.map_err(|error| self.handle_error(error))
+    }
+
+    /// Reports the saved login if GloBird refused it, e.g. as the password has been changed, so that GloBird's page asks
+    /// for the login again, see login.rs. The password is kept, so that the page can show what it was.
+    fn handle_error(&self, error: anyhow::Error) -> anyhow::Error {
+        if error.chain().any(|cause| cause.is::<client::LoginRefused>()) {
+            return crate::login::refused(&self.context, MODULE_ID, format!("{error:#}"));
+        }
+        error
     }
 
     /// The cached bill of a document, read from its PDF the first time it is asked for, see bills::read_bill.
@@ -546,6 +555,7 @@ impl GlobirdModuleFactory {
             password: Some(password),
         };
         crate::profile::update_profile(&context.profile.active_profile.name, MODULE_ID, &profile)?;
+        crate::login::cleared(&context, MODULE_ID);
         Ok(())
     }
 }
@@ -560,7 +570,7 @@ impl ModuleFactory for GlobirdModuleFactory {
 
     fn init_page(&self) -> Element {
         let mut email = use_signal(|| self.profile.email.clone().unwrap_or_default());
-        let mut password = use_signal(String::new);
+        let password = use_signal(|| self.profile.password.clone().unwrap_or_default());
         let mut errors = use_signal(Vec::<String>::new);
         let mut busy = use_signal(|| false);
         let context = self.context.clone();
@@ -624,12 +634,7 @@ impl ModuleFactory for GlobirdModuleFactory {
                                 label { "Password:" }
                             }
                             td {
-                                input {
-                                    r#type: "password",
-                                    name: "password",
-                                    value: "{password}",
-                                    oninput: move |e| password.set(e.value()),
-                                }
+                                crate::components::secret_input::SecretInput { name: "password", value: password }
                             }
                         }
                         tr {

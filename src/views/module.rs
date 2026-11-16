@@ -16,6 +16,24 @@ fn escape_html(input: &str) -> String {
         .replace("'", "&#x27;")
 }
 
+/// The path of the page each module of a profile which is not offline has after its own, which shows its login page
+/// again, see ModuleFactory::init_page, so that a changed password or key can be given once one is saved.
+const LOGIN_PATH: &str = "login";
+
+/// A module's login page, as a component of its own, so that the hooks of init_page are kept apart from the page's,
+/// with why, if its saved login was refused, see login.rs, the same for every module.
+#[component]
+fn LoginPage(factory: crate::util::SharedProp<dyn ModuleFactory + Send>, refusal: Option<String>) -> Element {
+    rsx! {
+        if let Some(refusal) = refusal {
+            p { class: "error",
+                crate::components::error_text::ErrorText { error: refusal.clone(), message: format!("{refusal}, log in again") }
+            }
+        }
+        {factory.0.init_page()}
+    }
+}
+
 /// The id of the page path is for, the first page if it does not say, and the rest of the path.
 fn page_for(path: &[String], page_list: &[PageInfo]) -> Option<(&'static str, Vec<String>)> {
     let page_id = path.first().map(String::as_str).unwrap_or_default();
@@ -104,8 +122,19 @@ fn ModulePage(module_id: String) -> Element {
     let mut build_module_action: Action<(Arc<dyn ModuleFactory>, bool), Box<dyn crate::Module + Send>> =
         use_action(move |builder: Arc<dyn ModuleFactory>, _dummy: bool| async move { builder.build().await });
 
+    // Why the module's saved login was refused, if it was, when only its login page is shown, see login.rs.
+    let refusal = if context.profile.active_profile.offline {
+        None
+    } else {
+        crate::login::refusal(context, &module_id)
+    };
+
     // The help of what is being shown, the login page until the module is ready.
     let help_topic = match (check_ready_module_action.value(), build_module_action.value()) {
+        _ if refusal.is_some() => Some(format!("{module_id}/login.md")),
+        (_, Some(Ok(_))) if path.first().map(String::as_str) == Some(LOGIN_PATH) => {
+            Some(format!("{module_id}/login.md"))
+        }
         (_, Some(Ok(module))) => {
             let module = module.read();
             page_for(&path, &module.get_page_list()).map(|(page_id, rest)| module.help_topic(page_id, &rest))
@@ -123,6 +152,9 @@ fn ModulePage(module_id: String) -> Element {
     if let Some(result) = construct_module_action.value() {
         let builder_signal = result?;
         let builder = (*builder_signal.read()).clone();
+        if refusal.is_some() {
+            return rsx! { LoginPage { factory: crate::util::SharedProp(builder.clone()), refusal } };
+        }
 
         if *call_check_ready_module_signal.read() {
             call_check_ready_module_signal.set(false);
@@ -143,8 +175,21 @@ fn ModulePage(module_id: String) -> Element {
                 if let Some(result) = build_module_action.value() {
                     let module_signal = result?;
                     let module = &*module_signal.read();
-                    let page_list = module.get_page_list();
-                    let (active_page_id, content) = get_page(&module, &path, &page_list);
+                    let mut page_list = module.get_page_list();
+                    if !context.profile.active_profile.offline {
+                        page_list.push(PageInfo {
+                            label: "Log In",
+                            path: LOGIN_PATH,
+                        });
+                    }
+                    let (active_page_id, content) = if path.first().map(String::as_str) == Some(LOGIN_PATH) {
+                        (
+                            LOGIN_PATH,
+                            rsx! { LoginPage { factory: crate::util::SharedProp(builder.clone()), refusal: None } },
+                        )
+                    } else {
+                        get_page(&module, &path, &page_list)
+                    };
 
                     let body = match content {
                         Ok(element) => rsx!(
@@ -175,7 +220,7 @@ fn ModulePage(module_id: String) -> Element {
                     rsx! { "Building {module_id}..." }
                 }
             } else {
-                builder.init_page()
+                rsx! { LoginPage { factory: crate::util::SharedProp(builder.clone()), refusal: None } }
             }
         } else {
             rsx! { "Loading {module_id}..." }

@@ -67,6 +67,9 @@ pub struct MyenergiClient {
     /// The digest requests made so far, to number them, see digest::authorization.
     count: AtomicU32,
     verbose: bool,
+    /// The app, if the hub serial and API key are the saved ones, so that a refused key is reported, see
+    /// with_saved_login and login.rs, but not one being tried on the login page.
+    saved_login: Option<std::sync::Arc<crate::AppContext>>,
 }
 
 impl MyenergiClient {
@@ -84,7 +87,14 @@ impl MyenergiClient {
             host: Mutex::new(host.unwrap_or_else(|| DIRECTOR_HOST.to_string())),
             count: AtomicU32::new(0),
             verbose,
+            saved_login: None,
         })
+    }
+
+    /// The client of the saved login, which is reported if myenergi refuses it, see login.rs.
+    pub fn with_saved_login(mut self, context: std::sync::Arc<crate::AppContext>) -> Self {
+        self.saved_login = Some(context);
+        self
     }
 
     /// The server with the hub's data, which is the director until it has answered a request.
@@ -132,7 +142,11 @@ impl MyenergiClient {
         }
         let text = response.text().await?;
         if status == StatusCode::UNAUTHORIZED {
-            return Err(anyhow!("myenergi did not accept the hub serial number and API key"));
+            let reason = "myenergi did not accept the hub serial number and API key";
+            if let Some(context) = &self.saved_login {
+                return Err(crate::login::refused(context, super::MODULE_ID, reason));
+            }
+            return Err(anyhow!(reason));
         }
         if !status.is_success() {
             return Err(anyhow!("myenergi responded {status}: {}", crate::http::summary(&text)));

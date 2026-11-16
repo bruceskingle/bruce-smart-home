@@ -473,6 +473,7 @@ impl MyenergiModuleFactory {
             host: Some(client.host()),
         };
         crate::profile::update_profile(&context.profile.active_profile.name, MODULE_ID, &profile)?;
+        crate::login::cleared(&context, MODULE_ID);
         crate::log_info!("Logged in to myenergi");
         Ok(())
     }
@@ -488,7 +489,7 @@ impl ModuleFactory for MyenergiModuleFactory {
 
     fn init_page(&self) -> Element {
         let mut hub_serial = use_signal(|| self.profile.hub_serial.clone().unwrap_or_default());
-        let mut api_key = use_signal(String::new);
+        let api_key = use_signal(|| self.profile.api_key.clone().unwrap_or_default());
         let mut errors = use_signal(Vec::<String>::new);
         let mut busy = use_signal(|| false);
         let context = self.context.clone();
@@ -551,12 +552,7 @@ impl ModuleFactory for MyenergiModuleFactory {
                                 label { "API Key:" }
                             }
                             td {
-                                input {
-                                    r#type: "password",
-                                    name: "api_key",
-                                    value: "{api_key}",
-                                    oninput: move |e| api_key.set(e.value()),
-                                }
+                                crate::components::secret_input::SecretInput { name: "api_key", value: api_key }
                             }
                         }
                         tr {
@@ -576,7 +572,8 @@ impl ModuleFactory for MyenergiModuleFactory {
             self.profile.api_key.clone().unwrap_or_default(),
             self.profile.host.clone(),
             self.verbose,
-        )?;
+        )?
+        .with_saved_login(self.context.clone());
         Ok(Box::new(MyenergiModule {
             context: Arc::new(MyenergiContext {
                 client,

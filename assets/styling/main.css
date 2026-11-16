@@ -69,6 +69,8 @@ body {
 :root {
     /* Render native controls (date pickers, select menus, checkboxes) with their dark variants */
     color-scheme: dark;
+    /* The height of a text field which an icon button sits beside, see .icon-button. */
+    --control-height: 36px;
     --sidebar-bg: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
     --border: rgba(0,0,0,0.08);
     --topbar-bg: #f8fafc;
@@ -1132,14 +1134,19 @@ button.danger:disabled {
     overflow: auto;
 }
 
-/* The log and settings buttons beside the profile menu. */
-.nav-icon-button {
+/* A button which is only an icon, e.g. the help, log and settings buttons beside the profile menu, or a password's
+   Show button: a square as tall as a text field, with the icon in the middle. */
+.icon-button {
     display: inline-flex;
     align-items: center;
-    padding: 6px 8px;
+    justify-content: center;
+    box-sizing: border-box;
+    width: var(--control-height);
+    height: var(--control-height);
+    padding: 0;
 }
 
-.nav-icon-button.active {
+.icon-button.active {
     background-color: #353540;
     color: #d0d0d0;
 }
@@ -1836,4 +1843,22 @@ tr.minute-row td {
    not seen without its styles as the app starts. */
 #main {
     visibility: visible;
+}
+
+/* A password or API key with its Show button beside it, see components/secret_input.rs. */
+.secret-input {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+}
+
+/* The field is exactly as tall as the .icon-button beside it. */
+.secret-input input {
+    box-sizing: border-box;
+    height: var(--control-height);
+}
+
+/* What the app shows instead of its pages when it cannot read its settings, see components/app.rs. */
+.startup-error {
+    padding: 24px;
 }

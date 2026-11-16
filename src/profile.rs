@@ -49,10 +49,67 @@ pub fn read_profile_file_if_any() -> anyhow::Result<Option<ProfileFile>> {
 }
 
 /// The profiles in the profile file at path, e.g. another data home's, with their secrets decrypted, see secrets.rs.
+/// A secret which cannot be decrypted is left out, see read_profile_file_reporting.
 pub fn read_profile_file_at(path: &Path) -> anyhow::Result<ProfileFile> {
+    Ok(read_profile_file_with_unreadable(path)?.0)
+}
+
+/// The profiles in the profile file at path, as read_profile_file_at, and the secrets which could not be decrypted, by
+/// the profile and the module they are in, if one, and the field, e.g. ("Home", Some("octopus"), "apiKey").
+fn read_profile_file_with_unreadable(
+    path: &Path,
+) -> anyhow::Result<(ProfileFile, Vec<(String, Option<String>, String)>)> {
     let mut value: serde_json::Value = serde_json::from_reader(fs::File::open(path)?)?;
-    crate::secrets::decrypt_secrets(&mut value)?;
-    Ok(serde_json::from_value(value)?)
+    let unreadable = crate::secrets::decrypt_secrets(&mut value)?
+        .into_iter()
+        .map(|secret| {
+            let profile = secret
+                .path
+                .first()
+                .and_then(|index| value[index.parse::<usize>().unwrap_or(usize::MAX)]["name"].as_str());
+            let module = (secret.path.get(1).map(String::as_str) == Some("modules"))
+                .then(|| secret.path.get(2).cloned())
+                .flatten();
+            let field = secret.path.last().cloned().unwrap_or_default();
+            crate::log_error!(
+                "Unable to decrypt the saved {field} of profile {}{}, so it is left out, {:#}",
+                profile.unwrap_or("?"),
+                module
+                    .as_ref()
+                    .map(|module| format!(", module {module}"))
+                    .unwrap_or_default(),
+                secret.error
+            );
+            (profile.unwrap_or_default().to_string(), module, field)
+        })
+        .collect();
+    Ok((serde_json::from_value(value)?, unreadable))
+}
+
+/// The profiles in the profile file, as read_profile_file_if_any, with each module whose saved login could not be
+/// decrypted, e.g. as the file was edited by hand, reported as a refused login, see login.rs, so that its login page
+/// says why it asks for the login again. It is used when a profile is opened, rather than every time the file is read,
+/// as the file is read and saved again when a module logs in, which would report it again.
+fn read_profile_file_reporting() -> anyhow::Result<Option<ProfileFile>> {
+    let path = AppContext::get_file_path()?;
+    if fs::File::open(&path).is_err() {
+        return Ok(None);
+    }
+    let (profiles, unreadable) = read_profile_file_with_unreadable(&path)?;
+    for (profile, module, field) in unreadable {
+        if let Some(module) = module {
+            let what = match field.as_str() {
+                "apiKey" | "api_key" => "API key".to_string(),
+                field => field.to_string(),
+            };
+            crate::login::unreadable(
+                &profile,
+                &module,
+                format!("The saved {what} could not be decrypted, e.g. as the profile file was edited"),
+            );
+        }
+    }
+    Ok(Some(profiles))
 }
 
 /// Saves the profiles to the profile file, with their secrets encrypted, see secrets.rs, whichever version each is.
@@ -85,7 +142,7 @@ pub fn fetch_active_profile(profile_name: &Option<String>) -> anyhow::Result<Act
     let mut set: HashSet<String> = HashSet::new();
     let mut active_profile = None;
 
-    if let Some(profile_file) = read_profile_file_if_any()? {
+    if let Some(profile_file) = read_profile_file_reporting()? {
         for profile in profile_file {
             if all_profiles.iter().any(|name| profile_names_equal(name, &profile.name)) {
                 return Err(anyhow!("Duplicate profile \"{}\"", &profile.name));

@@ -147,7 +147,7 @@ fn BillWindow(props: BillWindowProps) -> Element {
                     if !show_help() {
                         button {
                             r#type: "button",
-                            class: "nav-icon-button help-reopen",
+                            class: "icon-button help-reopen",
                             title: "Show the help",
                             onclick: move |_| {
                                 crate::help::set_shown(true);

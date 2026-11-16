@@ -7,6 +7,7 @@ pub mod climate;
 pub mod components;
 mod globird;
 mod http;
+pub mod login;
 mod myenergi;
 mod octopus;
 pub mod period;
@@ -279,6 +280,11 @@ pub fn fetch_latest_data(args: Args) -> bool {
             log_info!("Fetching the latest data of {module_id}");
             let fetched = async {
                 let factory = registrations.module_factory(&module_id, &context).await?;
+                // A refused saved login is not tried again until the user logs in, e.g. as the Tesla gateway locks out
+                // its login after repeated failures, see login.rs.
+                if let Some(refusal) = login::saved_refusal(&context, &module_id) {
+                    return Err(anyhow!("{refusal}, open the app and log in again"));
+                }
                 if !factory.is_ready().await? {
                     return Err(anyhow!("Not logged in, open the app and log in first"));
                 }
@@ -595,6 +601,16 @@ impl AppContext {
         Ok(data_home::tokens_dir()?.join(format!("{}-{}.json", profile_name, module_id)))
     }
 
+    /// The file which says why the module's saved login was refused, beside its tokens, see login.rs.
+    pub(crate) fn login_file_path(&self, module_id: &str) -> anyhow::Result<PathBuf> {
+        Self::login_file_path_of(&self.profile.active_profile.name, module_id)
+    }
+
+    /// The file which says why the saved login of the module of profile_name was refused, see login_file_path.
+    pub(crate) fn login_file_path_of(profile_name: &str, module_id: &str) -> anyhow::Result<PathBuf> {
+        Ok(data_home::tokens_dir()?.join(format!("{}-{}-login-refused.json", profile_name, module_id)))
+    }
+
     fn get_cache_data_dir_path(&self, module_id: &str) -> anyhow::Result<PathBuf> {
         let profile_name = &self.profile.active_profile.name;
         Ok(Self::get_cache_dir_path()?.join(format!("{}-{}", profile_name, module_id)))
@@ -628,6 +644,15 @@ impl AppContext {
             }
         }
         return None;
+    }
+
+    /// Removes the module's tokens, e.g. when its source has refused them, see login.rs.
+    pub fn remove_cache(&self, module_id: &str) -> anyhow::Result<()> {
+        let path = self.get_cache_file_path(module_id)?;
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
     }
 
     /// Saves the module's tokens, encrypted whole, see secrets::seal, as they are all secret.

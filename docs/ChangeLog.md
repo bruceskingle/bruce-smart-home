@@ -53,9 +53,19 @@ ones, and the problems which have been fixed. The releases themselves are on
   [Your secrets and the Keychain](gettingStarted/cachedData.md#your-secrets-and-the-keychain).
 - **Everything is kept in one store**, each profile's in a directory of its own, which the capture devices keep theirs
   in too, so what they take is copied to the app as it is.
-- **Fewer requests to Octopus.** The meters' readings are fetched a month at a time, and a month already fetched is not
-  fetched again for 8 hours, so moving around the graphs, e.g. zooming in, no longer fetches anything, and the Loading
-  dialog only shows when something takes a while.
+- **Faster, with fewer requests to Octopus.** Only readings which are missing or not yet final are fetched, from the
+  first of them to now, with any day the meter's readings have a gap in asked for again on its own, until Octopus fills
+  it in. Moving around the graphs, e.g. zooming in, fetches nothing, readings are saved in one go rather than one at a
+  time, so the app no longer stops responding while it loads, and the Loading dialog only shows when something takes a
+  while.
+- **Logging in, the same for every module.** Each module has a **Log In** page, the last in its list, filled in with
+  the saved login, to give a changed password or API key at any time; the eye button beside a password or key shows
+  what it holds. If a source refuses the saved login, e.g. because the password was changed, the app stops using the
+  module and stops polling it, so that it does not lock the login out, and shows its login page at once, saying why,
+  with the saved login kept so that you can check it. Home's pages say which modules need logging in again, with a link
+  to each one's login page. A saved password or key which cannot be read, e.g. because the settings file was edited, is
+  handled the same way, and if the app cannot read the key to your secrets at all, e.g. because the Keychain's request
+  was denied, it says so rather than opening.
 - **EV charging split.** The car's share of each half hour's import follows what the car was measured to take where it
   was measured, with Octopus's own split shown alongside to compare.
 
