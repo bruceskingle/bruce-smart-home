@@ -859,6 +859,7 @@ fn AddDevice(profile_name: String) -> Element {
             if let Some(error) = virtual_error() {
                 ErrorText { error: error.clone(), message: "Not started" }
             }
+        }
         h2 { "Add a Capture Device" }
         p { class: "note", "Enter the device's IP address, shown on its /config page or by your router." }
         div { class: "settings-buttons",
@@ -875,7 +876,6 @@ fn AddDevice(profile_name: String) -> Element {
                 },
             }
             button { r#type: "button", disabled: busy() || address().trim().is_empty(), onclick: move |_| find(), "Find" }
-        }
         }
         if let Some(device) = found() {
             table { class: "device-details",

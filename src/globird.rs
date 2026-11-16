@@ -103,9 +103,17 @@ impl GlobirdContext {
         result.map_err(|error| self.handle_error(error))
     }
 
-    /// Makes the next request for the bills, see bills::fetch_next, and saves the session if it changed.
-    async fn fetch_bills(&self) -> anyhow::Result<Option<String>> {
-        let result = bills::fetch_next(&self.client, &self.cache_config).await;
+    /// Brings the list of bills up to date, see bills::refresh, returning how many requests it made, and saves the
+    /// session if it changed.
+    async fn refresh_bills(&self) -> anyhow::Result<usize> {
+        let result = bills::refresh(&self.client, &self.cache_config).await;
+        self.save_session()?;
+        result.map_err(|error| self.handle_error(error))
+    }
+
+    /// Fetches the PDF of the bill emailed in email_id, see bills::fetch_pdf, and saves the session if it changed.
+    async fn fetch_bill_pdf(&self, email_id: i64) -> anyhow::Result<()> {
+        let result = bills::fetch_pdf(&self.client, &self.cache_config, email_id).await;
         self.save_session()?;
         result.map_err(|error| self.handle_error(error))
     }
@@ -264,10 +272,8 @@ impl Module for GlobirdModule {
                 None => rsx! { MetersPage { context } },
             },
             "days" => rsx! { DaysPage { context } },
-            "bills" => match path.first().and_then(|document_id| document_id.parse::<i64>().ok()) {
-                Some(document_id) => rsx! { bill_pages::BillPage { key: "{document_id}", context, document_id } },
-                None => rsx! { bill_pages::BillsPage { context } },
-            },
+            // A bill opens in a window of its own, see bill_pages::BillWindow.
+            "bills" => rsx! { bill_pages::BillsPage { context } },
             "cache" => rsx! {
                 h1 { "Cache Files" }
                 CacheBrowser { dir: self.context.cache_config.dir_path().to_path_buf(), generation: 0 }

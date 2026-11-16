@@ -165,6 +165,9 @@ jobs:
 
       # The defaults: a .dmg on macOS and an NSIS setup.exe on Windows.
       - name: Build the installers
+        # Where the Windows installer's hooks take the virtual capture device from, see windows/installer-hooks.nsh.
+        env:
+          SIM_BIN: ${{ github.workspace }}\bruce-smart-home\capture\target-sim\bin
         run: dx bundle --release
 
       - name: Collect the installers
@@ -223,11 +226,18 @@ jobs:
           # Installed for the current user in LOCALAPPDATA, or for everyone in Program Files. The uninstaller is in the
           # same directory, so is left out.
           $exe = Get-ChildItem "$env:LOCALAPPDATA", "$env:LOCALAPPDATA\Programs", "$env:ProgramFiles" -Recurse -Depth 1 -Filter *.exe -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like '*smart*home*' -and $_.Name -notlike '*uninstall*' } |
+            Where-Object { $_.Name -like '*smart*home*' -and $_.Name -notlike '*uninstall*' -and $_.Name -notlike '*capture*' } |
             Select-Object -First 1
           if (-not $exe) {
             throw "The installed app was not found"
           }
+          # The virtual capture device, which windows/installer-hooks.nsh puts beside it.
+          foreach ($program in "bruce-smart-home-capture-sim.exe", "bruce-smart-home-capture-rlcd42.exe", "bruce-smart-home-capture-guitron.exe") {
+            if (-not (Test-Path (Join-Path $exe.DirectoryName $program))) {
+              throw "The virtual capture device's $program was not installed beside the app"
+            }
+          }
+          Write-Host "The virtual capture device is installed"
           Write-Host "Starting $($exe.FullName)"
 
           # Its output is kept, and a panic shows where it happened, to see why if it does not start.

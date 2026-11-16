@@ -603,7 +603,11 @@ fn too_many(count: usize) -> Element {
 fn points_export(electricity: &Electricity, compares_ev: bool, tz: &'static Tz) -> ExportTable {
     let mut columns = vec![String::from("Start"), String::from("End")];
     columns.extend(electricity.labels.iter().map(|label| format!("{label} (kWh)")));
-    columns.push(format!("{EXPORT_LABEL} (kWh)"));
+    // Export only if anything was exported, as the graph has it, e.g. not on one of a supplier's import registers.
+    let export = has_export(electricity);
+    if export {
+        columns.push(format!("{EXPORT_LABEL} (kWh)"));
+    }
     if compares_ev {
         columns.push(format!("{OCTOPUS_EV_LABEL} (kWh)"));
     }
@@ -619,7 +623,9 @@ fn points_export(electricity: &Electricity, compares_ev: bool, tz: &'static Tz) 
                     ExportValue::unix_time(point.end, tz),
                 ];
                 row.extend(point.import.iter().map(|kwh| ExportValue::number(*kwh)));
-                row.push(ExportValue::number(point.export));
+                if export {
+                    row.push(ExportValue::number(point.export));
+                }
                 if compares_ev {
                     row.push(
                         point
@@ -696,6 +702,9 @@ fn electricity_table(electricity: &Electricity, compares_ev: bool, derived: bool
         electricity.points.iter().map(|point| point.export).sum::<f64>()
     );
 
+    // Export only if anything was exported, as the graph has it, e.g. not on one of a supplier's registers.
+    let show_export = has_export(electricity);
+
     rsx! {
         table { class: "telemetry-table",
             tr { class: "header",
@@ -705,7 +714,9 @@ fn electricity_table(electricity: &Electricity, compares_ev: bool, derived: bool
                 for label in electricity.labels.iter() {
                     th { class: "quantity", "{label}" br {} "(kWh)" }
                 }
-                th { class: "quantity", "{EXPORT_LABEL}" br {} "(kWh)" }
+                if show_export {
+                    th { class: "quantity", "{EXPORT_LABEL}" br {} "(kWh)" }
+                }
                 if compares_ev {
                     th { class: "quantity", "{OCTOPUS_EV_LABEL}" br {} "(kWh)" }
                 }
@@ -719,7 +730,9 @@ fn electricity_table(electricity: &Electricity, compares_ev: bool, derived: bool
                     for kwh in import {
                         td { class: reading_class, "{kwh}" }
                     }
-                    td { class: reading_class, "{export}" }
+                    if show_export {
+                        td { class: reading_class, "{export}" }
+                    }
                     if compares_ev {
                         td { class: "numeric derived", "{octopus_ev}" }
                     }
@@ -733,7 +746,9 @@ fn electricity_table(electricity: &Electricity, compares_ev: bool, derived: bool
                 for total in totals {
                     td { class: "numeric derived", "{total}" }
                 }
-                td { class: "numeric derived", "{total_export}" }
+                if show_export {
+                    td { class: "numeric derived", "{total_export}" }
+                }
                 if compares_ev {
                     td { class: "numeric derived", {ev_comparison(&electricity.points).map(|comparison| format!("{:.3}", comparison.octopus)).unwrap_or_default()} }
                 }

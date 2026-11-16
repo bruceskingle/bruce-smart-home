@@ -66,9 +66,11 @@ published versions.
   `upgrade_profile` converting the version before, leaving the old data as it was. Home asks the user before
   upgrading; `--upgrade PROFILE` runs it from the command line. 0.5.0's is the move into the store, `src/convert.rs`.
 - **Derived numbers.** A number as the source gave it is in the default colour; one the app works out (a total, a
-  count, a fitted rate, a split) has the `derived` class (`--derived` in `main.css`, pink), e.g.
+  count, a fitted rate, a split) has the `derived` class (`--derived` in `main.css`, magenta, as the help calls it, with `<span class="derived">magenta</span>`), e.g.
   `td { class: "number derived", ... }`. A sum of a source's several rows is derived, its only row is not; check the
-  cache. Say so in the page's help.
+  cache. Say so in the page's help. A value read from a document rather than given by an API, e.g. a GloBird bill's
+  charges, read from its PDF, has the `scraped` class (`--scraped`, a pale yellow, `<span class="scraped">yellow</span>` in the help), and
+  one worked out from those is `derived`.
 - **Errors** are shown briefly with the detail as a tooltip, with `ErrorText` (`components/error_text.rs`), formatted
   with `{error:#}`, never `{error:?}`.
 - **Help.** A change to what a screen shows or does is made to its page in `docs/help/` too; a new page is added to

@@ -5,9 +5,9 @@
 //! hash of its ID: each email listed, `globird.mail`, by when it was sent and its ID, with a `#list/<offset>` record of
 //! each page fetched, saying how many emails there are; each bill's email, `globird.mail.detail`, by its ID; and each
 //! bill's PDF in the store's blobs, with a `globird.document` record of it, by the document's ID. A bill never changes
-//! once it is issued, so nothing but the first page of the list is fetched again. Each Fetch makes one
-//! request, the next which is needed, see next_request, so that a long history is fetched a little at a time, newest
-//! first, rather than all at once.
+//! once it is issued, so nothing but the first page of the list is fetched again. The list is fetched when the Bills page
+//! opens, if it is not cached or is a day old, see refresh, a request or two, and a bill's email and PDF only when the
+//! user asks for its PDF, see fetch_pdf, so that GloBird is asked for little, and for nothing the user does not see.
 
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -28,7 +28,7 @@ const MAIL_KIND: &str = "globird.mail";
 const DETAIL_KIND: &str = "globird.mail.detail";
 const DOCUMENT_KIND: &str = "globird.document";
 /// How many emails a page of the list has, the most the portal's own page offers, as the list is small, about 100
-/// bytes an email, so that the whole history is listed in a request or two, whose bills are then fetched one a Fetch.
+/// bytes an email, so that the whole history is listed in a request or two.
 pub const PAGE_SIZE: usize = 100;
 /// How long the first page of the list is used before it is fetched again, to find new bills.
 const LIST_REFRESH: Duration = Duration::from_secs(24 * 60 * 60);
@@ -78,7 +78,7 @@ pub struct Detail {
     pub document_list: Vec<Document>,
 }
 
-/// The next request a Fetch makes, see next_request.
+/// A request for the account, the list, or a bill, see list_request and pdf_request.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Request {
     /// The account, for its ID, which the requests of the correspondence need.
@@ -195,33 +195,13 @@ pub fn document(cache_config: &CacheConfig, document_id: i64) -> anyhow::Result<
         .ok_or_else(|| anyhow!("The bill's PDF is missing from the store"))
 }
 
-/// The next request a Fetch makes, None if there is nothing to fetch: the account if it is not cached, then the first
-/// page of the list, then the newest bill whose email or PDF is not cached, then the first page again if it is older
-/// than LIST_REFRESH, to find new bills, then the next page of older emails.
-pub fn next_request(cached: &Cached, account_cached: bool) -> Option<Request> {
+/// The next request to bring the list up to date, None if it is: the account if it is not cached, the first page of
+/// the list if it is not cached or is older than LIST_REFRESH, to find new bills, then the next page of older emails.
+pub fn list_request(cached: &Cached, account_cached: bool) -> Option<Request> {
     if !account_cached {
         return Some(Request::Account);
     }
-    if cached.total_count.is_none() {
-        return Some(Request::List { offset: 0 });
-    }
-    for bill in cached.bills() {
-        match cached.details.get(&bill.id) {
-            None => return Some(Request::Detail { email_id: bill.id }),
-            Some(detail) => {
-                if let Some(document) = detail
-                    .document_list
-                    .iter()
-                    .find(|document| !cached.documents.contains_key(&document.document_id))
-                {
-                    return Some(Request::Document {
-                        document_id: document.document_id,
-                    });
-                }
-            }
-        }
-    }
-    if cached.first_page_age.is_some_and(|age| age > LIST_REFRESH) {
+    if cached.total_count.is_none() || cached.first_page_age.is_some_and(|age| age > LIST_REFRESH) {
         return Some(Request::List { offset: 0 });
     }
     // The emails cached are the newest, so the next page starts after them.
@@ -229,40 +209,19 @@ pub fn next_request(cached: &Cached, account_cached: bool) -> Option<Request> {
     (cached.total_count.is_some_and(|total| known < total)).then_some(Request::List { offset: known })
 }
 
-/// What the request is, to say what Fetch will do, or did.
-pub fn describe(request: &Request, cached: &Cached) -> String {
-    match request {
-        Request::Account => String::from("the account"),
-        Request::List { offset: 0 } => String::from("the newest emails"),
-        Request::List { offset } => format!(
-            "the emails from {} of {}",
-            offset + 1,
-            cached.total_count.unwrap_or_default()
-        ),
-        Request::Detail { email_id } => {
-            let date = cached
-                .items
-                .iter()
-                .find(|item| item.id == *email_id)
-                .and_then(ListItem::date);
-            format!(
-                "the email of the bill of {}",
-                date.map(|date| date.to_string()).unwrap_or_default()
-            )
-        }
-        Request::Document { document_id } => {
-            let name = cached
-                .details
-                .values()
-                .flat_map(|detail| detail.document_list.iter())
-                .find(|document| document.document_id == *document_id)
-                .and_then(|document| document.name.clone());
-            format!(
-                "the PDF of {}",
-                name.unwrap_or_else(|| format!("document {document_id}"))
-            )
-        }
-    }
+/// The next request for the PDF of the bill emailed in email_id, None if it is cached: its email, for its documents,
+/// then its first document which is not cached.
+pub fn pdf_request(cached: &Cached, email_id: i64) -> Option<Request> {
+    let Some(detail) = cached.details.get(&email_id) else {
+        return Some(Request::Detail { email_id });
+    };
+    detail
+        .document_list
+        .iter()
+        .find(|document| !cached.documents.contains_key(&document.document_id))
+        .map(|document| Request::Document {
+            document_id: document.document_id,
+        })
 }
 
 /// The account's ID, from the cached account, which the requests of the correspondence need.
@@ -297,24 +256,46 @@ fn save_list_page(store: &Store, account_id: i64, offset: usize, page: &serde_js
     Ok(())
 }
 
-/// Makes the next request, see next_request, and keeps its reply, returning what it fetched, or None if there was
-/// nothing to fetch.
-pub async fn fetch_next(client: &GlobirdClient, cache_config: &CacheConfig) -> anyhow::Result<Option<String>> {
+/// The most requests a refresh or a PDF makes, so that a reply which never says it is done, e.g. a list whose total
+/// is more than it gives, cannot ask GloBird again and again.
+const MAX_REQUESTS: usize = 10;
+
+/// Brings the list of emails up to date, see list_request, returning how many requests it made: none if it is, one a
+/// day, to find new bills, and a few the first time, for the history.
+pub async fn refresh(client: &GlobirdClient, cache_config: &CacheConfig) -> anyhow::Result<usize> {
+    let mut made = 0;
+    while made < MAX_REQUESTS {
+        let account_cached = super::fetch::account(cache_config).is_some();
+        let Some(request) = list_request(&cached(cache_config), account_cached) else {
+            break;
+        };
+        make(client, cache_config, request).await?;
+        made += 1;
+    }
+    Ok(made)
+}
+
+/// Fetches the PDF of the bill emailed in email_id, and its email first if that is not cached, see pdf_request.
+pub async fn fetch_pdf(client: &GlobirdClient, cache_config: &CacheConfig, email_id: i64) -> anyhow::Result<()> {
+    for _ in 0..MAX_REQUESTS {
+        let Some(request) = pdf_request(&cached(cache_config), email_id) else {
+            return Ok(());
+        };
+        make(client, cache_config, request).await?;
+    }
+    Err(anyhow!("GloBird did not give the bill's PDF"))
+}
+
+/// Makes the request, and keeps its reply.
+async fn make(client: &GlobirdClient, cache_config: &CacheConfig, request: Request) -> anyhow::Result<()> {
     if cache_config.offline {
         return Err(anyhow!("This profile is offline, so nothing can be fetched"));
     }
     let store = cache_config.store()?;
-    let user = super::fetch::account(cache_config);
-    let cached = cached(cache_config);
-    let Some(request) = next_request(&cached, user.is_some()) else {
-        return Ok(None);
-    };
-    let description = describe(&request, &cached);
     if request == Request::Account {
-        super::fetch::save_account(cache_config, &client.current_user().await?)?;
-        return Ok(Some(description));
+        return super::fetch::save_account(cache_config, &client.current_user().await?);
     }
-    let account_id = user
+    let account_id = super::fetch::account(cache_config)
         .as_ref()
         .and_then(account_id)
         .ok_or_else(|| anyhow!("The GloBird account has no account ID"))?;
@@ -345,7 +326,7 @@ pub async fn fetch_next(client: &GlobirdClient, cache_config: &CacheConfig) -> a
             ))?;
         }
     }
-    Ok(Some(description))
+    Ok(())
 }
 
 /// A charge on a bill, e.g. Peak Usage 5.83 kWh x $0.37180 = $2.17.
@@ -579,48 +560,44 @@ mod tests {
     }
 
     #[test]
-    fn each_fetch_asks_for_the_next_thing_newest_bill_first_then_older_pages() {
+    fn the_list_is_brought_up_to_date_newest_first_then_once_a_day() {
         let mut cached = Cached::default();
-        assert_eq!(next_request(&cached, false), Some(Request::Account));
-        assert_eq!(next_request(&cached, true), Some(Request::List { offset: 0 }));
+        assert_eq!(list_request(&cached, false), Some(Request::Account));
+        assert_eq!(list_request(&cached, true), Some(Request::List { offset: 0 }));
 
-        cached.total_count = Some(25);
+        cached.total_count = Some(4);
         cached.first_page_age = Some(Duration::from_secs(60));
-        cached.items = vec![
-            item(3, "Welcome"),
-            item(2, "Your latest bill is here"),
-            item(1, "Your latest bill is here"),
-        ];
-        assert_eq!(next_request(&cached, true), Some(Request::Detail { email_id: 2 }));
+        cached.items = vec![item(3, "Welcome"), item(2, "Your latest bill is here")];
+        assert_eq!(list_request(&cached, true), Some(Request::List { offset: 2 }));
 
+        cached.items.push(item(1, "Your latest bill is here"));
+        cached.items.push(item(0, "Your latest bill is here"));
+        assert_eq!(list_request(&cached, true), None);
+
+        cached.first_page_age = Some(LIST_REFRESH + Duration::from_secs(1));
+        assert_eq!(
+            list_request(&cached, true),
+            Some(Request::List { offset: 0 }),
+            "new bills are looked for"
+        );
+    }
+
+    #[test]
+    fn a_bills_pdf_needs_its_email_then_its_document() {
+        let mut cached = Cached::default();
+        assert_eq!(pdf_request(&cached, 2), Some(Request::Detail { email_id: 2 }));
         cached.details.insert(
             2,
             Detail {
                 document_list: vec![document(20)],
             },
         );
-        assert_eq!(next_request(&cached, true), Some(Request::Document { document_id: 20 }));
-
+        assert_eq!(pdf_request(&cached, 2), Some(Request::Document { document_id: 20 }));
         cached.documents.insert(20, Id::of_bytes(b"x"));
-        assert_eq!(next_request(&cached, true), Some(Request::Detail { email_id: 1 }));
-
+        assert_eq!(pdf_request(&cached, 2), None);
+        // An email with no documents has nothing more to fetch.
         cached.details.insert(1, Detail::default());
-        assert_eq!(
-            next_request(&cached, true),
-            Some(Request::List { offset: 3 }),
-            "the welcome letter's email is not needed"
-        );
-
-        cached.first_page_age = Some(LIST_REFRESH + Duration::from_secs(1));
-        assert_eq!(
-            next_request(&cached, true),
-            Some(Request::List { offset: 0 }),
-            "new bills are looked for first"
-        );
-
-        cached.first_page_age = Some(Duration::from_secs(60));
-        cached.total_count = Some(3);
-        assert_eq!(next_request(&cached, true), None);
+        assert_eq!(pdf_request(&cached, 1), None);
     }
 
     #[test]

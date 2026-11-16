@@ -6,6 +6,8 @@
   --header:#dfc289;
   --header_span_bg:#7b6c4f;
   --derived:#f499f8;
+  /* Read from a document, e.g. a bill's PDF, rather than given by an API: a little more yellow than the headings. */
+  --scraped:#f2e3a6;
   --invalid:#ad4646;
   --ok:#4caf6a;
   --muted:#9aa6b2;
@@ -217,7 +219,10 @@ td {
     padding: 6px 6px 6px 6px;
 }
 
-td.numeric {
+/* Numbers, right aligned: numeric, and number, which most pages use, with its heading too, e.g. a column of $. */
+td.numeric,
+td.number,
+th.number {
     text-align: right;
 }
 
@@ -232,6 +237,12 @@ th {
 
 .derived {
     color: var(--derived);
+}
+
+/* A value read from a document, e.g. a GloBird bill's PDF, rather than given by an API, see AGENTS.md's Derived numbers;
+   one worked out from it is .derived. */
+.scraped {
+    color: var(--scraped);
 }
 
 .invalid {

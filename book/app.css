@@ -121,3 +121,16 @@ html {
 .content .checkbox-label:has(img[src*="icons/"]) .img-wrapper {
     display: none;
 }
+
+/* The colours of numbers in the help, as the app's main.css has them: derived, magenta, and scraped, from a document. */
+.derived {
+    color: #f499f8;
+}
+
+.scraped {
+    color: #b58f1c;
+}
+
+.navy .scraped, .coal .scraped, .ayu .scraped {
+    color: #f2e3a6;
+}

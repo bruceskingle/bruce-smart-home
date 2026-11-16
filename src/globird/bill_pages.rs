@@ -187,10 +187,12 @@ fn pdf_title(bill: &Bill, name: &str) -> String {
     }
 }
 
-/// A bill's row on the Bills page: the email it came in, and the bill, if its PDF is cached and could be read.
+/// A bill's row on the Bills page: the email it came in, whether that email is cached, and the bill, if its PDF is
+/// cached and could be read.
 #[derive(Clone, PartialEq)]
 struct BillRow {
     email: bills::ListItem,
+    email_cached: bool,
     document: Option<bills::Document>,
     bill: Option<Result<Bill, String>>,
 }
@@ -207,6 +209,7 @@ fn bill_rows(context: &GlobirdContext, cached: &bills::Cached) -> Vec<BillRow> {
         if documents.is_empty() {
             rows.push(BillRow {
                 email: email.clone(),
+                email_cached: cached.details.contains_key(&email.id),
                 document: None,
                 bill: None,
             });
@@ -218,6 +221,7 @@ fn bill_rows(context: &GlobirdContext, cached: &bills::Cached) -> Vec<BillRow> {
                 .then(|| context.bill(document.document_id));
             rows.push(BillRow {
                 email: email.clone(),
+                email_cached: true,
                 document: Some(document),
                 bill,
             });
@@ -236,70 +240,95 @@ fn period_text(period: Option<(Date, Date)>) -> String {
         .unwrap_or_default()
 }
 
-/// The bills, and Fetch, which makes one request each time, see bills::next_request.
+/// Where a bill's window opens in the main window, just right of the column of invoices, so that the others can still
+/// be clicked, and below the navigation bar, as Octopus's bills' do: the right of the column and the top of the page.
+const ANCHOR: &str = "
+    const rights = [...document.querySelectorAll('.bill-ref')].map((cell) => cell.getBoundingClientRect().right);
+    const page = document.querySelector('.app-page');
+    return [rights.length ? Math.max(...rights) : 0, page ? page.getBoundingClientRect().top : 0];
+";
+/// The space between the column of invoices and a bill's window.
+const ANCHOR_GAP: f64 = 8.0;
+
+/// Opens the bill of the cached document in a window of its own, see BillWindow, beside the column of invoices, or
+/// the one already open.
+async fn open_bill(context: SharedProp<GlobirdContext>, document_id: i64) {
+    let anchor = document::eval(ANCHOR)
+        .join::<(f64, f64)>()
+        .await
+        .ok()
+        .map(|(x, y)| dioxus::desktop::LogicalPosition::new(x + ANCHOR_GAP, y));
+    let title = match context.0.bill(document_id) {
+        Ok(bill) => pdf_title(&bill, &document_id.to_string()),
+        Err(_) => format!("GloBird bill {document_id}"),
+    };
+    crate::components::child_windows::open(&format!("globird-bill-{document_id}-details"), title, anchor, || {
+        VirtualDom::new_with_props(BillWindow, BillWindowProps { context, document_id })
+    });
+}
+
+/// The bills, from the list of GloBird's emails, which is brought up to date when the page opens, if it is a day old,
+/// see bills::refresh. Each bill opens in a window of its own, see BillWindow, once its PDF is fetched, which its
+/// Fetch does, see bills::fetch_pdf. What is read from the bills' PDFs is in the scraped colour.
 #[component]
 pub fn BillsPage(context: SharedProp<GlobirdContext>) -> Element {
     let mut generation = use_signal(|| 0u32);
-    let mut message = use_signal(String::new);
-    let mut busy = use_signal(|| false);
+    let mut checking = use_signal(|| false);
+    let mut problem = use_signal(|| None::<String>);
     generation();
     let cache_config = context.0.cache_config.clone();
     let cached = bills::cached(&cache_config);
-    let account_cached = fetch::account(&cache_config).is_some();
-    let next = bills::next_request(&cached, account_cached).map(|request| bills::describe(&request, &cached));
     let rows = bill_rows(&context.0, &cached);
-    let summaries = fetch::summaries(&cache_config);
-    let fetch = move |_| {
+    use_future({
         let context = context.clone();
-        spawn(async move {
-            busy.set(true);
-            message.set(match context.0.fetch_bills().await {
-                Ok(Some(fetched)) => format!("Fetched {fetched}"),
-                Ok(None) => String::from("There was nothing more to fetch"),
-                Err(error) => format!("Failed: {error:#}"),
-            });
-            busy.set(false);
-            generation += 1;
-        });
-    };
+        move || {
+            let context = context.clone();
+            async move {
+                let cache_config = &context.0.cache_config;
+                let account_cached = fetch::account(cache_config).is_some();
+                if cache_config.offline || bills::list_request(&bills::cached(cache_config), account_cached).is_none() {
+                    return;
+                }
+                checking.set(true);
+                problem.set(context.0.refresh_bills().await.err().map(|error| format!("{error:#}")));
+                checking.set(false);
+                generation += 1;
+            }
+        }
+    });
 
     rsx! {
         h1 { "GloBird Bills" }
         p {
-            "The bills GloBird has emailed, read from their PDFs, each beside what the cached days' costs add up to over its period, which are in pink, as numbers the app works out are. Click a bill to see its charges. Each Fetch makes one request to GloBird, the next which is needed, the newest bill first, so that a long history is fetched a little at a time; press it again for more. A bill never changes once it is issued, so each is fetched once."
+            "The bills GloBird has emailed, newest first. Click a bill's invoice to see its charges, beside what the days add up to, in a window of its own, or Fetch, to fetch its PDF first. The list is fetched from GloBird when this page opens, once a day, and a bill once, as it never changes."
         }
-        div { style: "margin-bottom: 1em;",
-            button { disabled: busy() || next.is_none(), onclick: fetch, if busy() { "Fetching..." } else { "Fetch" } }
-            match &next {
-                Some(next) => rsx! { " Next: {next}" },
-                None => rsx! { " Everything is fetched" },
-            }
+        if checking() {
+            p { "Looking for new bills..." }
         }
-        if !message().is_empty() {
-            p { "{message}" }
+        if let Some(problem) = problem() {
+            p { class: "error", ErrorText { error: problem, message: String::from("Unable to look for new bills") } }
         }
         if let Some(total) = cached.total_count {
             p { "{cached.items.len()} of GloBird's {total} emails are listed, of which {cached.bills().count()} are bills." }
         }
-        table { class: "display",
+        table {
             tr {
                 th { "Emailed" }
                 th { "Invoice" }
                 th { "Period" }
-                th { "Total $" }
-                th { "Days' total $" }
-                th { "Difference $" }
-                th { "" }
+                th { class: "number", "Total $" }
             }
             for row in rows {
-                BillRowView { row, summaries: summaries.clone(), cache_config: SharedProp(cache_config.clone()) }
+                BillRowView { row, context: context.clone(), on_fetched: move |_| generation += 1 }
             }
         }
     }
 }
 
 #[component]
-fn BillRowView(row: BillRow, summaries: Vec<DaySummary>, cache_config: SharedProp<crate::CacheConfig>) -> Element {
+fn BillRowView(row: BillRow, context: SharedProp<GlobirdContext>, on_fetched: EventHandler<()>) -> Element {
+    let mut fetching = use_signal(|| false);
+    let mut fetch_problem = use_signal(|| None::<String>);
     let emailed = row.email.date().map(|date| date.to_string()).unwrap_or_default();
     let reversed = row
         .document
@@ -315,74 +344,140 @@ fn BillRowView(row: BillRow, summaries: Vec<DaySummary>, cache_config: SharedPro
         Some(Err(error)) => (None, Some(error.clone())),
         None => (None, None),
     };
-    let comparison = bill.as_ref().and_then(|bill| compare(bill, &summaries));
-    let status = match (&row.document, &row.bill) {
-        (None, _) => String::from("Fetch to get its email"),
-        (Some(_), None) => String::from("Fetch to get its PDF"),
-        _ if reversed => String::from("Reversed"),
-        _ => match &comparison {
-            Some(comparison) if !comparison.complete() => {
-                format!("{} of its {} days are cached", comparison.days_cached, comparison.days)
-            }
-            _ => String::new(),
-        },
+    // Its PDF can be fetched if it is not cached, unless its email is, and has none.
+    let fetchable = row.bill.is_none() && !(row.email_cached && row.document.is_none());
+    let status = if row.document.is_none() && row.email_cached {
+        "Its email has no PDF"
+    } else if reversed {
+        "Reversed"
+    } else {
+        ""
     };
     let document_id = row.document.as_ref().map(|document| document.document_id);
-    let pdf = match (&row.document, &row.bill) {
-        (Some(document), Some(_)) => Some((
-            cache_config.clone(),
-            bill.as_ref()
-                .map(|bill| pdf_title(bill, &name))
-                .unwrap_or_else(|| format!("GloBird bill {name}")),
-            document.document_id,
-        )),
-        _ => None,
+    let email_id = row.email.id;
+    let open = {
+        let context = context.clone();
+        move |_| {
+            if let Some(document_id) = document_id {
+                spawn(open_bill(context.clone(), document_id));
+            }
+        }
+    };
+    // Fetches its PDF, and its email first if need be, then opens it.
+    let fetch_and_open = move |_| {
+        let context = context.clone();
+        spawn(async move {
+            fetching.set(true);
+            let fetched = context.0.fetch_bill_pdf(email_id).await;
+            fetching.set(false);
+            on_fetched.call(());
+            match fetched {
+                Ok(()) => {
+                    let document_id = bills::cached(&context.0.cache_config)
+                        .details
+                        .get(&email_id)
+                        .and_then(|detail| detail.document_list.first())
+                        .map(|document| document.document_id);
+                    fetch_problem.set(None);
+                    if let Some(document_id) = document_id {
+                        open_bill(context, document_id).await;
+                    }
+                }
+                Err(error) => fetch_problem.set(Some(format!("{error:#}"))),
+            }
+        });
     };
     rsx! {
         tr {
             td { "{emailed}" }
-            td {
-                if let (Some(document_id), Some(_)) = (document_id, &bill) {
-                    div {
-                        class: "link",
-                        onclick: move |_| {
-                            let mut path_signal = use_context::<Signal<Vec<String>>>();
-                            path_signal.set(vec![String::from("bills"), document_id.to_string()]);
-                        },
+            td { class: "bill-ref",
+                // A link, in the links' colour, though what it says is read from the bill.
+                if row.bill.is_some() {
+                    span { class: "link", onclick: open,
                         {bill.as_ref().and_then(|bill| bill.invoice.clone()).unwrap_or(name.clone())}
                     }
                 }
-                else {
-                    "{name}"
+                else if fetchable {
+                    if fetching() {
+                        "Fetching..."
+                    }
+                    else {
+                        span { class: "link", onclick: fetch_and_open, "Fetch" }
+                    }
                 }
             }
-            td { {period_text(bill.as_ref().and_then(|bill| bill.period))} }
-            td { class: "number", {bill.as_ref().and_then(|bill| bill.total).map(dollars).unwrap_or_default()} }
-            if let (Some(bill), Some(comparison)) = (&bill, comparison.as_ref().filter(|comparison| comparison.complete())) {
-                td { class: "number derived", {dollars(comparison.total)} }
-                td { class: "number derived", {bill.total.map(|total| format!("{:+.2}", comparison.total - total)).unwrap_or_default()} }
-            }
-            else {
-                td {}
-                td {}
-            }
-            td {
-                if let Some((cache_config, title, document_id)) = pdf {
-                    button { onclick: move |_| open_pdf(&cache_config.0, title.clone(), document_id), "PDF" }
-                    " "
+            td { class: "scraped",
+                {period_text(bill.as_ref().and_then(|bill| bill.period))}
+                if let Some(problem) = fetch_problem() {
+                    span { class: "error", ErrorText { error: problem, message: String::from("Unable to fetch the bill") } }
                 }
                 if let Some(error) = error {
                     span { class: "error", ErrorText { error, message: String::from("Unable to read the bill") } }
                 }
                 "{status}"
             }
+            td { class: "number scraped", {bill.as_ref().and_then(|bill| bill.total).map(dollars).unwrap_or_default()} }
         }
     }
 }
 
-/// One bill: its charges, as it says them, beside the days', and its PDF.
+#[derive(Props, Clone, PartialEq)]
+struct BillWindowProps {
+    context: SharedProp<GlobirdContext>,
+    document_id: i64,
+}
+
+/// The root of a bill's window, which has its own VirtualDom, so it links the stylesheet itself, as Octopus's bill's
+/// window does. Escape closes it.
 #[component]
-pub fn BillPage(context: SharedProp<GlobirdContext>, document_id: i64) -> Element {
+fn BillWindow(props: BillWindowProps) -> Element {
+    crate::components::child_windows::use_child_window();
+    // The same in every window, see help::use_help_shown.
+    let mut show_help = crate::help::use_help_shown();
+    use_future(|| async {
+        let mut keys = document::eval(
+            "document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { dioxus.send(true); } });",
+        );
+        while keys.recv::<bool>().await.is_ok() {
+            dioxus::desktop::window().close();
+        }
+    });
+    rsx! {
+        document::Link { rel: "stylesheet", href: crate::components::app::MAIN_CSS }
+        crate::components::tooltips::Tooltips {}
+        div { class: "bill-window-layout",
+            div { class: "bill-window",
+                if !show_help() {
+                    button {
+                        r#type: "button",
+                        class: "icon-button help-reopen",
+                        title: "Show the help",
+                        onclick: move |_| {
+                            crate::help::set_shown(true);
+                            show_help.set(true);
+                        },
+                        dioxus_free_icons::Icon { icon: dioxus_free_icons::icons::ld_icons::LdCircleHelp, width: 16, height: 16 }
+                    }
+                }
+                BillDetail { context: props.context.clone(), document_id: props.document_id }
+            }
+            if show_help() {
+                crate::views::help_panel::HelpPanel {
+                    topic: String::from("globird/index.md"),
+                    on_close: move |_| {
+                        crate::help::set_shown(false);
+                        show_help.set(false);
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// One bill: its charges, as it says them, in the scraped colour, beside the days', and its PDF, which opens in a
+/// window of its own, see open_pdf.
+#[component]
+fn BillDetail(context: SharedProp<GlobirdContext>, document_id: i64) -> Element {
     let cache_config = context.0.cache_config.clone();
     let bill = match context.0.bill(document_id) {
         Ok(bill) => bill,
@@ -390,8 +485,33 @@ pub fn BillPage(context: SharedProp<GlobirdContext>, document_id: i64) -> Elemen
             return rsx! { div { class: "error", ErrorText { error, message: String::from("Unable to read the bill") } } };
         }
     };
+    // Drawn again once Fetch has fetched the days.
+    let mut generation = use_signal(|| 0u32);
+    let mut fetching = use_signal(|| false);
+    let mut fetch_problem = use_signal(|| None::<String>);
+    generation();
     let summaries = fetch::summaries(&context.0.cache_config);
     let comparison = compare(&bill, &summaries).unwrap_or_default();
+    // The days' figures only when they are all of the bill's, which they can only be compared with then.
+    let complete = comparison.complete();
+    // Its missing days can be fetched only while GloBird keeps them, FETCH_DAYS.
+    let fetchable = !complete
+        && bill
+            .period
+            .is_some_and(|(_, last)| last > fetch::nem_today() - time::Duration::days(fetch::FETCH_DAYS));
+    let fetch_days = {
+        let context = context.clone();
+        move |_| {
+            let context = context.clone();
+            spawn(async move {
+                fetching.set(true);
+                let fetched = context.0.fetch(&mut |_| {}).await;
+                fetch_problem.set(fetched.err().map(|error| format!("{error:#}")));
+                fetching.set(false);
+                generation += 1;
+            });
+        }
+    };
     let title = pdf_title(&bill, &document_id.to_string());
     let open = move |_| open_pdf(&cache_config, title.clone(), document_id);
     let unit_rate = |line: &BillLine| {
@@ -417,70 +537,111 @@ pub fn BillPage(context: SharedProp<GlobirdContext>, document_id: i64) -> Elemen
             .unwrap_or_default()
     };
     rsx! {
-        h1 { "GloBird Bill {bill.invoice.clone().unwrap_or_default()}" }
-        p {
-            "For {period_text(bill.period)}"
-            if let Some(plan) = &bill.plan { ", on the {plan} plan" }
-            if let Some(issued) = bill.issued { ", issued {issued}" }
-            if let Some(due) = bill.due { ", due {due}" }
-            ". "
-            button { onclick: open, "Open the PDF" }
+        h1 { "GloBird Bill " span { class: "scraped", {bill.invoice.clone().unwrap_or_default()} } }
+        table { class: "display",
+            tr {
+                th { class: "row-header", "Period:" }
+                td { class: "scraped", {period_text(bill.period)} }
+            }
+            if let Some(plan) = &bill.plan {
+                tr {
+                    th { class: "row-header", "Plan:" }
+                    td { class: "scraped", "{plan}" }
+                }
+            }
+            if let Some(issued) = bill.issued {
+                tr {
+                    th { class: "row-header", "Issued:" }
+                    td { class: "scraped", "{issued}" }
+                }
+            }
+            if let Some(due) = bill.due {
+                tr {
+                    th { class: "row-header", "Due:" }
+                    td { class: "scraped", "{due}" }
+                }
+            }
         }
-        if !comparison.complete() {
-            p { "{comparison.days_cached} of the bill's {comparison.days} days are cached, so the days' figures, in pink, are not all of its period." }
+        p { button { onclick: open, "View PDF" } }
+        if !complete {
+            p {
+                if fetchable {
+                    button { disabled: fetching(), onclick: fetch_days, if fetching() { "Fetching..." } else { "Fetch" } }
+                    " "
+                }
+                "{comparison.days_cached} of the bill's {comparison.days} days are cached, so the days' figures are not all of its period."
+                if !fetchable {
+                    " GloBird keeps only the last {fetch::FETCH_DAYS} days, so the rest can no longer be fetched."
+                }
+            }
+            if let Some(problem) = fetch_problem() {
+                p { class: "error", ErrorText { error: problem, message: String::from("Unable to fetch the days") } }
+            }
         }
         h2 { "Charges" }
         p { "Each charge as the bill says it, beside the meter's kWh of its charge type over the bill's days, from the Days page, or, for the daily charge, the days whose costs have one. Rates are in c/kWh, and $ a day for the daily charge." }
-        table { class: "display",
+        table {
             tr {
                 th { "Charge" }
-                th { "Quantity" }
+                th { class: "number", "Quantity" }
                 th { "Unit" }
-                th { "Rate" }
-                th { "$" }
-                th { "The days' quantity" }
+                th { class: "number", "Rate" }
+                th { class: "number", "$" }
+                if complete {
+                    th { class: "number", "The days' quantity" }
+                }
             }
             for (index, line) in bill.lines.iter().enumerate() {
                 tr {
-                    td { "{line.description}" }
-                    td { class: "number", {format!("{}", line.quantity)} }
-                    td { "{line.unit}" }
-                    td { class: "number", {unit_rate(line)} }
-                    td { class: "number", {dollars(line.amount)} }
-                    td { class: "number derived", {ours(index, line)} }
+                    td { class: "scraped", "{line.description}" }
+                    td { class: "number scraped", {format!("{}", line.quantity)} }
+                    td { class: "scraped", "{line.unit}" }
+                    td { class: "number scraped", {unit_rate(line)} }
+                    td { class: "number scraped", {dollars(line.amount)} }
+                    if complete {
+                        td { class: "number derived", {ours(index, line)} }
+                    }
                 }
             }
             tr {
-                td { "Total, including GST of {bill.gst.map(dollars).unwrap_or_default()}" }
+                td { "Total, including GST of " span { class: "scraped", {bill.gst.map(dollars).unwrap_or_default()} } }
                 td {}
                 td {}
                 td {}
-                td { class: "number", {bill.total.map(dollars).unwrap_or_default()} }
-                td {}
+                td { class: "number scraped", {bill.total.map(dollars).unwrap_or_default()} }
+                if complete {
+                    td {}
+                }
             }
         }
         h2 { "By category" }
         p { "The bill's charges added up by the categories of the days' costs, e.g. USAGE for Peak and Offpeak Usage, beside what the days' costs of each add up to." }
-        table { class: "display",
+        table {
             tr {
                 th { "Category" }
-                th { "The bill's $" }
-                th { "The days' $" }
-                th { "Difference $" }
+                th { class: "number", "The bill's $" }
+                if complete {
+                    th { class: "number", "The days' $" }
+                    th { class: "number", "Difference $" }
+                }
             }
             for (category, (billed, days)) in comparison.categories.iter() {
                 tr {
                     td { "{category}" }
                     td { class: "number derived", {dollars(*billed)} }
-                    td { class: "number derived", {dollars(*days)} }
-                    td { class: "number derived", {format!("{:+.2}", days - billed)} }
+                    if complete {
+                        td { class: "number derived", {dollars(*days)} }
+                        td { class: "number derived", {format!("{:+.2}", days - billed)} }
+                    }
                 }
             }
             tr {
                 td { "Total" }
-                td { class: "number", {bill.total.map(dollars).unwrap_or_default()} }
-                td { class: "number derived", {dollars(comparison.total)} }
-                td { class: "number derived", {bill.total.map(|total| format!("{:+.2}", comparison.total - total)).unwrap_or_default()} }
+                td { class: "number scraped", {bill.total.map(dollars).unwrap_or_default()} }
+                if complete {
+                    td { class: "number derived", {dollars(comparison.total)} }
+                    td { class: "number derived", {bill.total.map(|total| format!("{:+.2}", comparison.total - total)).unwrap_or_default()} }
+                }
             }
         }
     }
