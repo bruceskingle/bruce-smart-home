@@ -20,12 +20,23 @@ use crate::CacheConfig;
 
 use super::client::GlobirdClient;
 
-/// The tariff's charge types, with their default colours, in the order they are shown, see crate::known_labels: those
-/// of the low and standard rates of other suppliers.
-pub const LABELS: [(&str, &str); 3] = [
+/// The tariff's charge types, with their default colours, in the order they are shown, see crate::known_labels: as the
+/// meter gives them, and split by use, see power::combine::split_by_use, the house's, the car's and the batteries', in
+/// the colours of the low and standard rates of Octopus's, see octopus::tariff::LABELS, so that a use's colour is the
+/// same whoever supplies the site, until the user can choose them all in one place.
+pub const LABELS: [(&str, &str); 12] = [
     ("Offpeak Usage", "#46ee43"),
     ("Shoulder Usage", "#f2c94c"),
     ("Peak Usage", "#f6671f"),
+    ("Home Offpeak Usage", "#46ee43"),
+    ("Home Shoulder Usage", "#f2c94c"),
+    ("Home Peak Usage", "#f6671f"),
+    ("EV Offpeak Usage", "#271cff"),
+    ("EV Shoulder Usage", "#06b6d4"),
+    ("EV Peak Usage", "#f72525"),
+    ("Battery Offpeak Usage", "#9b51e0"),
+    ("Battery Shoulder Usage", "#c084fc"),
+    ("Battery Peak Usage", "#d946ef"),
 ];
 
 /// How many days back a fetch asks for, more than GloBird keeps, so that the first fetch gets all it has.

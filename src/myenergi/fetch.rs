@@ -157,6 +157,15 @@ fn save_records(store: &Store, device: &Device, date: Option<Date>, json: &serde
         return Ok(0);
     };
     let hk = minutes_key(store, device.letter, &device.serial)?;
+    // Not records, e.g. {"status": "-14"}, which says why there are none, so the log says what myenergi answered.
+    if !records.is_array() {
+        crate::log_warning!(
+            "myenergi gave no records of {} {}{}, it answered {json}",
+            device.kind,
+            device.serial,
+            date.map(|date| format!(" {date}")).unwrap_or_default()
+        );
+    }
     let records = records.as_array().cloned().unwrap_or_default();
     // A record of a minute given twice in a response, the last is kept, as a newer version.
     for record in &records {
@@ -233,7 +242,7 @@ pub async fn fetch(
     if devices.is_empty() {
         progress("The status lists no devices".to_string());
     }
-    for device in &devices {
+    for device in devices.iter().filter(|device| device.has_day_records()) {
         for days_ago in 0..DAYS {
             fetch_day(client, store, device, today - Duration::days(days_ago), false, progress).await?;
         }
@@ -328,7 +337,10 @@ pub async fn poll(
         Some(date) if date < today => vec![today - Duration::days(1)],
         Some(_) => Vec::new(),
     };
-    for device in &Device::from_status(&status) {
+    for device in Device::from_status(&status)
+        .iter()
+        .filter(|device| device.has_day_records())
+    {
         for date in &whole_days {
             fetch_day(client, store, device, *date, true, &mut |_| {}).await?;
         }
@@ -386,7 +398,10 @@ pub async fn fetch_date(
         Some(saved) => saved_status(&saved).clone(),
         None => fetch_status(client, store, None, progress).await?,
     };
-    for device in &Device::from_status(&status) {
+    for device in Device::from_status(&status)
+        .iter()
+        .filter(|device| device.has_day_records())
+    {
         fetch_day(client, store, device, date, true, progress).await?;
     }
     Ok(())
@@ -745,6 +760,13 @@ fn day_records(store: &Store, hk: &str, date: Date) -> Vec<serde_json::Value> {
 pub fn summaries(store: &Store) -> Vec<DaySummary> {
     let today = crate::clock::now_utc().date().to_string();
     let prefix = format!("{}/{MINUTES_KIND}/", store.site());
+    // The devices of the latest status, by serial number, as a response names the device U<serial>, whatever it is.
+    let devices: std::collections::BTreeMap<String, Device> = latest_saved(store)
+        .map(|saved| Device::from_status(saved_status(&saved)))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|device| (device.serial.clone(), device))
+        .collect();
     let mut summaries = Vec::new();
     for hk in store.data_sets(&prefix).unwrap_or_default() {
         for fetched in store.query_all(&hk, "#fetched/".."#fetched0").unwrap_or_default() {
@@ -760,6 +782,9 @@ pub fn summaries(store: &Store) -> Vec<DaySummary> {
                 .as_ref()
                 .and_then(|fetched| fetched.get("name")?.as_str().map(str::to_string))
                 .unwrap_or_default();
+            let name = devices
+                .get(name.trim_start_matches(|letter: char| letter.is_ascii_alphabetic()))
+                .map_or(name, Device::name);
             let records = day_records(store, &hk, date);
             summaries.extend(DaySummary::from_day(&serde_json::json!({ name: records }), &today));
         }

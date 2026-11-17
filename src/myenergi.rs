@@ -299,7 +299,7 @@ fn DaysPage(context: SharedProp<MyenergiContext>) -> Element {
     rsx! {
         h1 { "myenergi Days" }
         p {
-            "Each device's records of a UTC day, in kWh, and of each of its CT clamps, positive and negative. Missing is how many minutes so far myenergi has no record of, whose energy is not in the totals, and Extra how many records were left out as they are of the next day or a minute which already has one. Diverted is what the device used of surplus generation, and Boosted what it used from the grid. Fetch gets the status and the last {fetch::DAYS} days of each device, days which have ended are only fetched once. Fetch Day gets the day chosen of each device, again even if it was fetched before, to see how far back myenergi has records."
+            "Each device's records of a UTC day, in kWh, and of each of its CT clamps, positive and negative. Missing is how many minutes so far myenergi has no record of, whose energy is not in the totals, and Extra how many records were left out as they are of the next day or a minute which already has one. Diverted is what the device used of surplus generation, and Boosted what it used from the grid. Fetch gets the status and the last {fetch::DAYS} days of each device, days which have ended are only fetched once. A harvi has no records of its own, as myenergi keeps none; its clamps' readings are only in the status. Fetch Day gets the day chosen of each device, again even if it was fetched before, to see how far back myenergi has records."
         }
         div { style: "margin-bottom: 1em;",
             button { disabled: busy(), onclick: fetch, if busy() { "Fetching..." } else { "Fetch" } }
@@ -327,9 +327,9 @@ fn DaysPage(context: SharedProp<MyenergiContext>) -> Element {
                 th { "Generated kWh" }
                 th { "Diverted kWh" }
                 th { "Boosted kWh" }
-                for name in ct_names {
-                    th { "{name} + kWh" }
-                    th { "{name} − kWh" }
+                for (clamp, kind) in ct_names.iter().map(|name| ct_heading(name)) {
+                    th { "{clamp}", br {}, "{kind}+ kWh" }
+                    th { "{clamp}", br {}, "{kind}− kWh" }
                 }
             }
             for summary in summaries {
@@ -363,8 +363,8 @@ fn SamplesPage(context: SharedProp<MyenergiContext>) -> Element {
                 th { "Charging kW" }
                 th { "Grid kW" }
                 th { "Generation kW" }
-                for name in ct_names {
-                    th { "{name} kW" }
+                for (clamp, kind) in ct_names.iter().map(|name| ct_heading(name)) {
+                    th { "{clamp}", br {}, "{kind}kW" }
                 }
                 th { "Voltage V" }
                 th { "Frequency Hz" }
@@ -584,5 +584,15 @@ impl ModuleFactory for MyenergiModuleFactory {
             capture: crate::capture_device::CaptureReader::new("capture/myenergi/records"),
             profile_name: self.context.profile.active_profile.name.clone(),
         }))
+    }
+}
+
+/// A CT clamp's name, e.g. CT1 Internal Load, as the two lines of its columns' headings, the clamp and what it measures
+/// with a space after it, e.g. "CT1" and "Internal Load ", as the headings are much wider on one line, or the name and
+/// nothing if it says only the clamp, e.g. CT1.
+fn ct_heading(name: &str) -> (String, String) {
+    match name.split_once(' ') {
+        Some((clamp, kind)) => (clamp.to_string(), format!("{kind} ")),
+        None => (name.to_string(), String::new()),
     }
 }

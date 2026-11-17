@@ -25,6 +25,10 @@
 //! which is kept for each point to compare, see ElectricityPoint::ev_comparison. Over a night of charging the car's was
 //! within 0.2% of the zappi's own total.
 //!
+//! A half hour with only the meters' readings, e.g. for a site with GloBird's 5 minutes and no grid meter's readings, is
+//! split by use the same way, reading by reading, where the site's devices measured all of it, e.g. a zappi, see
+//! split_by_use.
+//!
 //! The supplier's bill is a fact, and the app only says who used what it billed: the import's kWh at each rate in a
 //! half hour, and their cost, are the meter's. A supplier's rate may depend on what it took the energy to be for, e.g.
 //! Octopus bills the car's charging at the peak rate past a limit, even in the cheap times, while the house's is cheap,
@@ -543,6 +547,47 @@ fn billed_labels(
     (labels, costs)
 }
 
+/// Splits by use the meters' readings of half hours without the grid meter's, parts, by their start, whose import
+/// readings import_meter has, e.g. GloBird's 5 minutes, half hour by half hour, where measurements measured all of it:
+/// each reading's kWh at each rate, and their cost, stay the meter's, and only who used them is the measured split's, at
+/// the rates they were billed at, see billed_labels, as for the grid meter's readings. A reading longer than a half hour,
+/// or a half hour not measured all through, stays as the meter gave it.
+fn split_by_use(
+    parts: &mut BTreeMap<i64, PeriodTotals>,
+    import_meter: &BTreeMap<i64, &MeterReading>,
+    measurements: &dyn Split,
+) {
+    let starts: Vec<i64> = parts
+        .values()
+        .filter(|part| part.end - part.start <= HALF_HOUR && import_meter.contains_key(&part.start))
+        .map(|part| part.start)
+        .collect();
+    for half_hour in starts.chunk_by(|a, b| a - a.rem_euclid(HALF_HOUR) == b - b.rem_euclid(HALF_HOUR)) {
+        let readings: Vec<&MeterReading> = half_hour.iter().map(|start| import_meter[start]).collect();
+        let kwh: Vec<f64> = readings.iter().map(|reading| reading.total()).collect();
+        if kwh.iter().sum::<f64>() <= 0.0 {
+            continue;
+        }
+        let bounds: Vec<(i64, i64)> = readings.iter().map(|reading| (reading.start, reading.end)).collect();
+        let Some(measured) = measurements.split(&kwh, &vec![None; kwh.len()], &bounds) else {
+            continue;
+        };
+        for ((start, reading), uses) in half_hour.iter().zip(readings).zip(measured) {
+            let Some(part) = parts.get_mut(start) else { continue };
+            let mut label_uses = BTreeMap::new();
+            let (mut labels, mut costs) = billed_labels(reading, std::slice::from_ref(&uses), &mut label_uses);
+            // A reading with no import has no labels to split into, so it is left as it is.
+            if labels.first().is_none_or(|labels| labels.is_empty()) {
+                continue;
+            }
+            part.import = labels.remove(0);
+            part.costs = costs.remove(0);
+            part.uses = label_uses;
+            part.sources.insert((MEASURED_SOURCE, measurements.name()));
+        }
+    }
+}
+
 /// The cost of each label of each of a half hour's points, labels, whose rates rate_of gives: the cost at each rate of
 /// the meter's reading shared out among the labels at that rate, in proportion to their kWh, so that the cost at each
 /// rate over the half hour is the supplier's, whoever is said to have used it.
@@ -800,6 +845,12 @@ pub fn combine(
             part.standing_charge = reading.standing_charge;
         }
     }
+    // Those half hours split by use too, where the site's devices measured them, e.g. GloBird's 5 minutes with a
+    // zappi's minutes, for a site with no grid meter's readings: each reading's kWh, as the meter gave them, see
+    // split_by_use.
+    if let Some(measurements) = measurements {
+        split_by_use(&mut meter_parts, &import_meter, measurements);
+    }
     parts.extend(meter_parts.into_values());
 
     // Periods of a half hour or longer add the parts in each together.
@@ -810,7 +861,7 @@ pub fn combine(
         let mut grouped: BTreeMap<i64, PeriodTotals> = BTreeMap::new();
         let mut kept = Vec::new();
         for part in parts {
-            let meter_only = part.sources.iter().all(|(place, _)| *place == METER_SOURCE);
+            let meter_only = !part.sources.iter().any(|(place, _)| *place == GRID_SOURCE);
             if meter_only && part.end - part.start < seconds {
                 let (period_start, period_end) = crate::period::period_bounds(part.start, period, tz);
                 grouped
@@ -1269,6 +1320,92 @@ mod tests {
             LONDON,
         );
         assert!(electricity.points[0].sources == ["Home Mini"] && electricity.points[0].ev_comparison.is_none());
+    }
+
+    /// A split which measured each point's import as half the car's and half the house's, as a zappi beside a meter
+    /// with no grid meter's readings would, e.g. GloBird's, or None if told the half hour was not measured.
+    struct Halves {
+        unmeasured: Option<i64>,
+    }
+
+    impl crate::power::measured::Split for Halves {
+        fn name(&self) -> String {
+            String::from("myenergi")
+        }
+
+        fn split(
+            &self,
+            kwh: &[f64],
+            _demand: &[Option<f64>],
+            bounds: &[(i64, i64)],
+        ) -> Option<Vec<BTreeMap<String, f64>>> {
+            if Some(bounds[0].0 - bounds[0].0.rem_euclid(1800)) == self.unmeasured {
+                return None;
+            }
+            Some(
+                kwh.iter()
+                    .map(|kwh| {
+                        BTreeMap::from([
+                            (String::from(crate::power::topology::CAR), kwh / 2.0),
+                            (String::from(crate::power::topology::HOUSE), kwh / 2.0),
+                        ])
+                    })
+                    .collect(),
+            )
+        }
+    }
+
+    #[test]
+    fn a_meters_readings_without_a_grid_meters_are_split_by_use_at_their_rates_where_measured() {
+        // A meter's 5 minute readings of an hour, as GloBird's, 0.1 kWh each at Offpeak Usage, costing 2c, the first
+        // half hour measured and the second not.
+        let import: Vec<MeterReading> = (0..12)
+            .map(|n| MeterReading {
+                start: DAY + n * 300,
+                end: DAY + (n + 1) * 300,
+                units: BTreeMap::from([(String::from("Offpeak Usage"), 0.1)]),
+                costs: BTreeMap::from([(String::from("Offpeak Usage"), 2.0)]),
+                ..MeterReading::default()
+            })
+            .collect();
+        let electricity = combine(
+            &import,
+            &[],
+            &[],
+            "GloBird",
+            Some(&Halves {
+                unmeasured: Some(DAY + 1800),
+            }),
+            DAY,
+            DAY + 3600,
+            Period::TenMinutes,
+            &Estimate::default(),
+            LONDON,
+        );
+        let label = |name: &str| electricity.labels.iter().position(|label| label == name).unwrap();
+        let (car, house, meter) = (
+            label("EV Offpeak Usage"),
+            label("Home Offpeak Usage"),
+            label("Offpeak Usage"),
+        );
+        assert_eq!(electricity.uses[car], crate::power::topology::CAR);
+        // Two readings in each 10 minutes, the measured ones half the car's, with the meter's kWh and cost.
+        assert_eq!(electricity.points.len(), 6);
+        for point in &electricity.points[..3] {
+            assert!((point.import[car] - 0.1).abs() < 1e-9 && (point.import[house] - 0.1).abs() < 1e-9);
+            assert_eq!(point.import[meter], 0.0);
+            assert!(
+                (point.costs.iter().sum::<f64>() - 4.0).abs() < 1e-9,
+                "{:?}",
+                point.costs
+            );
+            assert_eq!(point.sources, ["myenergi", "meter"]);
+        }
+        // The half hour not measured, as the meter gave it.
+        for point in &electricity.points[3..] {
+            assert!((point.import[meter] - 0.2).abs() < 1e-9 && point.import[car] == 0.0);
+            assert_eq!(point.sources, ["meter"]);
+        }
     }
 
     #[test]

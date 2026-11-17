@@ -27,6 +27,18 @@ pub struct Device {
 }
 
 impl Device {
+    /// Whether myenergi keeps minute records of it, which cgi-jday gives: not of a harvi, whose day is answered with
+    /// {"status": ...} instead, its clamps' readings only being in the status, ectp1 to ectp3, so its days are not
+    /// asked for.
+    pub fn has_day_records(&self) -> bool {
+        self.letter != 'H'
+    }
+
+    /// Its name as the app shows it, its letter and serial number, e.g. Z12345678.
+    pub fn name(&self) -> String {
+        format!("{}{}", self.letter, self.serial)
+    }
+
     /// The devices in a cgi-jstatus-* response, an array of objects such as {"zappi": [{"sno": 12345678, ...}]}.
     pub fn from_status(status: &serde_json::Value) -> Vec<Device> {
         let mut devices = Vec::new();
@@ -244,6 +256,22 @@ mod tests {
                     serial: "87654321".to_string()
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn a_zappi_has_day_records_and_a_harvi_not_and_each_is_named_by_its_letter() {
+        let devices = Device::from_status(&serde_json::json!([
+            {"zappi": [{"sno": 12345678}]},
+            {"harvi": [{"sno": 87654321}]}
+        ]));
+        let names: Vec<(String, bool)> = devices
+            .iter()
+            .map(|device| (device.name(), device.has_day_records()))
+            .collect();
+        assert_eq!(
+            names,
+            [(String::from("Z12345678"), true), (String::from("H87654321"), false)]
         );
     }
 }
