@@ -151,7 +151,19 @@ jobs:
         # Where the Windows installer's hooks take the virtual capture device from, see windows/installer-hooks.nsh.
         env:
           SIM_BIN: ${{ github.workspace }}\bruce-smart-home\capture\target-sim\bin
-        run: dx bundle --release
+        # On macOS, tried once more if it fails, as its last steps ask Apple's servers to notarize the app and staple
+        # the ticket, which the runners' network sometimes drops, e.g. a notary request which timed out, or stapler's
+        # exit code 68, once Apple had accepted the app. The second try builds nothing again, only bundles.
+        run: |
+          if dx bundle --release; then
+            exit 0
+          fi
+          if [ "$RUNNER_OS" != macOS ]; then
+            exit 1
+          fi
+          echo "dx bundle failed, trying once more, in case it was Apple's servers"
+          sleep 30
+          dx bundle --release
 
       - name: Collect the installers
         id: collect
