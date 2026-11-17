@@ -37,15 +37,15 @@ md-5 = "0.10"
 # The store the device keeps its records in, as the app does, see ../docs/Store.md, "Capture devices on the store".
 bruce-db = "0.2.0"
 
-# From the checkouts next to this repository, at the versions being released with the simulator, see
-# bruce-embedded-std's docs/Simulator.md: bruce-method-release takes them from crates.io instead once they are released.
-# Without bruce-esp-idf's default, espidf, so that the sim feature can choose the simulator in its place.
-bruce-embedded-std = { version = "0.2.0", path = "../../bruce-embedded-std/bruce-embedded-std" }
-bruce-esp-idf = { version = "0.2.0", path = "../../bruce-esp-idf/bruce-esp-idf", default-features = false, features = ["sd-card"] }
+# The platform, and the board simulator the virtual capture device is built on, see bruce-embedded-std's
+# docs/Simulator.md. Without bruce-esp-idf's default, espidf, so that the sim feature can choose the simulator in its
+# place.
+bruce-embedded-std = "0.2.0"
+bruce-esp-idf = { version = "0.2.0", default-features = false, features = ["sd-card"] }
 
 embedded-svc = "0.29.0"
 # The launcher's window to choose a board, with the sim feature, see src/sim_launcher.rs.
-bruce-embedded-sim = { version = "0.2.0", path = "../../bruce-embedded-std/bruce-embedded-sim", optional = true }
+bruce-embedded-sim = { version = "0.2.0", optional = true }
 # Where the virtual devices keep their data, which the launcher looks in to start one by its ID, see --device.
 dirs = { version = "6", optional = true }
 
