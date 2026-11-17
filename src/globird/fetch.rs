@@ -21,13 +21,14 @@ use crate::CacheConfig;
 use super::client::GlobirdClient;
 
 /// The tariff's charge types, with their default colours, in the order they are shown, see crate::known_labels: as the
-/// meter gives them, and split by use, see power::combine::split_by_use, the house's, the car's and the batteries', in
-/// the colours of the low and standard rates of Octopus's, see octopus::tariff::LABELS, so that a use's colour is the
-/// same whoever supplies the site, until the user can choose them all in one place.
+/// meter gives them, where what used them is not known, in colours of their own, pale brown, beige and pink, and split by
+/// use, see power::combine::split_by_use, the house's, the car's and the batteries', in the colours of the low and
+/// standard rates of Octopus's, see octopus::tariff::LABELS, so that a use's colour is the same whoever supplies the
+/// site, until the user can choose them all in one place.
 pub const LABELS: [(&str, &str); 12] = [
-    ("Offpeak Usage", "#46ee43"),
-    ("Shoulder Usage", "#f2c94c"),
-    ("Peak Usage", "#f6671f"),
+    ("Offpeak Usage", "#c8a27a"),
+    ("Shoulder Usage", "#e3d3b8"),
+    ("Peak Usage", "#f4a6c6"),
     ("Home Offpeak Usage", "#46ee43"),
     ("Home Shoulder Usage", "#f2c94c"),
     ("Home Peak Usage", "#f6671f"),
