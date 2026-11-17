@@ -17,8 +17,8 @@ REPOS="bruce-smart-home"
 WORKFLOW=release.yml
 # The installers attached to each release, with VERSION replaced by the version. The Intel Mac's was _x64.dmg before
 # dx 0.7.10.
-INSTALLERS="BrucesSmartHome_VERSION_aarch64.dmg BrucesSmartHome_VERSION_x86_64.dmg BrucesSmartHome_VERSION_x64-setup.exe
-BrucesSmartHome_VERSION_arm64-setup.exe"
+INSTALLERS="BruceSmartHome_VERSION_aarch64.dmg BruceSmartHome_VERSION_x86_64.dmg BruceSmartHome_VERSION_x64-setup.exe
+BruceSmartHome_VERSION_arm64-setup.exe"
 
 GIT_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 

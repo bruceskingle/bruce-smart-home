@@ -54,10 +54,10 @@ release branch `testX.X.X` (moving the tag if it exists), runs the workflow, wat
 the Intel Mac is the slowest) and downloads the installers, each in a folder named after its build:
 
 ```
-~/Downloads/bruce-smart-home-X.X.X-test/macos-aarch64/BrucesSmartHome_X.X.X_aarch64.dmg      Apple silicon Mac
-~/Downloads/bruce-smart-home-X.X.X-test/macos-x64/BrucesSmartHome_X.X.X_x86_64.dmg           Intel Mac
-~/Downloads/bruce-smart-home-X.X.X-test/windows-arm64/BrucesSmartHome_X.X.X_arm64-setup.exe  ARM PC
-~/Downloads/bruce-smart-home-X.X.X-test/windows-x64/BrucesSmartHome_X.X.X_x64-setup.exe      Intel or AMD PC
+~/Downloads/bruce-smart-home-X.X.X-test/macos-aarch64/BruceSmartHome_X.X.X_aarch64.dmg      Apple silicon Mac
+~/Downloads/bruce-smart-home-X.X.X-test/macos-x64/BruceSmartHome_X.X.X_x86_64.dmg           Intel Mac
+~/Downloads/bruce-smart-home-X.X.X-test/windows-arm64/BruceSmartHome_X.X.X_arm64-setup.exe  ARM PC
+~/Downloads/bruce-smart-home-X.X.X-test/windows-x64/BruceSmartHome_X.X.X_x64-setup.exe      Intel or AMD PC
 ```
 
 Each run of `try` replaces them. Run it again after fixing anything. The test tag is deleted by `merge`.
@@ -257,10 +257,10 @@ them to the draft. The files are only attached if all four builds succeed. It do
 one folder, and shows the draft's URL:
 
 ```
-~/Downloads/bruce-smart-home-X.X.X/BrucesSmartHome_X.X.X_aarch64.dmg      Apple silicon Mac
-~/Downloads/bruce-smart-home-X.X.X/BrucesSmartHome_X.X.X_x86_64.dmg       Intel Mac
-~/Downloads/bruce-smart-home-X.X.X/BrucesSmartHome_X.X.X_arm64-setup.exe  ARM PC
-~/Downloads/bruce-smart-home-X.X.X/BrucesSmartHome_X.X.X_x64-setup.exe    Intel or AMD PC
+~/Downloads/bruce-smart-home-X.X.X/BruceSmartHome_X.X.X_aarch64.dmg      Apple silicon Mac
+~/Downloads/bruce-smart-home-X.X.X/BruceSmartHome_X.X.X_x86_64.dmg       Intel Mac
+~/Downloads/bruce-smart-home-X.X.X/BruceSmartHome_X.X.X_arm64-setup.exe  ARM PC
+~/Downloads/bruce-smart-home-X.X.X/BruceSmartHome_X.X.X_x64-setup.exe    Intel or AMD PC
 ```
 
 Try the installers, and check the release notes on GitHub (the draft is at the top of the Releases page). A draft is
@@ -317,10 +317,10 @@ gh release download release0.4.4 -R bruceskingle/bruce-smart-home -p '*-setup.ex
 The release should have these files:
 
 ```
-BrucesSmartHome_X.X.X_aarch64.dmg
-BrucesSmartHome_X.X.X_x86_64.dmg
-BrucesSmartHome_X.X.X_x64-setup.exe
-BrucesSmartHome_X.X.X_arm64-setup.exe
+BruceSmartHome_X.X.X_aarch64.dmg
+BruceSmartHome_X.X.X_x86_64.dmg
+BruceSmartHome_X.X.X_x64-setup.exe
+BruceSmartHome_X.X.X_arm64-setup.exe
 ```
 
 </details>
@@ -464,13 +464,13 @@ or the `setup.exe` for an ARM or Intel/AMD PC. It stops if the run has not finis
 After `try`, the installer is in a folder named after its build, e.g. on an Apple silicon Mac:
 
 ```
-~/Downloads/bruce-smart-home-X.X.X-test/macos-aarch64/BrucesSmartHome_X.X.X_aarch64.dmg
+~/Downloads/bruce-smart-home-X.X.X-test/macos-aarch64/BruceSmartHome_X.X.X_aarch64.dmg
 ```
 
 After `build`, it is downloaded from the draft release, e.g. on an ARM PC:
 
 ```
-~/Downloads/bruce-smart-home-X.X.X/BrucesSmartHome_X.X.X_arm64-setup.exe
+~/Downloads/bruce-smart-home-X.X.X/BruceSmartHome_X.X.X_arm64-setup.exe
 ```
 
 The folder and file names for each machine are listed in [step 1](#1-try-the-installers-optional) and
