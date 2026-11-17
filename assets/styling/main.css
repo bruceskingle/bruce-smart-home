@@ -268,6 +268,13 @@ th.row-header {
     font-weight: normal;
 }
 
+/* Something the user should do soon, e.g. open a module's pages before its source's readings are lost, see
+   Module::notice, in the log's warning colour. */
+.warning {
+    margin-top: 12px;
+    color: #f5d742;
+}
+
 /* A message about something which failed, in the invalid style, with any detail as a tooltip, see ErrorText. */
 .error {
     margin-top: 12px;

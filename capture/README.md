@@ -26,12 +26,12 @@ directly:
 
 - `cargo build --release` for a CYD, and `cargo run --release` flashes the CYD plugged in by USB, and shows its log.
 - For the Waveshare, which is RISC-V: `MCU=esp32c6 cargo build --release --target riscv32imac-esp-espidf
-  --no-default-features --features wave-esp32c6-touch-147`, then `bruce-embedded-flash flash --port
+  --no-default-features --features espidf,wave-esp32c6-touch-147`, then `bruce-embedded-flash flash --port
   /dev/cu.usbmodem... target/riscv32imac-esp-espidf/release/bruce-smart-home-capture`.
 - For the RLCD: `MCU=esp32s3 cargo build --release --target xtensa-esp32s3-espidf --no-default-features --features
-  wave-esp32s3-rlcd-42`, then `bruce-embedded-flash flash --port /dev/cu.usbmodem...
+  espidf,wave-esp32s3-rlcd-42`, then `bruce-embedded-flash flash --port /dev/cu.usbmodem...
   target/xtensa-esp32s3-espidf/release/bruce-smart-home-capture`.
-- For the Guition JC3248W535C, the same with `--features guition-jc3248w535c`.
+- For the Guition JC3248W535C, the same with `--features espidf,guition-jc3248w535c`. Each board build needs `espidf` as well as its board, as `--no-default-features` turns it off.
 - `python3 log.py [port]` shows a device's log without restarting it (needs pyserial). Not `espflash monitor`, which
   restarts it, or with `--no-reset` leaves it stopped in its bootloader. The CYD's port is `/dev/cu.usbserial-*`, its
   USB chip's, the Waveshare's `/dev/cu.usbmodem*`, the chip's own USB.

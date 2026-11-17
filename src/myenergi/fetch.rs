@@ -15,6 +15,9 @@ use super::client::{Device, MyenergiClient};
 
 /// How many days are fetched, including today.
 pub const DAYS: i64 = 3;
+/// How many days back the days not fetched yet are fetched, once each, see backfill: as many as a supplier which keeps
+/// only a few weeks of readings has, e.g. GloBird's 40, so that its readings can all be split by use.
+pub const BACKFILL_DAYS: i64 = 40;
 
 const STATUS_KIND: &str = crate::device_kinds::MYENERGI_STATUS;
 const MINUTES_KIND: &str = "myenergi.minutes";
@@ -227,7 +230,49 @@ async fn fetch_day(
     Ok(())
 }
 
-/// Fetches the status and the last DAYS days of every device which has records, saying what it did with progress.
+/// How many minutes of records the device's day date had when it was fetched, None if it has not been.
+fn fetched_minutes(store: &Store, device: &Device, date: Date) -> anyhow::Result<Option<u64>> {
+    let hk = minutes_key(store, device.letter, &device.serial)?;
+    Ok(store.get(&hk, &fetched_key(date))?.map(|item| {
+        item.attributes
+            .and_then(|fetched| fetched.get("records")?.as_u64())
+            .unwrap_or(0)
+    }))
+}
+
+/// Fetches the device's days before the last DAYS, back to BACKFILL_DAYS ago, which have not been fetched, once each,
+/// newest first, and stops at the first which myenergi has no records of, fetched now or before, as it keeps none
+/// before it, e.g. before the device was installed, so that a new profile has the weeks a supplier keeps, and asks for
+/// nothing more once it has them.
+async fn backfill(
+    client: &MyenergiClient,
+    store: &Store,
+    device: &Device,
+    today: Date,
+    progress: &mut dyn FnMut(String),
+) -> anyhow::Result<()> {
+    for days_ago in DAYS..BACKFILL_DAYS {
+        let date = today - Duration::days(days_ago);
+        let minutes = match fetched_minutes(store, device, date)? {
+            Some(minutes) => minutes,
+            None => {
+                fetch_day(client, store, device, date, false, progress).await?;
+                match fetched_minutes(store, device, date)? {
+                    Some(minutes) => minutes,
+                    // Not fetched, e.g. myenergi did not answer, so tried again next time.
+                    None => return Ok(()),
+                }
+            }
+        };
+        if minutes == 0 {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+/// Fetches the status and the last DAYS days of every device which has records, and the days before them not fetched
+/// yet, see backfill, saying what it did with progress.
 pub async fn fetch(
     client: &MyenergiClient,
     store: &Store,
@@ -246,6 +291,7 @@ pub async fn fetch(
         for days_ago in 0..DAYS {
             fetch_day(client, store, device, today - Duration::days(days_ago), false, progress).await?;
         }
+        backfill(client, store, device, today, progress).await?;
     }
     progress(format!("Fetched {} device(s) at {}", devices.len(), client.host()));
     Ok(())
@@ -343,6 +389,10 @@ pub async fn poll(
     {
         for date in &whole_days {
             fetch_day(client, store, device, *date, true, &mut |_| {}).await?;
+        }
+        // Once a day, with the whole days.
+        if !whole_days.is_empty() {
+            backfill(client, store, device, today, &mut |_| {}).await?;
         }
         fetch_recent(client, store, device, now).await?;
     }

@@ -84,6 +84,11 @@ fn redacted(secret: &Option<String>) -> Option<&'static str> {
     secret.as_ref().map(|_| bruce_graphql::redact::REDACTED)
 }
 
+/// How many days of readings GloBird keeps, about, see fetch::FETCH_DAYS, which asks for more.
+const GLOBIRD_KEEPS_DAYS: i64 = 40;
+/// How long after the last fetch the Electricity page says GloBird's readings should be fetched, see notice: half of
+/// what GloBird keeps, so there is time.
+const WARN_AFTER: time::Duration = time::Duration::days(GLOBIRD_KEEPS_DAYS / 2);
 /// How long GloBird's readings and costs are used before they are fetched again, when a page which shows them opens, see
 /// GlobirdContext::fetch_if_due.
 const FRESH_FOR: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
@@ -217,6 +222,25 @@ impl GlobirdModule {
 impl Module for GlobirdModule {
     async fn fetch_latest_data(&self) -> anyhow::Result<()> {
         self.context.fetch(&mut |message| println!("{message}")).await
+    }
+
+    /// That GloBird's readings have not been fetched for WARN_AFTER or more, and when those not fetched start to be
+    /// lost, as GloBird keeps only a few weeks of them, and they are fetched only when a GloBird page opens, see
+    /// GlobirdContext::fetch_if_due.
+    fn notice(&self) -> Option<String> {
+        if self.context.cache_config.offline {
+            return None;
+        }
+        let fetched = fetch::fetched_at(&self.context.cache_config)?;
+        let since = time::OffsetDateTime::now_utc() - fetched;
+        (since >= WARN_AFTER).then(|| {
+            let lost = (fetched + time::Duration::days(GLOBIRD_KEEPS_DAYS)).date();
+            format!(
+                "GloBird's readings were last fetched {} days ago. GloBird keeps only about {GLOBIRD_KEEPS_DAYS} days \
+                 of them, so from {lost} those not fetched will be lost: open a GloBird page to fetch them.",
+                since.whole_days()
+            )
+        })
     }
 
     /// The meter's readings.

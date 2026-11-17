@@ -40,7 +40,7 @@ for entry in $ALL; do
         continue
     fi
     echo "Building the capture firmware for $board"
-    MCU=$mcu cargo build --release --target "$target" --no-default-features --features "$board"
+    MCU=$mcu cargo build --release --target "$target" --no-default-features --features "espidf,$board"
     cp "target/$target/release/bruce-smart-home-capture" "$dev/bruce-smart-home-capture-$board.elf"
 done
 ls -l "$dev"

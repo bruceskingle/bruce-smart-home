@@ -14,13 +14,19 @@ ones, and the problems which have been fixed. The releases themselves are on
 ### New
 - **More than Octopus.** Each source of data is a module, and a profile can use several:
   - **myenergi**: a zappi's records of what it charged the car with, and of its grid clamp, fetched from myenergi.
+    Capture devices also keep what each of the zappi's and its harvis' CT clamps measured, e.g. solar panels or a
+    battery on a harvi, which myenergi keeps no records of.
   - **Tesla**: the Powerwall gateway's readings of the grid, the Powerwalls, the solar panels and the house, read from
     the gateway on your home network. The app only reads it, so it works alongside e.g. Home Assistant.
   - **GloBird**: a GloBird Energy customer's smart meter readings every 5 minutes, with each day's costs, and the
-    bills, from GloBird's customer portal.
+    bills, from GloBird's customer portal, fetched when a page opens, at most once a day. Its **Rates** page shows the
+    tariff's rates, worked out from the daily costs, as the portal does not give them, and each bill opens in a window
+    of its own, with its PDF. Values read from a document, e.g. a bill's charges, are shown in
+    <span class="scraped">yellow</span>, and those the app works out in <span class="derived">magenta</span>.
 - **Electricity**, Home's first page, puts the modules together: your supplier's meter readings, which are what you
   are billed for, the Home Mini's readings every 10 seconds, and what the Tesla gateway and the zappi measured, which
-  split the import into what the house, the car and the Powerwalls used. Each use is at the rates it was billed at,
+  split the import into what the house, the car and the Powerwalls used, whether the supplier's readings are of half
+  hours, as Octopus's, or of 5 minutes, as GloBird's. Each use is at the rates it was billed at,
   and the kWh and the cost at each rate agree with your bill. Until the meter's readings arrive, a few days later, the
   rate is estimated from your tariff and when the car was charging, and shown as estimated. Its **Flows** view shows
   where the energy went in each period.
@@ -28,19 +34,26 @@ ones, and the problems which have been fixed. The releases themselves are on
   one feeds, its **topology**, which the Electricity page needs to split the import correctly, as it differs from house
   to house, e.g. whether the car's charger is inside the Tesla gateway's grid clamp. The page suggests one from the last
   week's measurements, and checks any you draw against them.
-- **Live**, the site's diagram with what each circuit is taking or giving now, with dots moving the way the energy
-  flows, faster the more power there is.
+- **Live**, the site's diagram with what each circuit is taking or giving now, with dots moving along each circuit's
+  line the way the energy flows, faster the more power there is.
 - **Capture devices.** Small, always-on ESP32 boards with a screen, e.g. the Waveshare ESP32-S3-RLCD-4.2 or the
   Guition JC3248W535C, which fetch the Tesla gateway's, the zappi's and Octopus's data every few minutes while your
   computer is asleep or the app is closed, keep it on their SD cards, and show the latest on their screens. The app
   reads what they took when it next runs. Adopt one on the **Devices** page, which also shows each device's state and
   settings, and can flash the capture firmware onto a board plugged in by USB, refusing firmware built for another
   board.
+- **Virtual capture devices**, for trying a capture device without a board: the capture firmware, running on your
+  computer in a window showing the board's screen, which the app adopts like a real one. Start one from the **Devices**
+  page; it is installed with the app, on Windows and macOS, and simulates the Waveshare ESP32-S3-RLCD-4.2 or the
+  Guition JC3248W535C. It only captures while your computer is awake and its window is open.
 - **Temperature and humidity.** Capture devices with a sensor of their own keep its readings, which Home's Temperature
   and Humidity page shows as graphs, a line for each room.
 - **Polling.** While the app is open it keeps the data which is only available for a while, such as the Tesla gateway's
   and the zappi's, and the charging Octopus planned and carried out, every 5 or 15 minutes. Home's Polling section shows
   what each module did last and when it polls next, with **Poll Now**.
+- **A guide for AI agents.** The app writes `AGENTS.md` into its data directory, which tells an AI agent, e.g. Claude,
+  what your data is and where, so that you can ask one to explain it, see
+  [Your Data](gettingStarted/cachedData.md#asking-an-ai-to-explain-your-data).
 - **Copy and rename profiles**, from the **…** beside each profile in the profile menu. An offline copy shows the data
   as it was when copied, without logging in or fetching anything, e.g. to try a change to its topology.
 

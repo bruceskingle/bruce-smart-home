@@ -1,6 +1,7 @@
 mod ordered_map;
 pub use ordered_map::OrderedMap;
 
+pub mod agents_guide;
 mod cache_browser;
 pub mod capture_device;
 pub mod climate;
@@ -355,6 +356,12 @@ pub trait Module {
     /// The site's electricity, for Home's Electricity page, see views/electricity.rs, if the module has it, e.g. a
     /// supplier's meters, or a device which measures the grid, None if it does not.
     fn electricity_source(&self) -> Option<std::sync::Arc<dyn power::ElectricitySource>> {
+        None
+    }
+    /// Something the user should do soon, which Home's Electricity page shows with a link to the module's pages, e.g.
+    /// that its source keeps only a few weeks of readings, which will be lost unless they are fetched soon. None if
+    /// there is nothing.
+    fn notice(&self) -> Option<String> {
         None
     }
     /// What the module's devices measured of the site's use, which splits a supplier's electricity by use, see

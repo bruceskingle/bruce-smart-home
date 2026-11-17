@@ -16,7 +16,7 @@ pub const WINDOW: i64 = 60;
 /// Less than this from solar panels, in W, is none, as their meter reads a few W either way at night, from its clamp's
 /// offset and the inverter's own draw. It is taken as none before the rest is worked out, e.g. the house's, so that what
 /// is shown still adds up.
-pub const SOLAR_NOISE: f64 = 50.0;
+pub const SOLAR_NOISE: f64 = 10.0;
 
 /// Each circuit's power, in W, into it, negative out of it, e.g. solar panels making or a battery discharging, in the
 /// order of a walk of the topology, each circuit before those it feeds, None where it can not be worked out, and the
@@ -136,10 +136,10 @@ mod tests {
 
     #[test]
     fn solar_noise_is_none_and_the_house_has_it_so_they_still_add_up() {
-        // 20 W from the solar panels at night, which is noise.
+        // 5 W from the solar panels at night, which is noise.
         let mut night = registers(DAY - 20, DAY + 1820, 7000.0, 5000.0);
         for registers in &mut night {
-            registers.solar_power = 20.0;
+            registers.solar_power = 5.0;
         }
         let measurements: Vec<Arc<dyn Measurements>> = vec![Arc::new(RegisterMeasurements {
             name: String::from("Tesla"),

@@ -50,12 +50,15 @@ const MAX_BODY: usize = 32 * 1024;
 /// Where its line goes on the screen, after the Powerwall's.
 const PANEL_ORDER: u8 = 2;
 
-/// The fields of each zappi kept, those bruce-smart-home's StatusSample and ct_names use. Of the other devices only the
-/// serial number is kept, sno, so that the app can fetch their minute records.
+/// The fields of each zappi kept, those bruce-smart-home's StatusSample and ct_names use, and every CT clamp's power and
+/// type: its own, ectp1 to ectp3, and its harvis', ectp4 to ectp6, e.g. a grid clamp on each of two phases.
 const ZAPPI_FIELDS: &[&str] = &[
-    "sno", "dat", "tim", "pst", "sta", "zmo", "che", "div", "grd", "gen", "ectp1", "ectp2", "ectp3", "ectp4", "ectt1",
-    "ectt2", "ectt3", "ectt4", "vol", "frq",
+    "sno", "dat", "tim", "pst", "sta", "zmo", "che", "div", "grd", "gen", "ectp1", "ectp2", "ectp3", "ectp4", "ectp5",
+    "ectp6", "ectt1", "ectt2", "ectt3", "ectt4", "ectt5", "ectt6", "vol", "frq",
 ];
+/// The fields of each harvi kept: its serial number, and each of its CT clamps' power and type, e.g. a battery's or
+/// solar panels', which only the status has, as myenergi keeps no minute records of a harvi.
+const HARVI_FIELDS: &[&str] = &["sno", "ectp1", "ectp2", "ectp3", "ectt1", "ectt2", "ectt3"];
 const DEVICE_KINDS: &[&str] = &["zappi", "eddi", "harvi", "libbi"];
 
 /// The config's names must differ from every other feature's, and be at most 15 characters, see tesla.rs.
@@ -332,7 +335,7 @@ fn digest_authorization(
     header
 }
 
-/// The status with only what the app uses, see ZAPPI_FIELDS, in the same form, an array of objects such as
+/// The status with only what the app uses, see ZAPPI_FIELDS and HARVI_FIELDS, in the same form, an array of objects such as
 /// {"zappi": [{"sno": 12345678, ...}]}.
 fn reduce(status: &Value) -> Value {
     let items: Vec<Value> = status
@@ -348,7 +351,12 @@ fn reduce(status: &Value) -> Value {
                 .into_iter()
                 .flatten()
                 .map(|device| {
-                    let fields: &[&str] = if kind == "zappi" { ZAPPI_FIELDS } else { &["sno"] };
+                    // Of the other devices only the serial number, so that the app can fetch their minute records.
+                    let fields: &[&str] = match kind.as_str() {
+                        "zappi" => ZAPPI_FIELDS,
+                        "harvi" => HARVI_FIELDS,
+                        _ => &["sno"],
+                    };
                     let kept: serde_json::Map<String, Value> = fields
                         .iter()
                         .filter_map(|field| Some((field.to_string(), device.get(*field)?.clone())))

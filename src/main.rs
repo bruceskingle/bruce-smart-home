@@ -56,6 +56,9 @@ fn main() {
         });
     }
 
+    // The guide for AI agents to the data, with the profiles as they are now, see agents_guide.rs.
+    bruce_smart_home::agents_guide::write();
+
     // For screenshots the window is the size the shot list gives, see screenshots.rs.
     let screenshot_size = match args.screenshots() {
         Some(path) => match bruce_smart_home::screenshots::read_shot_file(&path) {

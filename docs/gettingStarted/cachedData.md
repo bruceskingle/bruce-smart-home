@@ -61,6 +61,14 @@ the set, e.g. a reading's time, and a version, the newest of which is the record
 of files of its records in order of their sort keys, a file for each day of a series. Account and meter numbers are
 replaced by hashes in the keys and the names of the files.
 
+### Asking an AI to explain your data
+Each time it starts, the app writes ```AGENTS.md``` into the data directory, a guide for AI agents, e.g. Claude, to what
+is where, what each kind of record holds, in what units and times, and which of your profiles is in which directory,
+with each one's modules and topology, but not their logins. So if you ask an agent to explain your data, point it at the
+data directory, e.g. "read ~/.bruce-smart-home-data/AGENTS.md and tell me what my car cost to charge last week". It
+tells the agent never to read the settings directory, which holds your passwords and API keys. Your data is personal,
+so only give it to an agent you would give your bills to.
+
 ## Before version 0.5.0
 The app was called Marco Sparko, and kept the profiles in ```.marco-sparko```, and everything else in a directory
 ```.marco-sparko-cache```. This version does not read them, so its profiles are set up afresh. You can delete those

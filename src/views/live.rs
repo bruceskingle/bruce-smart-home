@@ -27,10 +27,10 @@ const POLLED: i64 = 4;
 const READ: i64 = 3;
 /// How far back the measurements are loaded, enough for the latest every source has, see power::live.
 const LOADED: i64 = 15 * 60;
-/// Less power than this, in W, has no dots moving, so that a few W either way, e.g. a site meter the Powerwalls hold
-/// at about none, does not look like a flow. Its figure is still shown, so that they all add up; solar panels' noise
+/// Less power than this, in W, has no dots moving, so that a figure which rounds to none, e.g. a site meter the
+/// Powerwalls hold at about none, does not look like a flow; a few W either way do, as Bruce wants to see them. Its figure is still shown, so that they all add up; solar panels' noise
 /// is none already, see power::live::SOLAR_NOISE.
-const STILL: f64 = 10.0;
+const STILL: f64 = 1.0;
 
 /// Whether a circuit's power is too little for dots, see STILL.
 fn still(watts: f64) -> bool {
@@ -168,6 +168,17 @@ fn LiveDiagram(topology: Circuit, live: Live, colours: std::collections::BTreeMa
     let width = column_x(depth) + BOX_WIDTH + MARGIN;
     let height = top - ROW_GAP + MARGIN;
     let placed_y: Vec<f64> = placed.iter().map(|placed| placed.y).collect();
+    // Each circuit's place among those its parent feeds, and how many it feeds, for its own line, see line_path.
+    let siblings: Vec<(usize, usize)> = placed
+        .iter()
+        .enumerate()
+        .map(|(index, circuit)| {
+            let fed: Vec<usize> = (0..placed.len())
+                .filter(|other| circuit.parent.is_some() && placed[*other].parent == circuit.parent)
+                .collect();
+            (fed.iter().position(|other| *other == index).unwrap_or(0), fed.len())
+        })
+        .collect();
     let power = |index: usize| live.power.get(index).copied().flatten();
     rsx! {
         svg {
@@ -178,10 +189,9 @@ fn LiveDiagram(topology: Circuit, live: Live, colours: std::collections::BTreeMa
             for (index, placed) in placed.iter().enumerate() {
                 if let Some(parent) = placed.parent {
                     {
-                        let parent_y = placed_y[parent];
                         let (from, to) = (column_x(placed.depth - 1) + BOX_WIDTH, column_x(placed.depth));
-                        let middle = (from + to) / 2.0;
-                        let path = format!("M {from} {parent_y} H {middle} V {} H {to}", placed.y);
+                        let (place, count) = siblings[index];
+                        let path = line_path(from, to, placed_y[parent], placed.y, place, count, box_height);
                         // Into the circuit is along the line, from what feeds it; out of it, e.g. solar, back along it.
                         let watts = power(index).unwrap_or_default();
                         let moving = !still(watts);
@@ -245,6 +255,20 @@ fn LiveDiagram(topology: Circuit, live: Live, colours: std::collections::BTreeMa
     }
 }
 
+/// The path of the line from a parent's box, whose right edge is at from and middle at parent_y, to the left edge, to,
+/// of the box at y of the place'th of the count circuits it feeds. Each leaves the parent at its own height, spread
+/// over the parent's box_height, and turns at its own distance across the gap, the outermost first, so that no two
+/// lines share a stretch, whose dots, each moving its own way, would be hard to tell apart.
+fn line_path(from: f64, to: f64, parent_y: f64, y: f64, place: usize, count: usize, box_height: f64) -> String {
+    let middle = (count as f64 - 1.0) / 2.0;
+    let spacing = (box_height / (count as f64 + 1.0)).min(16.0);
+    let start = parent_y + (place as f64 - middle) * spacing;
+    // The outermost turn nearest the parent, the middle ones nearest the circuits, so that none crosses another.
+    let outermost = middle.ceil();
+    let turn = from + (to - from) * (1.0 + outermost - (place as f64 - middle).abs()) / (outermost + 2.0);
+    format!("M {from} {start} H {turn} V {y} H {to}")
+}
+
 /// How many lines a circuit's box has under its name, see with_lines.
 const LINES: usize = 2;
 
@@ -255,5 +279,27 @@ fn with_lines(circuit: &Circuit) -> Circuit {
         channels: vec![String::new(); LINES],
         children: circuit.children.iter().map(with_lines).collect(),
         ..circuit.clone()
+    }
+}
+
+#[cfg(test)]
+mod line_tests {
+    use super::line_path;
+
+    #[test]
+    fn each_fed_circuit_has_its_own_start_and_the_outer_ones_turn_first() {
+        // Three circuits fed from a box at 100, 70 high, above, beside and below it, across a gap from 200 to 260.
+        let paths: Vec<String> = [(0, 40.0), (1, 100.0), (2, 160.0)]
+            .iter()
+            .map(|(place, y)| line_path(200.0, 260.0, 100.0, *y, *place, 3, 70.0))
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                "M 200 84 H 220 V 40 H 260",
+                "M 200 100 H 240 V 100 H 260",
+                "M 200 116 H 220 V 160 H 260",
+            ]
+        );
     }
 }

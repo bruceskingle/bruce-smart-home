@@ -955,6 +955,8 @@ pub(crate) struct Found {
     pub(crate) channels: Vec<crate::power::topology::Channel>,
     /// The modules which are not logged in yet, which may have electricity to show.
     pub(crate) not_ready: Vec<String>,
+    /// What each module says the user should do soon, by its ID, see Module::notice.
+    pub(crate) notices: Vec<(String, String)>,
     /// The modules, kept while their sources are used.
     _modules: Vec<Box<dyn crate::Module + Send>>,
 }
@@ -967,6 +969,7 @@ pub(crate) async fn find(context: Arc<AppContext>, registrations: ModuleRegistra
         measurements: Vec::new(),
         channels: Vec::new(),
         not_ready: Vec::new(),
+        notices: Vec::new(),
         _modules: Vec::new(),
     };
     for module_id in context.profile.active_profile.modules.keys() {
@@ -979,6 +982,9 @@ pub(crate) async fn find(context: Arc<AppContext>, registrations: ModuleRegistra
         found.sources.extend(module.electricity_source());
         found.measurements.extend(module.measurement_source());
         found.channels.extend(module.channels());
+        found
+            .notices
+            .extend(module.notice().map(|notice| (module_id.clone(), notice)));
         found._modules.push(module);
     }
     found.sources.sort_by_key(|source| source.kind());
@@ -1013,8 +1019,15 @@ pub fn ElectricityPage() -> Element {
             sources,
             measurements,
             not_ready: waiting,
+            notices,
             ..
         })) if !sources.is_empty() => rsx! {
+            for (module_id, notice) in notices.iter() {
+                p { class: "warning",
+                    "{notice} "
+                    Link { to: crate::components::app::Route::Module { module_id: module_id.clone() }, "Open {module_id}" }
+                }
+            }
             ElectricityExplorer {
                 title: "Electricity",
                 sources: sources.iter().cloned().map(SharedProp).collect::<Vec<_>>(),
