@@ -1,0 +1,52 @@
+{
+ "data": {
+  "accountId": 29902414,
+  "accountNumber": "29902414",
+  "accountName": "A Customer",
+  "currentBalance": -200.03,
+  "lastestCorrespondence": {
+   "id": 64710632,
+   "title": "Welcome to Globird Energy",
+   "createdDate": "2026-09-23T18:34:51.0000000"
+  },
+  "lastestInvoice": {
+   "invoiceNumber": "27198942",
+   "issuedDate": "2026-09-16T00:00:00",
+   "dueDate": "2026-10-01T00:00:00",
+   "amount": 200.03,
+   "discountedAmont": 200.03,
+   "documentId": 80000950
+  },
+  "recentAccountTransactions": [
+   {
+    "transactionDate": "2026-09-16T00:00:00",
+    "description": "Invoice - No.27198942",
+    "amount": -200.03,
+    "isInvoice": true,
+    "isDirectDebitRollBack": false
+   },
+   {
+    "transactionDate": "2026-09-04T09:51:40.00",
+    "description": "Receipt - No.30002510",
+    "amount": 222.7,
+    "isInvoice": false,
+    "isDirectDebitRollBack": false
+   },
+   {
+    "transactionDate": "2026-08-19T00:00:00",
+    "description": "Invoice - No.28682728",
+    "amount": -222.7,
+    "isInvoice": true,
+    "isDirectDebitRollBack": false
+   }
+  ],
+  "showRefundButton": true,
+  "freeEnergyReportEligibility": {
+   "isEligible": false,
+   "isSubmissionStatusAvailable": true,
+   "eligibleAccountServices": []
+  }
+ },
+ "message": null,
+ "success": true
+}

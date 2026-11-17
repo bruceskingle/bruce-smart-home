@@ -58,7 +58,9 @@ pub fn LogPanel(on_close: EventHandler<()>) -> Element {
     // Scrolls to the latest entry once new ones are shown.
     use_effect(move || {
         let _ = entries.read().len();
-        document::eval("const log = document.getElementById('log-entries'); if (log) { log.scrollTop = log.scrollHeight; }");
+        document::eval(
+            "const log = document.getElementById('log-entries'); if (log) { log.scrollTop = log.scrollHeight; }",
+        );
     });
 
     let time_format = format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");

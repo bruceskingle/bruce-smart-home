@@ -3,7 +3,10 @@
 use std::path::{Path, PathBuf};
 
 use dioxus::prelude::*;
-use dioxus_free_icons::{Icon, icons::ld_icons::{LdChevronDown, LdFileDown}};
+use dioxus_free_icons::{
+    Icon,
+    icons::ld_icons::{LdChevronDown, LdFileDown},
+};
 use serde_json::{Map, Number, Value};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -87,28 +90,36 @@ impl ExportTable {
 
         write_line(self.columns.iter().map(|column| csv_field(column)).collect());
         for row in &self.rows {
-            write_line(row.iter()
-                .map(|value| match value {
-                    ExportValue::Text(text) => csv_field(text),
-                    ExportValue::Number(number) => number.to_string(),
-                    ExportValue::Time(time) => time.format(&csv_time_format()).unwrap_or_default(),
-                    ExportValue::Empty => String::new(),
-                })
-                .collect());
+            write_line(
+                row.iter()
+                    .map(|value| match value {
+                        ExportValue::Text(text) => csv_field(text),
+                        ExportValue::Number(number) => number.to_string(),
+                        ExportValue::Time(time) => time.format(&csv_time_format()).unwrap_or_default(),
+                        ExportValue::Empty => String::new(),
+                    })
+                    .collect(),
+            );
         }
         csv
     }
 
     /// A JSON array with an object for each row, keyed by column name.
     pub fn to_json(&self) -> anyhow::Result<String> {
-        let rows: Vec<Value> = self.rows.iter()
+        let rows: Vec<Value> = self
+            .rows
+            .iter()
             .map(|row| {
-                let object: Map<String, Value> = self.columns.iter()
+                let object: Map<String, Value> = self
+                    .columns
+                    .iter()
                     .zip(row)
                     .map(|(column, value)| {
                         let value = match value {
                             ExportValue::Text(text) => Value::String(text.clone()),
-                            ExportValue::Number(number) => Number::from_f64(*number).map(Value::Number).unwrap_or(Value::Null),
+                            ExportValue::Number(number) => {
+                                Number::from_f64(*number).map(Value::Number).unwrap_or(Value::Null)
+                            }
                             ExportValue::Time(time) => time.format(&Rfc3339).map(Value::String).unwrap_or(Value::Null),
                             ExportValue::Empty => Value::Null,
                         };
@@ -141,8 +152,7 @@ fn csv_time_format() -> Vec<time::format_description::BorrowedFormatItem<'static
 fn csv_field(text: &str) -> String {
     if text.contains([',', '"', '\n', '\r']) {
         format!("\"{}\"", text.replace('"', "\"\""))
-    }
-    else {
+    } else {
         text.to_string()
     }
 }
@@ -152,14 +162,20 @@ fn csv_field(text: &str) -> String {
 pub fn export_file_name(prefix: &str, id: &str, start: &OffsetDateTime, end: &OffsetDateTime, what: &str) -> String {
     let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
     let last = *end - time::Duration::SECOND;
-    format!("{prefix}_{id}_{}_to_{}_{what}",
+    format!(
+        "{prefix}_{id}_{}_to_{}_{what}",
         start.format(&date_format).unwrap_or_default(),
-        last.format(&date_format).unwrap_or_default())
+        last.format(&date_format).unwrap_or_default()
+    )
 }
 
 /// Ask the user where to save the table with the system save dialog and write it there in the given format.
 /// Returns the path written, or None if the user cancelled.
-pub async fn save_table(table: &ExportTable, default_name: &str, format: ExportFormat) -> anyhow::Result<Option<PathBuf>> {
+pub async fn save_table(
+    table: &ExportTable,
+    default_name: &str,
+    format: ExportFormat,
+) -> anyhow::Result<Option<PathBuf>> {
     let Some(file) = rfd::AsyncFileDialog::new()
         .set_title(format!("Export data as {}", format.name()))
         .set_file_name(format!("{default_name}.{}", format.extension()))
@@ -183,7 +199,10 @@ pub async fn save_table(table: &ExportTable, default_name: &str, format: ExportF
 #[derive(Clone, PartialEq)]
 enum ExportStatus {
     /// The file name written, and whether it has been copied to the clipboard.
-    Exported { file_name: String, copied: bool },
+    Exported {
+        file_name: String,
+        copied: bool,
+    },
     Failed(String),
 }
 
@@ -194,14 +213,22 @@ fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
 }
 
 /// Build the table and save it in the background, putting the result of the export in status.
-fn start_export(table: Callback<(), Option<ExportTable>>, default_name: String, format: ExportFormat, mut status: Signal<Option<ExportStatus>>) {
+fn start_export(
+    table: Callback<(), Option<ExportTable>>,
+    default_name: String,
+    format: ExportFormat,
+    mut status: Signal<Option<ExportStatus>>,
+) {
     let Some(table) = table.call(()) else {
         return;
     };
     spawn(async move {
         let result = match save_table(&table, &default_name, format).await {
             Ok(Some(path)) => Some(ExportStatus::Exported {
-                file_name: path.file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_default(),
+                file_name: path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_default(),
                 copied: false,
             }),
             Ok(None) => None,
@@ -306,7 +333,10 @@ mod tests {
         ExportTable {
             columns: vec![String::from("Start"), String::from("Units, kwh")],
             rows: vec![
-                vec![ExportValue::time(&time::macros::datetime!(2026-10-01 00:00 +1)), ExportValue::number(0.1 + 0.2)],
+                vec![
+                    ExportValue::time(&time::macros::datetime!(2026-10-01 00:00 +1)),
+                    ExportValue::number(0.1 + 0.2),
+                ],
                 vec![ExportValue::Text(String::from("say \"hi\"")), ExportValue::Empty],
             ],
         }
@@ -333,9 +363,12 @@ mod tests {
     #[test]
     fn json_has_an_object_per_row() {
         let json: serde_json::Value = serde_json::from_str(&sample().to_json().unwrap()).unwrap();
-        assert_eq!(json, serde_json::json!([
-            { "Start": "2026-10-01T00:00:00+01:00", "Units, kwh": 0.3 },
-            { "Start": "say \"hi\"", "Units, kwh": null },
-        ]));
+        assert_eq!(
+            json,
+            serde_json::json!([
+                { "Start": "2026-10-01T00:00:00+01:00", "Units, kwh": 0.3 },
+                { "Start": "say \"hi\"", "Units, kwh": null },
+            ])
+        );
     }
 }

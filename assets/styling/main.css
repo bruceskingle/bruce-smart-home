@@ -6,6 +6,8 @@
   --header:#dfc289;
   --header_span_bg:#7b6c4f;
   --derived:#f499f8;
+  /* Read from a document, e.g. a bill's PDF, rather than given by an API: a little more yellow than the headings. */
+  --scraped:#f2e3a6;
   --invalid:#ad4646;
   --ok:#4caf6a;
   --muted:#9aa6b2;
@@ -69,6 +71,8 @@ body {
 :root {
     /* Render native controls (date pickers, select menus, checkboxes) with their dark variants */
     color-scheme: dark;
+    /* The height of a text field which an icon button sits beside, see .icon-button. */
+    --control-height: 36px;
     --sidebar-bg: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
     --border: rgba(0,0,0,0.08);
     --topbar-bg: #f8fafc;
@@ -215,7 +219,10 @@ td {
     padding: 6px 6px 6px 6px;
 }
 
-td.numeric {
+/* Numbers, right aligned: numeric, and number, which most pages use, with its heading too, e.g. a column of $. */
+td.numeric,
+td.number,
+th.number {
     text-align: right;
 }
 
@@ -230,6 +237,12 @@ th {
 
 .derived {
     color: var(--derived);
+}
+
+/* A value read from a document, e.g. a GloBird bill's PDF, rather than given by an API, see AGENTS.md's Derived numbers;
+   one worked out from it is .derived. */
+.scraped {
+    color: var(--scraped);
 }
 
 .invalid {
@@ -255,13 +268,96 @@ th.row-header {
     font-weight: normal;
 }
 
+/* Something the user should do soon, e.g. open a module's pages before its source's readings are lost, see
+   Module::notice, in the log's warning colour. */
+.warning {
+    margin-top: 12px;
+    color: #f5d742;
+}
+
+/* A message about something which failed, in the invalid style, with any detail as a tooltip, see ErrorText. */
 .error {
     margin-top: 12px;
-    padding: 12px;
-    border-radius: 8px;
-    border: 1px dashed rgba(0,0,0,0.06);
-    background: red;
-    color: yellow;
+    color: var(--invalid);
+    font-weight: bold;
+}
+
+/* A line over a stacked bar graph, e.g. Octopus's EV split, see StackedBarLine. Not in the way of the bars' mouse. */
+.stacked-line {
+    fill: none;
+    stroke-width: 2;
+    stroke-dasharray: 6 4;
+    pointer-events: none;
+}
+
+/* A line which is not dashed, e.g. a measured one beside a dashed estimate of the same thing. */
+.stacked-line.solid {
+    stroke-dasharray: none;
+}
+
+/* A device's starts, on its card, see DeviceCard. */
+table.device-starts {
+    margin-top: 6px;
+    font-size: 13px;
+}
+
+table.device-starts td {
+    padding: 2px 10px 2px 0;
+}
+
+/* A tooltip shown at once when clicked, see tooltips.js. */
+.tooltip-popup {
+    position: fixed;
+    z-index: 1000;
+    padding: 8px 10px;
+    width: max-content;
+    max-width: 40em;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-weight: normal;
+    font-size: 14px;
+    color: #e6edf3;
+    background: var(--panel);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+/* A column heading which sorts the table when clicked, with arrows rather than a tooltip, see CLAUDE.md. Add
+   sorted-ascending or sorted-descending to the one the table is sorted by. */
+th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+th.sortable::after {
+    content: " \2195";
+    color: var(--muted);
+}
+
+th.sortable.sorted-ascending::after {
+    content: " \2191";
+    color: var(--accent);
+}
+
+th.sortable.sorted-descending::after {
+    content: " \2193";
+    color: var(--accent);
+}
+
+/* Has a tooltip, as a dotted underline, as browsers show abbreviations, and links are underlined, so that it can be
+   seen, and clicking it shows it at once, see tooltips.js. Not things which do something else when clicked, which can
+   already be seen to: controls, links, and the like, the same as tooltips.js's CLICKABLE. */
+[title]:not(button):not(input):not(select):not(textarea):not(a):not(option):not(.link):not(.export-file-name):not(.help-resize):not(.log-resize):not(th.sortable) {
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+    cursor: help;
+}
+
+/* Space between the Poll Now, Pause and Resume buttons, which are side by side, or one above another if the column is
+   narrow. */
+td.poll-buttons button {
+    margin: 4px;
 }
 
 /* Form input styling */
@@ -341,6 +437,16 @@ button:hover {
     background-color: #353540;
     color: #d0d0d0;
     border-color: var(--accent);
+}
+
+/* Every disabled button, unless styled otherwise: faded, and not lit up by hovering. */
+button:disabled,
+button:disabled:hover {
+    background-color: #2a2a2f;
+    color: var(--muted);
+    border-color: #404045;
+    opacity: 0.5;
+    cursor: default;
 }
 
 /* Heading styles */
@@ -489,6 +595,18 @@ h6 {
     align-items: center;
     justify-content: center;
     background: rgba(0, 0, 0, 0.4);
+    /* Shown only if loading takes a while, e.g. a fetch from the server, so that reading what is already stored, e.g.
+       on each zoom, does not flash it up. It still stops clicks on the page while it is hidden. */
+    animation: reload-overlay-appear 0.15s ease-in 0.5s both;
+}
+
+@keyframes reload-overlay-appear {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
 }
 
 /* Modal dialog, e.g. the meter consumption date range */
@@ -516,6 +634,27 @@ h6 {
 
 .modal h3 {
     margin: 0 0 4px 0;
+}
+
+/* The profile menu's Copy and Rename dialogs, as wide whatever their text, which wraps. */
+.profile-dialog {
+    width: 28rem;
+    max-width: 90vw;
+}
+
+/* Notes in one place, one over the other, of which only one is shown, so that what holds them is as tall as the
+   tallest whichever it is. */
+.stacked-notes {
+    display: grid;
+}
+
+.stacked-notes > * {
+    grid-area: 1 / 1;
+    margin: 0;
+}
+
+.stacked-notes > .hidden {
+    visibility: hidden;
 }
 
 /* The buttons for the period before and after the date range, either side of it. */
@@ -862,6 +1001,39 @@ button.danger:disabled {
 }
 
 .stacked-consumption-graph .stacked-bar,
+/* The legend above a stacked bar graph, which wraps onto more lines if it needs them. */
+.stacked-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    padding: 0 0 4px 60px;
+    font-size: 12px;
+    color: #c4c4ce;
+}
+
+.stacked-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.stacked-legend-key {
+    width: 10px;
+    height: 10px;
+    border: 0.5px solid rgba(0, 0, 0, 0.45);
+}
+
+/* A line's key, dashed like the line, see .stacked-line. */
+.stacked-legend-line {
+    width: 16px;
+    border-top: 2px dashed;
+}
+
+.stacked-legend-line.solid {
+    border-top-style: solid;
+}
+
 .stacked-consumption-graph .stacked-legend-swatch {
     stroke: rgba(0, 0, 0, 0.45);
     stroke-width: 0.5;
@@ -980,14 +1152,19 @@ button.danger:disabled {
     overflow: auto;
 }
 
-/* The log and settings buttons beside the profile menu. */
-.nav-icon-button {
+/* A button which is only an icon, e.g. the help, log and settings buttons beside the profile menu, or a password's
+   Show button: a square as tall as a text field, with the icon in the middle. */
+.icon-button {
     display: inline-flex;
     align-items: center;
-    padding: 6px 8px;
+    justify-content: center;
+    box-sizing: border-box;
+    width: var(--control-height);
+    height: var(--control-height);
+    padding: 0;
 }
 
-.nav-icon-button.active {
+.icon-button.active {
     background-color: #353540;
     color: #d0d0d0;
 }
@@ -1099,6 +1276,80 @@ button.danger:disabled {
     align-items: center;
     gap: 12px;
     margin-top: 12px;
+}
+
+/* The Temp & Humidity page: a graph for each series, a line for each device, see views/climate.rs. */
+svg.climate-graph {
+    width: 100%;
+    max-width: 60em;
+    display: block;
+}
+
+svg.climate-graph text {
+    fill: currentColor;
+    font-size: 11px;
+}
+
+svg.climate-graph line.grid {
+    stroke: rgb(61, 61, 61);
+    stroke-width: 1;
+}
+
+.climate-legend {
+    display: flex;
+    gap: 16px;
+    margin: 12px 0;
+}
+
+.climate-swatch {
+    display: inline-block;
+    width: 24px;
+    height: 4px;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+/* The Capture Devices page: a row for each device, the one whose card is shown highlighted. */
+table.device-list {
+    margin: 12px 0;
+}
+
+table.device-list tr.selected td {
+    background-color: rgb(45, 45, 60);
+}
+
+/* The Capture Devices page. */
+.device-card {
+    max-width: 60em;
+    margin: 12px 0 24px 0;
+    padding: 4px 16px 12px 16px;
+    border: 1px solid rgb(61, 61, 61);
+    border-radius: 8px;
+}
+
+.device-details th {
+    text-align: left;
+    font-weight: normal;
+    padding-right: 16px;
+}
+
+.device-feature {
+    margin: 12px 0;
+    border: 1px solid rgb(61, 61, 61);
+    border-radius: 6px;
+}
+
+.device-setting {
+    display: grid;
+    grid-template-columns: 20em auto auto 1fr;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0;
+}
+
+/* A setting changed but not yet saved. */
+.device-setting.changed span:first-child {
+    color: var(--ok);
 }
 
 /* The explanation on an open bill, which Octopus has not issued yet. */
@@ -1456,4 +1707,176 @@ body:has(.app-layout){
   .nav-left{gap:0.35rem;overflow:auto;padding-bottom:4px;}
   .nav{padding:0.5rem;}
   .brand{font-size:0.95rem;}
+}
+
+/* A zappi's record of the minute a polled status is from, under the status, see the myenergi Samples page. */
+tr.minute-row td {
+    opacity: 0.6;
+    font-style: italic;
+}
+
+/* The Octopus account to use, on the account page, see octopus/pages/account.rs. */
+.account-select {
+    min-width: 20em;
+}
+
+.account-select + .note {
+    margin: 6px 0 0;
+}
+
+/* Home's Site page: the site's topology as a diagram, see views/site.rs, and the list of its circuits to edit. */
+.topology-scroll {
+    overflow-x: auto;
+    /* Its own height, not squeezed by what is below it in the page's column, which as a scroll box it would be. */
+    flex-shrink: 0;
+    margin: 0.5rem 0 1rem;
+}
+
+.topology-diagram {
+    display: block;
+    max-width: none;
+}
+
+.topology-box {
+    fill: var(--panel);
+    stroke-width: 2;
+}
+
+.topology-line {
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 2;
+}
+
+.topology-name {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.topology-channels {
+    font-size: 12px;
+    fill: var(--muted);
+}
+
+.topology-channels.rest {
+    font-style: italic;
+}
+
+.topology-editor td {
+    vertical-align: middle;
+    padding: 0.2rem 0.4rem;
+}
+
+.topology-channel-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.channel-chip {
+    font-size: 0.8rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--muted);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.channel-chip.on {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #0b1220;
+}
+
+.topology-actions button, .topology-buttons button {
+    margin-right: 0.4rem;
+}
+
+.topology-checks td, .topology-checks th {
+    padding: 0.2rem 0.6rem;
+    vertical-align: top;
+    text-align: left;
+}
+
+/* Home's page, keyed by the profile, see views/home.rs, which leaves the layout to the page inside it. */
+.home-page {
+    display: contents;
+}
+
+.category-editor td {
+    padding: 0.15rem 0.6rem 0.15rem 0;
+    vertical-align: middle;
+}
+
+.category-editor .muted {
+    color: var(--muted);
+}
+
+/* A device's battery's voltage on its card, see views/devices.rs, no wider than the card's details. */
+.device-battery {
+    max-width: 40rem;
+}
+
+/* The time zone of a page's times, e.g. the Electricity page's, see views/electricity.rs. */
+.timezone {
+    color: var(--muted);
+    margin-top: -0.5rem;
+}
+
+/* Home's Live page, see views/live.rs: dots moving along a line in the direction the energy flows, a dot every 16
+   units, moved on by one gap each animation, whose duration the page sets by the power, and back along it, reverse, for
+   energy coming out of a circuit, e.g. solar panels making. */
+.topology-line.flow {
+    stroke-width: 4;
+    stroke-dasharray: 2 14;
+    stroke-linecap: round;
+    animation-name: topology-flow;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+}
+
+.topology-line.flow.reverse {
+    animation-direction: reverse;
+}
+
+@keyframes topology-flow {
+    to {
+        stroke-dashoffset: -16;
+    }
+}
+
+.live-power {
+    font-size: 14px;
+    fill: #d0d0d0;
+}
+
+/* When a circuit's power on the Live page is of, if it is older than the rest, e.g. the zappi's latest minute. */
+.live-older {
+    fill: var(--muted);
+    font-size: 12px;
+}
+
+/* Shows the page, which the window's head hides until this stylesheet has loaded, see app.rs INITIAL_HEAD, so that it is
+   not seen without its styles as the app starts. */
+#main {
+    visibility: visible;
+}
+
+/* A password or API key with its Show button beside it, see components/secret_input.rs. */
+.secret-input {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+}
+
+/* The field is exactly as tall as the .icon-button beside it. */
+.secret-input input {
+    box-sizing: border-box;
+    height: var(--control-height);
+}
+
+/* What the app shows instead of its pages when it cannot read its settings, see components/app.rs. */
+.startup-error {
+    padding: 24px;
 }

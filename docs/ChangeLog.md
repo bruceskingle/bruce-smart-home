@@ -1,8 +1,90 @@
 # Change Log
 
-What has changed in each release of Marco Sparko, the newest first: the new features, the improvements to existing
+What has changed in each release of Bruce's Smart Home, called Marco Sparko before 0.5.0, the newest first: the new features, the improvements to existing
 ones, and the problems which have been fixed. The releases themselves are on
-[GitHub](https://github.com/bruceskingle/marco-sparko/releases).
+[GitHub](https://github.com/bruceskingle/bruce-smart-home/releases).
+
+## Release 0.5.0
+
+> **Marco Sparko is now Bruce's Smart Home.** It keeps its profiles and data in new places, `.bruce-smart-home` and
+> `.bruce-smart-home-data` in your home directory, and does not read Marco Sparko's, so set up your profiles again, see
+> [Profiles](gettingStarted/profiles.md). Once you no longer need Marco Sparko's files, `.marco-sparko` and
+> `.marco-sparko-cache`, you can delete them, see [Your Data](gettingStarted/cachedData.md#before-version-050).
+
+### New
+- **More than Octopus.** Each source of data is a module, and a profile can use several:
+  - **myenergi**: a zappi's records of what it charged the car with, and of its grid clamp, fetched from myenergi.
+    Capture devices also keep what each of the zappi's and its harvis' CT clamps measured, e.g. solar panels or a
+    battery on a harvi, which myenergi keeps no records of.
+  - **Tesla**: the Powerwall gateway's readings of the grid, the Powerwalls, the solar panels and the house, read from
+    the gateway on your home network. The app only reads it, so it works alongside e.g. Home Assistant.
+  - **GloBird**: a GloBird Energy customer's smart meter readings every 5 minutes, with each day's costs, and the
+    bills, from GloBird's customer portal, fetched when a page opens, at most once a day. Its **Rates** page shows the
+    tariff's rates, worked out from the daily costs, as the portal does not give them, and each bill opens in a window
+    of its own, with its PDF. Values read from a document, e.g. a bill's charges, are shown in
+    <span class="scraped">yellow</span>, and those the app works out in <span class="derived">magenta</span>.
+- **Electricity**, Home's first page, puts the modules together: your supplier's meter readings, which are what you
+  are billed for, the Home Mini's readings every 10 seconds, and what the Tesla gateway and the zappi measured, which
+  split the import into what the house, the car and the Powerwalls used, whether the supplier's readings are of half
+  hours, as Octopus's, or of 5 minutes, as GloBird's. Each use is at the rates it was billed at,
+  and the kWh and the cost at each rate agree with your bill. Until the meter's readings arrive, a few days later, the
+  rate is estimated from your tariff and when the car was charging, and shown as estimated. Its **Flows** view shows
+  where the energy went in each period.
+- **Site**, a diagram of where in your house each module measures, from the grid connection through the circuits each
+  one feeds, its **topology**, which the Electricity page needs to split the import correctly, as it differs from house
+  to house, e.g. whether the car's charger is inside the Tesla gateway's grid clamp. The page suggests one from the last
+  week's measurements, and checks any you draw against them.
+- **Live**, the site's diagram with what each circuit is taking or giving now, with dots moving along each circuit's
+  line the way the energy flows, faster the more power there is.
+- **Capture devices.** Small, always-on ESP32 boards with a screen, e.g. the Waveshare ESP32-S3-RLCD-4.2 or the
+  Guition JC3248W535C, which fetch the Tesla gateway's, the zappi's and Octopus's data every few minutes while your
+  computer is asleep or the app is closed, keep it on their SD cards, and show the latest on their screens. The app
+  reads what they took when it next runs. Adopt one on the **Devices** page, which also shows each device's state and
+  settings, and can flash the capture firmware onto a board plugged in by USB, refusing firmware built for another
+  board.
+- **Virtual capture devices**, for trying a capture device without a board: the capture firmware, running on your
+  computer in a window showing the board's screen, which the app adopts like a real one. Start one from the **Devices**
+  page; it is installed with the app, on Windows and macOS, and simulates the Waveshare ESP32-S3-RLCD-4.2 or the
+  Guition JC3248W535C. It only captures while your computer is awake and its window is open.
+- **Temperature and humidity.** Capture devices with a sensor of their own keep its readings, which Home's Temperature
+  and Humidity page shows as graphs, a line for each room.
+- **Polling.** While the app is open it keeps the data which is only available for a while, such as the Tesla gateway's
+  and the zappi's, and the charging Octopus planned and carried out, every 5 or 15 minutes. Home's Polling section shows
+  what each module did last and when it polls next, with **Poll Now**.
+- **A guide for AI agents.** The app writes `AGENTS.md` into its data directory, which tells an AI agent, e.g. Claude,
+  what your data is and where, so that you can ask one to explain it, see
+  [Your Data](gettingStarted/cachedData.md#asking-an-ai-to-explain-your-data).
+- **Copy and rename profiles**, from the **…** beside each profile in the profile menu. An offline copy shows the data
+  as it was when copied, without logging in or fetching anything, e.g. to try a change to its topology.
+
+### Improved
+- **The macOS app is signed and notarized** by Apple, so it opens like any other app downloaded from the internet,
+  without the `xattr` command earlier versions needed, see [Installing on macOS](gettingStarted/osx/index.md).
+- **Your logins are encrypted.** API keys, passwords and tokens are encrypted in the settings files, with a key kept in
+  your computer's own store of secrets, so a copy of the files, e.g. in a backup, does not give them away. On macOS the
+  Keychain asks for your password to let the app read the key, see
+  [Your secrets and the Keychain](gettingStarted/cachedData.md#your-secrets-and-the-keychain).
+- **Everything is kept in one store**, each profile's in a directory of its own, which the capture devices keep theirs
+  in too, so what they take is copied to the app as it is.
+- **Faster, with fewer requests to Octopus.** Only readings which are missing or not yet final are fetched, from the
+  first of them to now, with any day the meter's readings have a gap in asked for again on its own, until Octopus fills
+  it in. Moving around the graphs, e.g. zooming in, fetches nothing, readings are saved in one go rather than one at a
+  time, so the app no longer stops responding while it loads, and the Loading dialog only shows when something takes a
+  while.
+- **Logging in, the same for every module.** Each module has a **Log In** page, the last in its list, filled in with
+  the saved login, to give a changed password or API key at any time; the eye button beside a password or key shows
+  what it holds. If a source refuses the saved login, e.g. because the password was changed, the app stops using the
+  module and stops polling it, so that it does not lock the login out, and shows its login page at once, saying why,
+  with the saved login kept so that you can check it. Home's pages say which modules need logging in again, with a link
+  to each one's login page. A saved password or key which cannot be read, e.g. because the settings file was edited, is
+  handled the same way, and if the app cannot read the key to your secrets at all, e.g. because the Keychain's request
+  was denied, it says so rather than opening.
+- **EV charging split.** The car's share of each half hour's import follows what the car was measured to take where it
+  was measured, with Octopus's own split shown alongside to compare.
+
+### Fixed
+- A property with more than one electricity meter, e.g. an old one which no longer works beside its replacement, now
+  shows the readings of the meter with the active agreement, rather than the first one Octopus lists.
 
 ## Release 0.4.4
 

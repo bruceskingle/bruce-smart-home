@@ -5,3 +5,8 @@ docs/scratch.md
 **/.DS_Store
 pack.temp.dmg
 *.rsrc
+/capture/target
+/capture/target-sim
+/capture/.embuild
+/.cargo/config.toml
+

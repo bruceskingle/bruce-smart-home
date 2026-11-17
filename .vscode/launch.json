@@ -7,16 +7,17 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'marco-sparko'",
+            "name": "Unit Tests",
+            "presentation": { "group": "3 Tests", "order": 1 },
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=marco-sparko"
+                    "--package=bruce-smart-home"
                 ],
                 "filter": {
-                    "name": "marco-sparko",
+                    "name": "bruce-smart-home",
                     "kind": "lib"
                 }
             },
@@ -34,10 +35,10 @@
         //             "octopus::tests::test_handle_bill_total",
         //             "--no-run",
         //             "--lib",
-        //             "--package=marco-sparko"
+        //             "--package=bruce-smart-home"
         //         ],
         //         "filter": {
-        //             "name": "marco-sparko",
+        //             "name": "bruce-smart-home",
         //             "kind": "lib"
         //         }
         //     },
@@ -48,15 +49,15 @@
         // {
         //     "type": "lldb",
         //     "request": "launch",
-        //     "name": "Debug executable 'marco-sparko bill'",
+        //     "name": "Debug executable 'bruce-smart-home bill'",
         //     "cargo": {
         //         "args": [
         //             "build",
-        //             "--bin=marco-sparko",
-        //             "--package=marco-sparko"
+        //             "--bin=bruce-smart-home",
+        //             "--package=bruce-smart-home"
         //         ],
         //         "filter": {
-        //             "name": "marco-sparko",
+        //             "name": "bruce-smart-home",
         //             "kind": "bin"
         //         }
         //     },
@@ -69,15 +70,15 @@
         // {
         //     "type": "lldb",
         //     "request": "launch",
-        //     "name": "Debug executable 'marco-sparko summary'",
+        //     "name": "Debug executable 'bruce-smart-home summary'",
         //     "cargo": {
         //         "args": [
         //             "build",
-        //             "--bin=marco-sparko",
-        //             "--package=marco-sparko"
+        //             "--bin=bruce-smart-home",
+        //             "--package=bruce-smart-home"
         //         ],
         //         "filter": {
-        //             "name": "marco-sparko",
+        //             "name": "bruce-smart-home",
         //             "kind": "bin"
         //         }
         //     },
@@ -90,15 +91,15 @@
         // {
         //     "type": "lldb",
         //     "request": "launch",
-        //     "name": "Debug executable 'marco-sparko test'",
+        //     "name": "Debug executable 'bruce-smart-home test'",
         //     "cargo": {
         //         "args": [
         //             "build",
-        //             "--bin=marco-sparko",
-        //             "--package=marco-sparko"
+        //             "--bin=bruce-smart-home",
+        //             "--package=bruce-smart-home"
         //         ],
         //         "filter": {
-        //             "name": "marco-sparko",
+        //             "name": "bruce-smart-home",
         //             "kind": "bin"
         //         }
         //     },
@@ -131,10 +132,50 @@
         // },
         // The last build, without building it again.
         {
-            "name": "Debug Pre-built app",
+            // The virtual capture device's launcher, without a board, so that it shows the window to choose one, then
+            // starts that board's firmware, see capture/README.md. The debugger stops only in the launcher, as the
+            // firmware is a program of its own: to debug the firmware, use Virtual Device: RLCD or Guitron.
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/target/debug/marco-sparko",
+            "name": "Virtual Device: Choose Board",
+            "presentation": { "group": "4 Virtual Device", "order": 1 },
+            "preLaunchTask": "Virtual Device: Build",
+            "program": "${workspaceFolder}/capture/target-sim/bin/bruce-smart-home-capture-sim",
+            "args": [],
+            "cwd": "${workspaceFolder}/capture",
+            "env": { "RUST_BACKTRACE": "1" }
+        },
+        {
+            // The virtual capture device's firmware for a Waveshare ESP32-S3-RLCD-4.2, run directly, so that its
+            // breakpoints stop, with its data in its usual folder, as the launcher's would be.
+            "type": "lldb",
+            "request": "launch",
+            "name": "Virtual Device: RLCD",
+            "presentation": { "group": "4 Virtual Device", "order": 2 },
+            "preLaunchTask": "Virtual Device: Build",
+            "program": "${workspaceFolder}/capture/target-sim/bin/bruce-smart-home-capture-rlcd42",
+            "args": [],
+            "cwd": "${workspaceFolder}/capture",
+            "env": { "RUST_BACKTRACE": "1" }
+        },
+        {
+            // As Virtual Device: RLCD, for a Guition JC3248W535C, the Guitron.
+            "type": "lldb",
+            "request": "launch",
+            "name": "Virtual Device: Guitron",
+            "presentation": { "group": "4 Virtual Device", "order": 3 },
+            "preLaunchTask": "Virtual Device: Build",
+            "program": "${workspaceFolder}/capture/target-sim/bin/bruce-smart-home-capture-guitron",
+            "args": [],
+            "cwd": "${workspaceFolder}/capture",
+            "env": { "RUST_BACKTRACE": "1" }
+        },
+        {
+            "name": "App: Already Built, No Rebuild",
+            "presentation": { "group": "1 App", "order": 3 },
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/bruce-smart-home",
             "cwd": "${workspaceFolder}",
             "env": {
                 "CARGO_MANIFEST_DIR": "${workspaceFolder}",
@@ -146,16 +187,17 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug Dioxus Desktop App",
+            "name": "App",
+            "presentation": { "group": "1 App", "order": 1 },
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=marco-sparko",
-                    "--package=marco-sparko",
+                    "--bin=bruce-smart-home",
+                    "--package=bruce-smart-home",
                     "--features=dioxus/desktop"
                 ],
                 "filter": {
-                    "name": "marco-sparko",
+                    "name": "bruce-smart-home",
                     "kind": "bin"
                 }
             },
@@ -171,20 +213,21 @@
             }
         },
         // The app with the demo profile, a redacted, offline, copy of a real profile's data, e.g. for screenshots, see
-        // docs/Redaction.md. Make or refresh it with: marco-sparko --redact <profile> demo
+        // docs/Redaction.md. Make or refresh it with: bruce-smart-home --redact <profile> demo
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug Dioxus Desktop App (demo)",
+            "name": "App: Demo Profile",
+            "presentation": { "group": "1 App", "order": 2 },
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=marco-sparko",
-                    "--package=marco-sparko",
+                    "--bin=bruce-smart-home",
+                    "--package=bruce-smart-home",
                     "--features=dioxus/desktop"
                 ],
                 "filter": {
-                    "name": "marco-sparko",
+                    "name": "bruce-smart-home",
                     "kind": "bin"
                 }
             },
@@ -207,16 +250,17 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug Fetch Latest Data",
+            "name": "Fetch Latest Data",
+            "presentation": { "group": "2 Tools", "order": 1 },
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=marco-sparko",
-                    "--package=marco-sparko",
+                    "--bin=bruce-smart-home",
+                    "--package=bruce-smart-home",
                     "--features=dioxus/desktop"
                 ],
                 "filter": {
-                    "name": "marco-sparko",
+                    "name": "bruce-smart-home",
                     "kind": "bin"
                 }
             },
@@ -237,15 +281,16 @@
             "type": "lldb",
             "request": "launch",
             "name": "Redact Profile into Demo",
+            "presentation": { "group": "2 Tools", "order": 2 },
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=marco-sparko",
-                    "--package=marco-sparko",
+                    "--bin=bruce-smart-home",
+                    "--package=bruce-smart-home",
                     "--features=dioxus/desktop"
                 ],
                 "filter": {
-                    "name": "marco-sparko",
+                    "name": "bruce-smart-home",
                     "kind": "bin"
                 }
             },
@@ -269,15 +314,16 @@
             "type": "lldb",
             "request": "launch",
             "name": "Take Screenshots",
+            "presentation": { "group": "2 Tools", "order": 4 },
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=marco-sparko",
-                    "--package=marco-sparko",
+                    "--bin=bruce-smart-home",
+                    "--package=bruce-smart-home",
                     "--features=dioxus/desktop"
                 ],
                 "filter": {
-                    "name": "marco-sparko",
+                    "name": "bruce-smart-home",
                     "kind": "bin"
                 }
             },
@@ -300,15 +346,16 @@
             "type": "lldb",
             "request": "launch",
             "name": "Redact Docs",
+            "presentation": { "group": "2 Tools", "order": 3 },
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=marco-sparko",
-                    "--package=marco-sparko",
+                    "--bin=bruce-smart-home",
+                    "--package=bruce-smart-home",
                     "--features=dioxus/desktop"
                 ],
                 "filter": {
-                    "name": "marco-sparko",
+                    "name": "bruce-smart-home",
                     "kind": "bin"
                 }
             },
@@ -323,30 +370,20 @@
                 "RUST_BACKTRACE": "1",
                 "OS_ACTIVITY_MODE": "disable"
             }
-        },
-        // Serves the documentation book, see book.toml, at http://localhost:3000 and opens it in the browser. It is
-        // rebuilt and the browser reloaded whenever a file in docs or book changes. Stop it to stop the server. Needs
-        // mdBook, install it with: cargo binstall mdbook
-        {
-            "type": "node-terminal",
-            "request": "launch",
-            "name": "Serve Documentation Book",
-            "command": "mdbook serve --open",
-            "cwd": "${workspaceFolder}"
         }
-        // The same as Debug Dioxus Desktop App, without verbose output.
+        // The same as App, without verbose output.
         // {
         //     "type": "lldb",
         //     "request": "launch",
-        //     "name": "Debug executable 'marco-sparko'",
+        //     "name": "Debug executable 'bruce-smart-home'",
         //     "cargo": {
         //         "args": [
         //             "build",
-        //             "--bin=marco-sparko",
-        //             "--package=marco-sparko"
+        //             "--bin=bruce-smart-home",
+        //             "--package=bruce-smart-home"
         //         ],
         //         "filter": {
-        //             "name": "marco-sparko",
+        //             "name": "bruce-smart-home",
         //             "kind": "bin"
         //         }
         //     },
@@ -358,16 +395,16 @@
         // {
         //     "type": "lldb",
         //     "request": "launch",
-        //     "name": "Debug unit tests in executable 'marco-sparko'",
+        //     "name": "Debug unit tests in executable 'bruce-smart-home'",
         //     "cargo": {
         //         "args": [
         //             "test",
         //             "--no-run",
-        //             "--bin=marco-sparko",
-        //             "--package=marco-sparko"
+        //             "--bin=bruce-smart-home",
+        //             "--package=bruce-smart-home"
         //         ],
         //         "filter": {
-        //             "name": "marco-sparko",
+        //             "name": "bruce-smart-home",
         //             "kind": "bin"
         //         }
         //     },

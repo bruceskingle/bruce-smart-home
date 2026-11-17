@@ -1,0 +1,69 @@
+# What Octopus's smart charging (Intelligent Octopus) does, which it only keeps for a few days, so it is polled and
+# saved, see octopus/flex_poll.rs.
+
+# The charging Octopus has scheduled for a device, i.e. when its charging will be cheap.
+query flexPlannedDispatches($deviceId: String!) {
+  flexPlannedDispatches(deviceId: $deviceId) {
+    start
+    end
+    type
+    energyAddedKwh
+  }
+}
+
+# The charging which has been carried out, about 12 hours behind, smart-charge or bump-charge.
+query completedDispatches($accountNumber: String!) {
+  completedDispatches(accountNumber: $accountNumber) {
+    start
+    end
+    delta
+    meta {
+      source
+      location
+    }
+  }
+}
+
+# The devices' preferences, including whether charging is capped to the hours Octopus guarantees are cheap.
+query devicePreferences($accountNumber: String!) {
+  devices(accountNumber: $accountNumber) {
+    id
+    __typename
+    preferences {
+      __typename
+      mode
+      targetType
+      isChargingDurationCapped
+    }
+  }
+}
+
+# Everything above, in one request, which is what polling makes once it knows the charging device, from an earlier
+# poll's devices, see octopus/flex_poll.rs, and what a capture device sends, see capture/src/octopus.rs.
+query flexPoll($accountNumber: String!, $deviceId: String!) {
+  devices(accountNumber: $accountNumber) {
+    id
+    __typename
+    preferences {
+      __typename
+      mode
+      targetType
+      isChargingDurationCapped
+    }
+  }
+  flexPlannedDispatches(deviceId: $deviceId) {
+    start
+    end
+    type
+    energyAddedKwh
+  }
+  completedDispatches(accountNumber: $accountNumber) {
+    start
+    end
+    delta
+    meta {
+      source
+      location
+    }
+  }
+}

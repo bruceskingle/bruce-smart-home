@@ -2,9 +2,11 @@
 
 The half hourly readings of one electricity meter, between the [dates chosen](../date-range.md), with what they cost. They arrive from the meter a day or so later, and Octopus sometimes revises them.
 
+At **Raw**, the table shows each reading as Octopus gave it; **Rate**, **Day**, **Week** and **Month** add them up, as the graph's bars do, with each label's average rate, its cost over its units, all in <span class="derived">magenta</span>. At **Raw**, the figures the app works out are in <span class="derived">magenta</span> too: the units of readings in Octopus's older format, which gave only the cost and the rate, and an export meter's rate, from what it was paid and the units.
+
 Show them as a **Table**, **Graph** or **Trend**, see [using the graphs](../graphs.md). In the graph:
 
-- **Cost** or **Units** chooses whether the bars show money or kWh.
+- **Energy**, **Power** or **Cost** chooses whether the bars show kWh, the average kW over each bar, or money, as on Home's [Electricity](../electricity.md) page. The trend has Energy and Cost only.
 - **Raw** is a bar for each reading, **Rate** a bar for each stretch at the same unit rate, and **Day**, **Week** and **Month** add them up.
 - Each bar is split by rate, e.g. the cheap night rate and the day rate, which ![Categories](../icons/categories.svg) **Categories** can hide or recolour.
 

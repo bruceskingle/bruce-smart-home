@@ -18,8 +18,10 @@ mod macos {
     const OFFSET_FROM_MOUSE: f64 = 24.0;
 
     fn contains(rect: NSRect, point: NSPoint) -> bool {
-        point.x >= rect.origin.x && point.x < rect.origin.x + rect.size.width
-            && point.y >= rect.origin.y && point.y < rect.origin.y + rect.size.height
+        point.x >= rect.origin.x
+            && point.x < rect.origin.x + rect.size.width
+            && point.y >= rect.origin.y
+            && point.y < rect.origin.y + rect.size.height
     }
 
     pub fn move_color_panel_to_mouse() {
@@ -39,12 +41,17 @@ mod macos {
         let mut top_left = NSPoint::new(mouse.x + OFFSET_FROM_MOUSE, mouse.y);
 
         // Keep it on the screen the mouse is on.
-        if let Some(screen) = NSScreen::screens(mtm).iter().find(|screen| contains(screen.frame(), mouse)) {
+        if let Some(screen) = NSScreen::screens(mtm)
+            .iter()
+            .find(|screen| contains(screen.frame(), mouse))
+        {
             let visible = screen.visibleFrame();
-            top_left.x = top_left.x
+            top_left.x = top_left
+                .x
                 .min(visible.origin.x + visible.size.width - size.width)
                 .max(visible.origin.x);
-            top_left.y = top_left.y
+            top_left.y = top_left
+                .y
                 .max(visible.origin.y + size.height)
                 .min(visible.origin.y + visible.size.height);
         }

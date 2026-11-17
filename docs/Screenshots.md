@@ -4,8 +4,8 @@ The screenshots of the app in the documentation are taken by the app itself, fro
 profile's data, see [Redaction](Redaction.md), so that they do not identify anyone and come out the same every time.
 
 ```
-marco-sparko --redact <profile> demo
-marco-sparko --home /Users/yourname --screenshots
+bruce-smart-home --redact <profile> demo
+bruce-smart-home --home /Users/yourname --screenshots
 ```
 
 or the **Redact Profile into Demo** and **Take Screenshots** launch configurations in VS Code. Run them in the

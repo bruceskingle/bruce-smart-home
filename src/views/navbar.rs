@@ -1,14 +1,25 @@
 use std::sync::Arc;
 
-use crate::{ MarcoSparkoContext, UpgradeRequested, components::{app::Route, delete_profile::DeleteProfileDialog}, profile::{Settings, profile_names_equal}};
+use crate::components::error_text::ErrorText;
 use crate::views::help_panel::HelpPanel;
 use crate::views::log_panel::LogPanel;
+use crate::{
+    AppContext, UpgradeRequested,
+    components::{
+        app::Route, copy_profile::CopyProfileDialog, delete_profile::DeleteProfileDialog,
+        rename_profile::RenameProfileDialog,
+    },
+    profile::{Settings, profile_names_equal},
+};
 use dioxus::prelude::*;
-use dioxus_free_icons::{Icon, icons::ld_icons::{LdCircleHelp, LdScrollText, LdSettings, LdUser}};
+use dioxus_free_icons::{
+    Icon,
+    icons::ld_icons::{LdCircleHelp, LdScrollText, LdSettings, LdUser},
+};
 
 // use crate::PROFILE_MANAGER;
 
-const APP_ICON: Asset = asset!("/assets/MarcoSparko.png");
+const APP_ICON: Asset = asset!("/assets/app-icon.png");
 
 /// The Navbar component that will be rendered on all pages of our app since every page is under the layout.
 ///
@@ -19,10 +30,10 @@ const APP_ICON: Asset = asset!("/assets/MarcoSparko.png");
 /// A navigation bar with left-aligned items and a right-aligned dropdown.
 /// Designed for Dioxus Desktop (but works for web too).
 pub fn Navbar() -> Element {
-    let mut context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
-    let mut upgrade_requested = use_context_provider::<Signal<UpgradeRequested>>(|| Signal::new(UpgradeRequested(false)));
+    let mut context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
+    let mut upgrade_requested =
+        use_context_provider::<Signal<UpgradeRequested>>(|| Signal::new(UpgradeRequested(false)));
     let context = context_signal.read().as_ref().unwrap().clone();
-
 
     // State for the dropdown menu
     let mut menu_open = use_signal(|| false);
@@ -30,9 +41,11 @@ pub fn Navbar() -> Element {
     let mut new_profile_generation = use_signal(|| 0u32);
     let mut new_profile_name = use_signal(String::new);
     let mut new_profile_error = use_signal(|| None::<String>);
-    // The profile whose ... menu is open, and the profile being deleted.
+    // The profile whose ... menu is open, and the profiles being deleted, renamed and copied.
     let mut profile_actions_open = use_signal(|| None::<String>);
     let mut delete_profile = use_signal(|| None::<String>);
+    let mut rename_profile = use_signal(|| None::<String>);
+    let mut copy_profile = use_signal(|| None::<String>);
 
     // The active profile's settings, for the Settings page and the log panel, which follow the profile when it changes.
     let mut settings = use_context_provider(|| Signal::new(context.profile.active_profile.settings.clone()));
@@ -65,22 +78,24 @@ pub fn Navbar() -> Element {
     };
     // The help of the module screen being shown, which the Module view sets.
     let module_help_topic = use_context_provider(|| crate::help::ModuleHelpTopic(Signal::new(None)));
+    // The help of the Home page being shown, which Home sets.
+    let home_help_topic = use_context_provider(|| crate::help::HomeHelpTopic(Signal::new("home.md")));
 
     let mut all = Vec::new();
     for name in &context.profile.all_profiles {
         all.push(name.clone());
     }
-    
+
     // get the current route so we can mark the active nav item
     let current_route = use_route::<Route>();
     let navigator = use_navigator();
     let help_topic = match &current_route {
-        Route::Home {} => String::from("home.md"),
+        Route::Home {} => String::from(home_help_topic.0()),
         Route::ProfileSize { .. } => String::from("profile-size.md"),
         Route::Settings {} => String::from("settings.md"),
         Route::Module { module_id } => module_help_topic.0().unwrap_or_else(|| format!("{module_id}/index.md")),
     };
-    
+
     rsx! {
         div { class: "app-layout",
         nav { class: "nav",
@@ -88,7 +103,7 @@ pub fn Navbar() -> Element {
             Link {
                 class: "nav-logo",
                 to: Route::Home {},
-                title: "Marco Sparko",
+                title: "Bruce's Smart Home",
                 style: "background-image: url({APP_ICON});",
             }
             div { class: "nav-left",
@@ -99,10 +114,11 @@ pub fn Navbar() -> Element {
                     "Home"
                 }
 
-                for module_id in (context.profile.active_profile.modules.clone().keys()) {
+                // By name, as on Home, as the profile's modules are in a HashMap, in no order.
+                for module_id in context.profile.active_profile.modules.keys().cloned().collect::<std::collections::BTreeSet<_>>() {
                     Link {
                         class: match &current_route {
-                            Route::Module { module_id: mid } if mid == module_id => "nav-item active",
+                            Route::Module { module_id: mid } if *mid == module_id => "nav-item active",
                             _ => "nav-item",
                         },
                         to: Route::Module {
@@ -118,14 +134,14 @@ pub fn Navbar() -> Element {
             div { class: "nav-right",
                 button {
                     r#type: "button",
-                    class: if show_help { "nav-icon-button active" } else { "nav-icon-button" },
+                    class: if show_help { "icon-button active" } else { "icon-button" },
                     title: if show_help { "Hide the help" } else { "Show the help" },
                     onclick: move |_| set_show_help(!show_help),
                     Icon { icon: LdCircleHelp, width: 16, height: 16 }
                 }
                 button {
                     r#type: "button",
-                    class: if show_log { "nav-icon-button active" } else { "nav-icon-button" },
+                    class: if show_log { "icon-button active" } else { "icon-button" },
                     title: if show_log { "Hide the log" } else { "Show the log" },
                     onclick: {
                         let mut set_show_log = set_show_log.clone();
@@ -170,13 +186,13 @@ pub fn Navbar() -> Element {
                                                 Ok(active_profile) => {
 
                                                     // start
-                                                    // let new_context = Arc::new(MarcoSparkoContext {
-                                                    //     args: crate::Args::ms_parse(),
+                                                    // let new_context = Arc::new(AppContext {
+                                                    //     args: crate::Args::parse_all(),
                                                     //     profile: active_profile,
                                                     // });
                                                     // context_signal.set(Some(new_context));
                                                     // end
-                                                    let new_context = MarcoSparkoContext::for_profile(crate::Args::ms_parse(), active_profile);
+                                                    let new_context = AppContext::for_profile(crate::Args::parse_all(), active_profile);
                                                     context_signal.set(Some(new_context));
                                                     //next
                                                     upgrade_requested.set(UpgradeRequested(false));
@@ -237,7 +253,7 @@ pub fn Navbar() -> Element {
                                     move |_| {
                                         menu_open.set(false);
                                         profile_actions_open.set(None);
-                                        let new_context = MarcoSparkoContext::for_profile(crate::Args::ms_parse(), crate::profile::set_active_profile(&name)?);
+                                        let new_context = AppContext::for_profile(crate::Args::parse_all(), crate::profile::set_active_profile(&name)?);
 
                                         context_signal.set(Some(new_context));
                                         upgrade_requested.set(UpgradeRequested(false));
@@ -246,24 +262,50 @@ pub fn Navbar() -> Element {
                                     }
                                 },
                                 span { "{&name}" }
-                                // The active profile cannot be deleted, so it has no actions.
-                                if !profile_names_equal(&name, &context.profile.active_profile.name) {
-                                    span { class: "profile-actions",
-                                        button {
-                                            class: "profile-actions-toggle",
-                                            title: "Profile actions",
-                                            onclick: {
-                                                let name = name.clone();
-                                                move |event: MouseEvent| {
-                                                    event.stop_propagation();
-                                                    let open = profile_actions_open.read().as_ref() == Some(&name);
-                                                    profile_actions_open.set(if open { None } else { Some(name.clone()) });
-                                                }
-                                            },
-                                            "…"
-                                        }
-                                        if profile_actions_open.read().as_ref() == Some(&name) {
-                                            div { class: "profile-actions-menu",
+                                // The active profile can only be copied, as the app has its files open, and its size seen.
+                                span { class: "profile-actions",
+                                    button {
+                                        class: "profile-actions-toggle",
+                                        title: "Profile actions",
+                                        onclick: {
+                                            let name = name.clone();
+                                            move |event: MouseEvent| {
+                                                event.stop_propagation();
+                                                let open = profile_actions_open.read().as_ref() == Some(&name);
+                                                profile_actions_open.set(if open { None } else { Some(name.clone()) });
+                                            }
+                                        },
+                                        "…"
+                                    }
+                                    if profile_actions_open.read().as_ref() == Some(&name) {
+                                        div { class: "profile-actions-menu",
+                                            div {
+                                                class: "menu-item",
+                                                onclick: {
+                                                    let name = name.clone();
+                                                    move |event: MouseEvent| {
+                                                        event.stop_propagation();
+                                                        menu_open.set(false);
+                                                        profile_actions_open.set(None);
+                                                        navigator.push(Route::ProfileSize { name: name.clone() });
+                                                    }
+                                                },
+                                                "Size..."
+                                            }
+                                            div {
+                                                class: "menu-item",
+                                                onclick: {
+                                                    let name = name.clone();
+                                                    move |event: MouseEvent| {
+                                                        event.stop_propagation();
+                                                        menu_open.set(false);
+                                                        profile_actions_open.set(None);
+                                                        copy_profile.set(Some(name.clone()));
+                                                    }
+                                                },
+                                                "Copy..."
+                                            }
+                                            if !profile_names_equal(&name, &context.profile.active_profile.name) {
                                                 div {
                                                     class: "menu-item",
                                                     onclick: {
@@ -272,10 +314,10 @@ pub fn Navbar() -> Element {
                                                             event.stop_propagation();
                                                             menu_open.set(false);
                                                             profile_actions_open.set(None);
-                                                            navigator.push(Route::ProfileSize { name: name.clone() });
+                                                            rename_profile.set(Some(name.clone()));
                                                         }
                                                     },
-                                                    "Size..."
+                                                    "Rename..."
                                                 }
                                                 div {
                                                     class: "menu-item",
@@ -313,7 +355,7 @@ pub fn Navbar() -> Element {
                 }
                 button {
                     r#type: "button",
-                    class: if matches!(current_route, Route::Settings {}) { "nav-icon-button active" } else { "nav-icon-button" },
+                    class: if matches!(current_route, Route::Settings {}) { "icon-button active" } else { "icon-button" },
                     title: "Settings",
                     onclick: move |_| { navigator.push(Route::Settings {}); },
                     Icon { icon: LdSettings, width: 16, height: 16 }
@@ -324,10 +366,19 @@ pub fn Navbar() -> Element {
         if let Some(name) = delete_profile.read().clone() {
             DeleteProfileDialog { name, on_close: move |_| delete_profile.set(None) }
         }
+        if let Some(name) = rename_profile.read().clone() {
+            RenameProfileDialog { name, on_close: move |_| rename_profile.set(None) }
+        }
+        if let Some(name) = copy_profile.read().clone() {
+            CopyProfileDialog { name, on_close: move |_| copy_profile.set(None) }
+        }
 
         div { class: "app-body",
             div { class: "app-page",
-                Outlet::<Route> {}
+                ErrorBoundary {
+                    handle_error: |errors: ErrorContext| rsx! { PageError { errors } },
+                    Outlet::<Route> {}
+                }
             }
             if show_help {
                 HelpPanel {
@@ -348,3 +399,21 @@ pub fn Navbar() -> Element {
     }
 }
 
+/// What the page area shows instead of a page which fails, e.g. as its data could not be loaded, so that the rest of the
+/// app, e.g. the navigation bar, can still be used, until another page is chosen, which clears it.
+#[component]
+fn PageError(errors: ErrorContext) -> Element {
+    let route = use_route::<Route>();
+    let failed_on = use_hook(|| route.clone());
+    let error = errors.error().map(|error| format!("{error:#}")).unwrap_or_default();
+    use_hook(|| crate::log_error!("{error}"));
+    use_effect(use_reactive!(|route| if route != failed_on {
+        errors.clear_errors();
+    }));
+    rsx! {
+        p {
+            "This page could not be shown: "
+            ErrorText { error }
+        }
+    }
+}

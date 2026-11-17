@@ -1,5 +1,5 @@
 # Builds the macOS and Windows installers for a tag, tests them, and keeps them on the run's page under Artifacts.
-# The tag (e.g. release0.4.4) must exist in both marco-sparko and sparko_graphql.
+# The tag is e.g. release0.4.4. The libraries the app uses, e.g. bruce-graphql, come from crates.io.
 #
 # With attach, the installers are also attached to the draft GitHub release for the tag, ready to be tried before the
 # release is published. A published release is never changed.
@@ -52,25 +52,17 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: marco-sparko
+        working-directory: bruce-smart-home
 
     steps:
-      # The two repos are checked out side by side, as in ~/git, because Cargo.toml refers to ../sparko_graphql
-      - name: Check out marco-sparko
+      # In a directory of its own, as on a developer's computer, which the later steps run in.
+      - name: Check out bruce-smart-home
         uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
-          path: marco-sparko
+          path: bruce-smart-home
           # The build records the tag and branch, so it needs the history.
           fetch-depth: 0
-
-      - name: Check out sparko_graphql
-        uses: actions/checkout@v7
-        with:
-          # From the same account as this repo, so that forks build their own sparko_graphql.
-          repository: ${{ github.repository_owner }}/sparko_graphql
-          ref: ${{ env.TAG }}
-          path: sparko_graphql
 
       # The Windows ARM runner may not have Rust installed.
       - name: Install rustup
@@ -115,9 +107,63 @@ jobs:
       - name: Run the tests
         run: cargo test --locked
 
+      # The Developer ID certificate and App Store Connect API key, from the repository's secrets, for dx bundle, which
+      # signs the app and the .dmg with the certificate and notarizes and staples both with the key, see docs/Release.md.
+      # Without the secrets, e.g. on a fork, the app is built unsigned, as before. They go to the later steps through
+      # GITHUB_ENV, which GitHub keeps masked in the logs, and the key to a file, as notarytool needs it.
+      - name: Set up signing and notarizing
+        if: runner.os == 'macOS'
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          API_KEY: ${{ secrets.APPLE_API_KEY }}
+          API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          if [ -z "$CERTIFICATE" ]; then
+            echo "No APPLE_CERTIFICATE secret, so the app is not signed"
+            exit 0
+          fi
+          {
+            echo "APPLE_CERTIFICATE=$CERTIFICATE"
+            echo "APPLE_CERTIFICATE_PASSWORD=$CERTIFICATE_PASSWORD"
+            echo "SIGNED=true"
+          } >> "$GITHUB_ENV"
+          if [ -z "$API_KEY" ] || [ -z "$API_ISSUER" ] || [ -z "$API_KEY_CONTENT" ]; then
+            echo "No App Store Connect API key secrets, so the app is signed but not notarized"
+            exit 0
+          fi
+          key_path="$RUNNER_TEMP/AuthKey_$API_KEY.p8"
+          printf '%s' "$API_KEY_CONTENT" | base64 --decode > "$key_path"
+          {
+            echo "APPLE_API_KEY=$API_KEY"
+            echo "APPLE_API_ISSUER=$API_ISSUER"
+            echo "APPLE_API_KEY_PATH=$key_path"
+            echo "NOTARIZED=true"
+          } >> "$GITHUB_ENV"
+
+      # The virtual capture device, which the installers include, see Dioxus.toml's external_bin.
+      - name: Build the virtual capture device
+        run: capture/build-sim.sh
+
       # The defaults: a .dmg on macOS and an NSIS setup.exe on Windows.
       - name: Build the installers
-        run: dx bundle --release
+        # Where the Windows installer's hooks take the virtual capture device from, see windows/installer-hooks.nsh.
+        env:
+          SIM_BIN: ${{ github.workspace }}\bruce-smart-home\capture\target-sim\bin
+        # On macOS, tried once more if it fails, as its last steps ask Apple's servers to notarize the app and staple
+        # the ticket, which the runners' network sometimes drops, e.g. a notary request which timed out, or stapler's
+        # exit code 68, once Apple had accepted the app. The second try builds nothing again, only bundles.
+        run: |
+          if dx bundle --release; then
+            exit 0
+          fi
+          if [ "$RUNNER_OS" != macOS ]; then
+            exit 1
+          fi
+          echo "dx bundle failed, trying once more, in case it was Apple's servers"
+          sleep 30
+          dx bundle --release
 
       - name: Collect the installers
         id: collect
@@ -129,6 +175,34 @@ jobs:
             echo "No installers were built"
             exit 1
           fi
+
+      # That the .dmg and the app in it are signed, by a Developer ID, and if notarized, that the tickets are stapled to
+      # both and Gatekeeper accepts them, as it would on a user's Mac when they are downloaded. stapler asks Apple for
+      # the ticket, a request which the runners' network sometimes drops, so it is tried up to three times.
+      - name: Check the app is signed and notarized
+        if: runner.os == 'macOS' && env.SIGNED == 'true'
+        run: |
+          dmg=$(ls dist/*.dmg | head -1)
+          codesign --verify --verbose=2 "$dmg"
+          mount=$(mktemp -d)
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount" > /dev/null
+          app=$(ls -d "$mount"/*.app | head -1)
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign --display --verbose=2 "$app" 2>&1 | grep -E "Authority|TeamIdentifier|Timestamp|Runtime"
+          validate() {
+            for attempt in 1 2 3; do
+              xcrun stapler validate "$1" && return 0
+              sleep 20
+            done
+            return 1
+          }
+          if [ "$NOTARIZED" = true ]; then
+            validate "$dmg"
+            validate "$app"
+            spctl --assess --type execute --verbose=2 "$app"
+            spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+          fi
+          hdiutil detach "$mount" > /dev/null
 
       # Installs the app as a user would, silently, and checks that it starts and is still running 30 seconds later.
       - name: Check the installed app starts
@@ -147,11 +221,18 @@ jobs:
           # Installed for the current user in LOCALAPPDATA, or for everyone in Program Files. The uninstaller is in the
           # same directory, so is left out.
           $exe = Get-ChildItem "$env:LOCALAPPDATA", "$env:LOCALAPPDATA\Programs", "$env:ProgramFiles" -Recurse -Depth 1 -Filter *.exe -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like '*marco*' -and $_.Name -notlike '*uninstall*' } |
+            Where-Object { $_.Name -like '*smart*home*' -and $_.Name -notlike '*uninstall*' -and $_.Name -notlike '*capture*' } |
             Select-Object -First 1
           if (-not $exe) {
             throw "The installed app was not found"
           }
+          # The virtual capture device, which windows/installer-hooks.nsh puts beside it.
+          foreach ($program in "bruce-smart-home-capture-sim.exe", "bruce-smart-home-capture-rlcd42.exe", "bruce-smart-home-capture-guitron.exe") {
+            if (-not (Test-Path (Join-Path $exe.DirectoryName $program))) {
+              throw "The virtual capture device's $program was not installed beside the app"
+            }
+          }
+          Write-Host "The virtual capture device is installed"
           Write-Host "Starting $($exe.FullName)"
 
           # Its output is kept, and a panic shows where it happened, to see why if it does not start.
@@ -175,7 +256,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: marco-sparko/dist/*
+          path: bruce-smart-home/dist/*
           if-no-files-found: error
 
   # Only runs if every build succeeded, so a release never gets some of the installers but not others.
@@ -187,7 +268,7 @@ jobs:
     permissions:
       # To attach the files to the release.
       contents: write
-      # To record where the files were built, see https://github.com/bruceskingle/marco-sparko/attestations
+      # To record where the files were built, see https://github.com/bruceskingle/bruce-smart-home/attestations
       id-token: write
       attestations: write
 

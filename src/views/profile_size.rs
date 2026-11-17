@@ -2,12 +2,16 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 
-use crate::{MarcoSparkoContext, components::{app::Route, delete_profile::DeleteProfileDialog}, profile::{format_size, profile_names_equal}};
+use crate::{
+    AppContext,
+    components::{app::Route, delete_profile::DeleteProfileDialog},
+    profile::{format_size, profile_names_equal},
+};
 
 /// The disk space used by a profile, by plugin, with buttons to delete the profile or return to the home page.
 #[component]
 pub fn ProfileSize(name: String) -> Element {
-    let context_signal = use_context::<Signal<Option<Arc<MarcoSparkoContext>>>>();
+    let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let context = context_signal.read().as_ref().unwrap().clone();
     let navigator = use_navigator();
     let mut delete_open = use_signal(|| false);

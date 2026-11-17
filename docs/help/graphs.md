@@ -12,7 +12,7 @@ Buttons such as **30min**, **Day**, **Week** and **Month** choose how long each 
 
 ## Zooming
 
-- **Drag across bars** to zoom in to them.
+- **Drag across bars** to zoom in to them. Dragging past either end of the graph zooms in from where the drag started to that end; leaving it above or below gives up the drag.
 - **Double click a bar** to see it in more detail, with shorter bars.
 - **Right click** for a menu: **Zoom Out** goes back to where you were before zooming in, **Previous** and **Next** move to the range before or after, and **Reload this bar** downloads its data again.
 
@@ -20,7 +20,7 @@ Hold the mouse over a bar to see its figures.
 
 ## Categories
 
-Where the bars are split into parts, such as rates or kinds of charging, ![Categories](icons/categories.svg) **Categories** lists them. Each can be hidden, or given a different colour, and it shows the total of each.
+Where the bars are split into parts, such as rates or kinds of charging, ![Categories](icons/categories.svg) **Categories** lists them. Each can be hidden, or given a different colour, and it shows the total of each. A colour chosen is kept with the profile, and is that category's colour in every graph from then on.
 
 ## Trend
 

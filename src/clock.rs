@@ -4,7 +4,7 @@
 
 use std::sync::atomic::{AtomicI64, Ordering};
 
-use sparko_graphql::types::{Date, DateTime};
+use bruce_graphql::types::{Date, DateTime};
 use time::OffsetDateTime;
 use time_tz::{OffsetDateTimeExt, Tz};
 
@@ -26,7 +26,8 @@ pub fn now_utc() -> OffsetDateTime {
 }
 
 pub fn now(tz: &Tz) -> DateTime {
-    DateTime::from_unix_timestamp(now_utc().unix_timestamp()).map_or_else(|_| DateTime::now(tz), |now| now.to_timezone(tz))
+    DateTime::from_unix_timestamp(now_utc().unix_timestamp())
+        .map_or_else(|_| DateTime::now(tz), |now| now.to_timezone(tz))
 }
 
 pub fn today(tz: &Tz) -> time::Date {

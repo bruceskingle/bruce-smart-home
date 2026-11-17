@@ -1,5 +1,5 @@
 # Builds the documentation in docs with mdBook, see book.toml, and publishes it to GitHub Pages at
-# https://bruceskingle.github.io/marco-sparko/ whenever it changes on main.
+# https://bruceskingle.github.io/bruce-smart-home/ whenever it changes on main.
 #
 # The repository's Settings, Pages, Source must be set to GitHub Actions.
 name: Docs

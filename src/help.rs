@@ -12,11 +12,11 @@ use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Where the documentation is published, for links to documents in it other than the help pages.
-const BOOK_URL: &str = "https://bruceskingle.github.io/marco-sparko/";
+const BOOK_URL: &str = "https://bruceskingle.github.io/bruce-smart-home/";
 /// The contents of the documentation, which says which documents are in it.
 const BOOK_SUMMARY: &str = include_str!("../docs/SUMMARY.md");
 /// Where the repository is on GitHub, for links to anything else in it.
-const REPO_URL: &str = "https://github.com/bruceskingle/marco-sparko/blob/main/";
+const REPO_URL: &str = "https://github.com/bruceskingle/bruce-smart-home/blob/main/";
 /// Where the documentation is, relative to the repository.
 const DOCS_DIR: &str = "docs/";
 /// Where the help pages are, relative to the repository.
@@ -38,8 +38,13 @@ macro_rules! help_pages {
 static PAGES: &[HelpPage] = help_pages![
     "index.md",
     "home.md",
+    "electricity.md",
+    "site.md",
+    "live.md",
     "profile-size.md",
     "settings.md",
+    "devices.md",
+    "climate.md",
     "log.md",
     "date-range.md",
     "graphs.md",
@@ -54,9 +59,14 @@ static PAGES: &[HelpPage] = help_pages![
     "octopus/meters.md",
     "octopus/meter.md",
     "octopus/home-mini.md",
-    "octopus/electricity.md",
     "octopus/ev-charging.md",
     "octopus/charging-sessions.md",
+    "myenergi/index.md",
+    "myenergi/login.md",
+    "tesla/index.md",
+    "tesla/login.md",
+    "globird/index.md",
+    "globird/login.md",
 ];
 
 macro_rules! help_icons {
@@ -68,8 +78,22 @@ macro_rules! help_icons {
 /// The icons of the app's buttons, which the help refers to as images, e.g. ![Help](icons/help.svg), and are drawn
 /// inline in the app, by their path relative to docs/help.
 static ICONS: &[(&str, &str)] = help_icons![
-    "help", "log", "settings", "profile", "close", "back", "hide-pages", "show-pages", "reload", "export", "categories",
-    "calendar", "external-link", "previous", "next",
+    "help",
+    "log",
+    "settings",
+    "profile",
+    "close",
+    "back",
+    "hide-pages",
+    "show-pages",
+    "reload",
+    "export",
+    "categories",
+    "calendar",
+    "external-link",
+    "previous",
+    "next",
+    "show",
 ];
 
 /// The help page at path, relative to docs/help.
@@ -93,7 +117,9 @@ pub fn follow(from: &str, href: &str) -> HelpLink {
     if href.starts_with("http://") || href.starts_with("https://") || href.starts_with("mailto:") {
         return HelpLink::Web(href.to_string());
     }
-    let (href, fragment) = href.split_once('#').map_or((href, String::new()), |(href, fragment)| (href, format!("#{fragment}")));
+    let (href, fragment) = href
+        .split_once('#')
+        .map_or((href, String::new()), |(href, fragment)| (href, format!("#{fragment}")));
     if href.is_empty() {
         return HelpLink::None;
     }
@@ -104,7 +130,11 @@ pub fn follow(from: &str, href: &str) -> HelpLink {
         return HelpLink::Page(help_path.to_string());
     }
     // A document in the book is on its page there, e.g. docs/ScheduledFetch.md at ScheduledFetch.html
-    match path.strip_prefix(DOCS_DIR).filter(|doc| BOOK_SUMMARY.contains(&format!("]({doc})"))).and_then(|doc| doc.strip_suffix(".md")) {
+    match path
+        .strip_prefix(DOCS_DIR)
+        .filter(|doc| BOOK_SUMMARY.contains(&format!("]({doc})")))
+        .and_then(|doc| doc.strip_suffix(".md"))
+    {
         Some(doc) => HelpLink::Web(format!("{BOOK_URL}{doc}.html{fragment}")),
         None => HelpLink::Web(format!("{REPO_URL}{path}{fragment}")),
     }
@@ -119,10 +149,10 @@ fn resolve(from: &str, href: &str) -> String {
     parts.pop();
     for part in href.split('/') {
         match part {
-            "" | "." => {},
+            "" | "." => {}
             ".." => {
                 parts.pop();
-            },
+            }
             part => parts.push(part),
         }
     }
@@ -140,19 +170,28 @@ pub fn to_html(path: &str, markdown: &str) -> String {
         match (&mut icon, event) {
             (None, Event::Start(Tag::Image { dest_url, .. })) => {
                 let icon_path = resolve(path, &dest_url);
-                match icon_path.strip_prefix(HELP_DIR).and_then(|icon_path| ICONS.iter().find(|(path, _)| *path == icon_path)) {
+                match icon_path
+                    .strip_prefix(HELP_DIR)
+                    .and_then(|icon_path| ICONS.iter().find(|(path, _)| *path == icon_path))
+                {
                     Some((_, svg)) => icon = Some((svg, String::new())),
                     None => events.push(Event::Start(Tag::Image {
-                        link_type: pulldown_cmark::LinkType::Inline, dest_url, title: CowStr::Borrowed(""), id: CowStr::Borrowed(""),
+                        link_type: pulldown_cmark::LinkType::Inline,
+                        dest_url,
+                        title: CowStr::Borrowed(""),
+                        id: CowStr::Borrowed(""),
                     })),
                 }
-            },
+            }
             (Some((_, alt)), Event::Text(text)) => alt.push_str(&text),
             (Some((svg, alt)), Event::End(TagEnd::Image)) => {
-                events.push(Event::InlineHtml(CowStr::from(format!("<span class=\"help-icon\" title=\"{alt}\">{}</span>", svg.trim()))));
+                events.push(Event::InlineHtml(CowStr::from(format!(
+                    "<span class=\"help-icon\" title=\"{alt}\">{}</span>",
+                    svg.trim()
+                ))));
                 icon = None;
-            },
-            (Some(_), _) => {},
+            }
+            (Some(_), _) => {}
             (None, event) => events.push(event),
         }
     }
@@ -164,6 +203,10 @@ pub fn to_html(path: &str, markdown: &str) -> String {
 /// The help page of the screen being shown in a module, set by the module's view with use_help_topic, see the Navbar.
 #[derive(Clone, Copy)]
 pub struct ModuleHelpTopic(pub Signal<Option<String>>);
+
+/// The help page of the Home page being shown, e.g. devices.md, set by Home, see the Navbar.
+#[derive(Clone, Copy)]
+pub struct HomeHelpTopic(pub Signal<&'static str>);
 
 /// Sets the help page of the module screen being shown, if it has one. Does nothing outside the main window.
 pub fn use_help_topic(topic: Option<String>) {
@@ -248,24 +291,54 @@ mod tests {
 
     #[test]
     fn links_go_to_help_pages_documents_or_web_sites() {
-        assert_eq!(follow("octopus/meters.md", "home-mini.md"), HelpLink::Page(String::from("octopus/home-mini.md")));
-        assert_eq!(follow("octopus/meters.md", "../graphs.md#zooming"), HelpLink::Page(String::from("graphs.md")));
-        assert_eq!(follow("home.md", "octopus/index.md"), HelpLink::Page(String::from("octopus/index.md")));
-        assert_eq!(follow("home.md", "../ScheduledFetch.md"),
-            HelpLink::Web(String::from("https://bruceskingle.github.io/marco-sparko/ScheduledFetch.html")));
-        assert_eq!(follow("octopus/index.md", "../../gettingStarted/profiles.md#moving-the-data-directory"),
-            HelpLink::Web(String::from("https://bruceskingle.github.io/marco-sparko/gettingStarted/profiles.html#moving-the-data-directory")));
+        assert_eq!(
+            follow("octopus/meters.md", "home-mini.md"),
+            HelpLink::Page(String::from("octopus/home-mini.md"))
+        );
+        assert_eq!(
+            follow("octopus/meters.md", "../graphs.md#zooming"),
+            HelpLink::Page(String::from("graphs.md"))
+        );
+        assert_eq!(
+            follow("home.md", "octopus/index.md"),
+            HelpLink::Page(String::from("octopus/index.md"))
+        );
+        assert_eq!(
+            follow("home.md", "../ScheduledFetch.md"),
+            HelpLink::Web(String::from(
+                "https://bruceskingle.github.io/bruce-smart-home/ScheduledFetch.html"
+            ))
+        );
+        assert_eq!(
+            follow(
+                "octopus/index.md",
+                "../../gettingStarted/profiles.md#moving-the-data-directory"
+            ),
+            HelpLink::Web(String::from(
+                "https://bruceskingle.github.io/bruce-smart-home/gettingStarted/profiles.html#moving-the-data-directory"
+            ))
+        );
         // Not in the book, so on GitHub.
-        assert_eq!(follow("home.md", "../Release.md"),
-            HelpLink::Web(String::from("https://github.com/bruceskingle/marco-sparko/blob/main/docs/Release.md")));
-        assert_eq!(follow("home.md", "https://octopus.energy"), HelpLink::Web(String::from("https://octopus.energy")));
+        assert_eq!(
+            follow("home.md", "../Release.md"),
+            HelpLink::Web(String::from(
+                "https://github.com/bruceskingle/bruce-smart-home/blob/main/docs/Release.md"
+            ))
+        );
+        assert_eq!(
+            follow("home.md", "https://octopus.energy"),
+            HelpLink::Web(String::from("https://octopus.energy"))
+        );
         assert_eq!(follow("home.md", "#top"), HelpLink::None);
     }
 
     #[test]
     fn icons_are_drawn_inline() {
         let html = super::to_html("octopus/meters.md", "Click ![Help](../icons/help.svg) to show it");
-        assert!(html.starts_with("<p>Click <span class=\"help-icon\" title=\"Help\"><svg "), "{html}");
+        assert!(
+            html.starts_with("<p>Click <span class=\"help-icon\" title=\"Help\"><svg "),
+            "{html}"
+        );
         assert!(html.ends_with("</svg></span> to show it</p>\n"), "{html}");
     }
 
@@ -274,14 +347,20 @@ mod tests {
     fn links_between_help_pages_are_not_broken() {
         for page in PAGES {
             for href in markdown_links(page.markdown) {
-                let HelpLink::Web(url) = follow(page.path, &href) else { continue };
+                let HelpLink::Web(url) = follow(page.path, &href) else {
+                    continue;
+                };
                 let url = url.split('#').next().unwrap_or_default();
                 let path = match (url.strip_prefix(super::BOOK_URL), url.strip_prefix(super::REPO_URL)) {
                     (Some(doc), _) => format!("docs/{}", doc.replace(".html", ".md")),
                     (_, Some(path)) => path.to_string(),
                     _ => continue,
                 };
-                assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(&path).exists(), "{} links to {href} which does not exist", page.path);
+                assert!(
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(&path).exists(),
+                    "{} links to {href} which does not exist",
+                    page.path
+                );
             }
         }
     }
@@ -290,15 +369,21 @@ mod tests {
     #[test]
     fn help_pages_are_in_the_book() {
         for page in PAGES {
-            assert!(super::BOOK_SUMMARY.contains(&format!("](help/{})", page.path)), "{} is not in docs/SUMMARY.md", page.path);
+            assert!(
+                super::BOOK_SUMMARY.contains(&format!("](help/{})", page.path)),
+                "{} is not in docs/SUMMARY.md",
+                page.path
+            );
         }
     }
 
     /// The targets of the Markdown links in text.
     fn markdown_links(text: &str) -> Vec<String> {
-        text.match_indices("](").filter_map(|(index, _)| {
-            let rest = &text[index + 2..];
-            rest.find(')').map(|end| rest[..end].to_string())
-        }).collect()
+        text.match_indices("](")
+            .filter_map(|(index, _)| {
+                let rest = &text[index + 2..];
+                rest.find(')').map(|end| rest[..end].to_string())
+            })
+            .collect()
     }
 }

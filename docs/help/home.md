@@ -1,14 +1,48 @@
 # Home
 
-The home page lists the modules of the active profile. Each module connects to one supplier or service, at the moment [Octopus Energy](octopus/index.md). Click a module here, or its name in the bar at the top, to open it.
+Home has its pages listed down the left, which ![Hide the page list](icons/hide-pages.svg) at its top hides, and ![Show the page list](icons/show-pages.svg) shows again.
+
+## Electricity
+
+[Electricity](electricity.md), where the profile's electricity went, from the module which supplies it, Octopus or GloBird. It is the first page shown, unless the profile has neither yet.
+
+## Live
+
+[Live](live.md), what each circuit of the site is taking or giving now, with dots moving the way the energy flows.
+
+## Site
+
+[Site](site.md), where in the house each module measures, which the Electricity page needs to split the import into the car's, the batteries' and the house's.
+
+## Modules
+
+Modules lists every module, and whether the active profile uses it. Each module connects to one supplier or device: [Octopus Energy](octopus/index.md), [myenergi](myenergi/index.md), [Tesla](tesla/index.md) and [GloBird](globird/index.md). Click a module here, or its name in the bar at the top, to open it.
 
 **Data Directory** is where the app keeps its data, the profiles and a copy of everything it has downloaded. **Build Info** is the version of the app, useful when reporting a problem.
+
+## Polling
+
+Some data is only available for a while, and nothing else keeps it, such as what the Tesla gateway and the zappi say is happening now, the zappi's charge added since the car was plugged in, and the charging Octopus has planned and carried out, which it keeps for a few days, with whether charging is capped to its cheap hours. While the app is open it polls them, every 5 minutes, or 15 for Octopus, which limits how often it is asked, so that their history is kept. Polling shows, for each module, what it is doing, when it last polled and what it found, and when it polls next. **Poll Now** polls straight away, and **Pause** stops polling the module until **Resume**. A module which fails 3 times in a row is paused, so that a device which rejects its login is not asked again and again. Every poll is in [the log](log.md) too.
+
+**From** says where a module's data comes from: **This computer** if the app polls it itself, or the names of the [capture devices](devices.md) which poll it, which the app reads instead, and then never polls it itself, so that the gateway, for one, is not asked twice. Where a device polls a module, the app still fetches the history its makers keep themselves, such as the zappi's day by day.
+
+**Capture Devices** shows, for each device the app has read since it started, which modules it takes, any whose latest poll by the device failed in red, with the error, such as an API key the source did not accept, and when it last succeeded as a tooltip, when it was last read, how many records that gave and how many the app did not have already, or why it could not be read, where the device keeps them (on its SD card, with how much of it is free, in red if less than a tenth is, or only in its memory, how many of how many, with why as a tooltip, such as an empty slot), when and why it last started, which is in red if it was a crash or a dip in its power, with why it crashed as a tooltip if it knows, such as running out of memory, and its free memory, with the least since it started and the largest free block as a tooltip, in red if it has run out of memory since it started.
+
+Without capture devices, polling stops while the app is closed or the computer is asleep. The gateway's and the zappi's totals carry on counting meanwhile, so the energy of that time is still counted, only not when within it it was used. The zappi's charge added is only kept until the car is next plugged in, so open the app before plugging in the car.
+
+## Devices
+
+Devices lists the [capture devices](devices.md) the profile has adopted, small always-on boards which fetch data while this computer sleeps, and adopts more.
+
+## Temp & Humidity
+
+[Temp & Humidity](climate.md) shows what the capture devices with a sensor of their own measure, a line for each device. The app reads them every 5 minutes while it is open, which Polling shows as climate.
 
 The buttons at the top right:
 
 - ![Help](icons/help.svg) shows or hides this help.
 - ![Log](icons/log.svg) shows or hides [the log](log.md) along the bottom of the window.
-- ![Profile](icons/profile.svg) and the profile's name is the profile menu, which changes between [profiles](profile-size.md), or creates a new one.
+- ![Profile](icons/profile.svg) and the profile's name is the profile menu, which changes between [profiles](profile-size.md), creates a new one, or copies, renames or deletes one.
 - ![Settings](icons/settings.svg) opens the [settings](settings.md).
 
 See the [help contents](index.md) for everything else.

@@ -1,30 +1,28 @@
 //! Smart meter telemetry: a reading every 10 seconds from the meter, made available by a consumer access device such as
 //! an Octopus Home Mini.
 //!
-//! The server only has the last 30 days, so older data exists only in the cache. It is cached a day per file, and
-//! readings are only ever added to a file, never removed, so a reload which gets less than before cannot lose data. A
-//! day which is too old to fetch again is never fetched, and its file is made read only.
+//! The server only has the last 30 days, so older data exists only in the store. Each reading is kept as the server
+//! gave it, in the profile's store, see store.rs and data_set/records.rs, by its time, with a `#fetched/<date>` record
+//! of when each day was last fetched, and whether all of its missing hours were. Readings are only ever added, never
+//! removed, so a reload which gets less than before cannot lose data, and a day which is too old to fetch again is
+//! never fetched.
 
 use std::collections::BTreeMap;
-use std::fs::{self, File, FileTimes, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use bruce_graphql::types::DateTime;
+use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder, ProgressMonitor};
 use serde::{Deserialize, Serialize};
-use sparko_graphql::types::{Date, DateTime};
-use sparko_graphql::{GraphQLCaller, GraphQLQueryBuilder, ProgressMonitor};
 use time_tz::Tz;
 
+use super::graphql::TelemetryGrouping;
+use super::graphql::meter::meter_telemetry;
+use super::rate_limit::FieldRateLimit;
 use crate::CacheConfig;
 use crate::components::export::{ExportTable, ExportValue};
 use crate::data_set::{CancelToken, call_unless_cancelled};
-use super::rate_limit::FieldRateLimit;
-use super::graphql::TelemetryGrouping;
-use super::graphql::meter::meter_telemetry;
+use crate::power::grid::{GridPoint, GridSample};
 
-/// The interval between readings, in seconds.
-pub const READING_SECONDS: i64 = 10;
 /// Which readings are missing is worked out an hour, about 360 readings, at a time.
 const HOUR_SECONDS: i64 = 3600;
 /// The most which is fetched in one request, as consecutive missing hours. The server returns 13 hours of 10 second
@@ -48,7 +46,7 @@ const COMPLETE_AFTER_SECONDS: i64 = DAY_SECONDS;
 /// A day which is not complete, e.g. today, is fetched again when its cache is older than this.
 const REFRESH_SECONDS: i64 = 5 * 60;
 
-/// A reading of the meter, the values are as the server gives them, see TelemetryPoint for their units.
+/// A reading of the meter, the values are as the server gives them, see GridPoint for their units.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct TelemetryReading {
     /// When it was read, a unix timestamp.
@@ -69,6 +67,28 @@ fn number(value: Option<super::decimal::Decimal>) -> Option<f64> {
     value.and_then(|value| value.to_string().parse().ok())
 }
 
+impl GridSample for TelemetryReading {
+    fn read_at(&self) -> i64 {
+        self.read_at
+    }
+
+    fn demand(&self) -> Option<f64> {
+        self.demand
+    }
+
+    fn consumption_delta(&self) -> Option<f64> {
+        self.consumption_delta
+    }
+
+    fn consumption(&self) -> Option<f64> {
+        self.consumption
+    }
+
+    fn export(&self) -> Option<f64> {
+        self.export
+    }
+}
+
 impl TelemetryReading {
     fn from(item: meter_telemetry::SmartMeterTelemetryType) -> Option<Self> {
         Some(TelemetryReading {
@@ -84,47 +104,40 @@ impl TelemetryReading {
 }
 
 fn now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|now| now.as_secs() as i64).unwrap_or_default()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|now| now.as_secs() as i64)
+        .unwrap_or_default()
 }
 
-fn modified(path: &Path) -> Option<i64> {
-    let modified = fs::metadata(path).ok()?.modified().ok()?;
-    modified.duration_since(UNIX_EPOCH).ok().map(|age| age.as_secs() as i64)
+/// The sort key of a day's #fetched record.
+fn fetched_key(day: &bruce_graphql::types::Date) -> String {
+    format!("#fetched/{day}")
 }
 
-/// The readings in a day's cache file, those which cannot be read are left out.
-fn load_day(path: &Path) -> BTreeMap<i64, TelemetryReading> {
-    let Ok(file) = File::open(path) else {
-        return BTreeMap::new();
-    };
-    BufReader::new(file).lines()
-        .map_while(Result::ok)
-        .filter_map(|line| serde_json::from_str::<TelemetryReading>(&line).ok())
+/// When a day was last fetched, as a unix timestamp, 0 if not all its missing hours were, so that it is fetched again,
+/// as a file dated the epoch was, None if it never has been.
+fn modified(records: &crate::data_set::Records, day: &bruce_graphql::types::Date) -> anyhow::Result<Option<i64>> {
+    let key = fetched_key(day);
+    let stale = records
+        .get(&key)?
+        .map(|fetched| fetched.get("stale").and_then(|stale| stale.as_bool()) == Some(true));
+    Ok(match stale {
+        None => None,
+        Some(true) => Some(0),
+        Some(false) => records.fetched_at(&key)?.map(|at| at.unix_timestamp()),
+    })
+}
+
+/// The readings from start up to end, as unix timestamps, made from those kept, which cannot be read are left out.
+fn load(records: &crate::data_set::Records, start: i64, end: i64) -> anyhow::Result<BTreeMap<i64, TelemetryReading>> {
+    let key = |time: i64| bruce_db::Micros(time * 1_000_000).to_text();
+    Ok(records
+        .range(key(start).as_str()..key(end).as_str())?
+        .into_iter()
+        .filter_map(|(_, item)| TelemetryReading::from(serde_json::from_value(item).ok()?))
         .map(|reading| (reading.read_at, reading))
-        .collect()
-}
-
-/// Writes a day's readings, dated now if fetched, or the epoch if not all of them were, so that it is fetched again.
-fn save_day(path: &Path, readings: &BTreeMap<i64, TelemetryReading>, fetched: bool) -> anyhow::Result<()> {
-    let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
-    for reading in readings.values() {
-        writeln!(file, "{}", serde_json::to_string(reading)?)?;
-    }
-    file.set_times(FileTimes::new().set_modified(if fetched { SystemTime::now() } else { UNIX_EPOCH }))?;
-    Ok(())
-}
-
-/// Makes a day's cache file read only, as its day can no longer be fetched so its data cannot be replaced.
-fn protect(path: &Path) {
-    if let Ok(metadata) = fs::metadata(path) {
-        let mut permissions = metadata.permissions();
-        if !permissions.readonly() {
-            permissions.set_readonly(true);
-            if let Err(error) = fs::set_permissions(path, permissions) {
-                crate::log_warning!("Failed to make {} read only: {error}", path.display());
-            }
-        }
-    }
+        .collect())
 }
 
 /// The hours of a day which the server has, as their start times, and those of them which are missing readings.
@@ -135,27 +148,43 @@ struct DayHours {
     up_to_date: bool,
 }
 
-fn day_hours(readings: &BTreeMap<i64, TelemetryReading>, day_start: i64, day_end: i64, modified: Option<i64>, now: i64) -> DayHours {
+fn day_hours(
+    readings: &BTreeMap<i64, TelemetryReading>,
+    day_start: i64,
+    day_end: i64,
+    modified: Option<i64>,
+    now: i64,
+) -> DayHours {
     let fetch_from = day_start.max(now - SERVER_HISTORY_SECONDS);
     let fetch_to = day_end.min(now);
     let fetchable: Vec<i64> = if fetch_from < fetch_to {
         let first_hour = fetch_from - (fetch_from - day_start).rem_euclid(HOUR_SECONDS);
-        (0..).map(|index| first_hour + index * HOUR_SECONDS).take_while(|hour| *hour < fetch_to).collect()
-    }
-    else {
+        (0..)
+            .map(|index| first_hour + index * HOUR_SECONDS)
+            .take_while(|hour| *hour < fetch_to)
+            .collect()
+    } else {
         Vec::new()
     };
     // An hour has its readings if it has some, and there is one just after it, see BOUNDARY_SECONDS. The one after on its
     // own is not enough, as it is also the next hour's first reading.
     let has_reading_after = |time: i64| readings.range(time..time + BOUNDARY_SECONDS).next().is_some();
-    let missing = fetchable.iter()
+    let missing = fetchable
+        .iter()
         .copied()
-        .filter(|hour| readings.range(*hour..hour + HOUR_SECONDS).next().is_none() || !has_reading_after(hour + HOUR_SECONDS))
+        .filter(|hour| {
+            readings.range(*hour..hour + HOUR_SECONDS).next().is_none() || !has_reading_after(hour + HOUR_SECONDS)
+        })
         .collect();
     // A file dated the epoch is from a fetch which did not get all the missing hours.
-    let complete = has_reading_after(day_end) || modified.is_some_and(|modified| modified >= day_end + COMPLETE_AFTER_SECONDS);
+    let complete =
+        has_reading_after(day_end) || modified.is_some_and(|modified| modified >= day_end + COMPLETE_AFTER_SECONDS);
     let recent = modified.is_some_and(|modified| modified > 0 && now - modified < REFRESH_SECONDS);
-    DayHours { fetchable, missing, up_to_date: complete || recent }
+    DayHours {
+        fetchable,
+        missing,
+        up_to_date: complete || recent,
+    }
 }
 
 /// The requests for hours, which are in order, as their start and end: a request for each run of consecutive hours, of
@@ -180,10 +209,18 @@ fn hour_overlaps(hour: i64, start: i64, end: i64) -> bool {
 /// before start if it is cached, fetched from the server where the cache does not have them and the server still does,
 /// see the module comment. The days which
 /// reload covers are fetched again whatever is cached. If cancel is set the hours not yet fetched are left out.
-pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end: &DateTime, reload: Option<(DateTime, DateTime)>,
-    tz: &'static Tz, config: &CacheConfig, request_manager: &impl GraphQLCaller, progress: &(impl ProgressMonitor + ?Sized),
-    cancel: &CancelToken) -> anyhow::Result<Vec<TelemetryReading>>
-{
+pub async fn fetch(
+    account_number: &str,
+    device_id: &str,
+    start: &DateTime,
+    end: &DateTime,
+    reload: Option<(DateTime, DateTime)>,
+    tz: &'static Tz,
+    config: &CacheConfig,
+    request_manager: &impl GraphQLCaller,
+    progress: &(impl ProgressMonitor + ?Sized),
+    cancel: &CancelToken,
+) -> anyhow::Result<Vec<TelemetryReading>> {
     let hash_key = format!("{account_number}#{device_id}#Telemetry");
     let date_format = time::format_description::parse("[day] [month repr:short] [year]").unwrap();
     let hour_format = time::format_description::parse("[hour]:[minute]").unwrap();
@@ -197,7 +234,7 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
     struct DayFetch {
         day_start: i64,
         day_end: i64,
-        path: std::path::PathBuf,
+        day: bruce_graphql::types::Date,
         readings: BTreeMap<i64, TelemetryReading>,
         /// The hours to fetch, and the day's missing hours, whether they are fetched or not.
         hours: Vec<i64>,
@@ -205,40 +242,64 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
         requests: Vec<(i64, i64)>,
     }
     let now = now();
+    let records = crate::data_set::Records::open(config, &hash_key)?;
     let mut days = Vec::new();
     let mut day = DateTime::from_unix_timestamp(start)?.to_timezone(tz).to_date();
     loop {
-        let (day_start, day_end) = (day.at_midnight(tz).unix_timestamp(), day.next_day().at_midnight(tz).unix_timestamp());
+        let (day_start, day_end) = (
+            day.at_midnight(tz).unix_timestamp(),
+            day.next_day().at_midnight(tz).unix_timestamp(),
+        );
         if day_start >= end {
             break;
         }
-        let path = config.path_for_day(&hash_key, &day)?;
-        let readings = load_day(&path);
+        // With the readings just before and after it, see BOUNDARY_SECONDS.
+        let readings = load(&records, day_start - BOUNDARY_SECONDS, day_end + BOUNDARY_SECONDS)?;
         let (mut hours, mut missing) = (Vec::new(), Vec::new());
-        if day_end <= now - SERVER_HISTORY_SECONDS {
-            protect(&path);
-        }
-        else {
-            let day = day_hours(&readings, day_start, day_end, modified(&path), now);
+        if day_end > now - SERVER_HISTORY_SECONDS {
+            let day = day_hours(&readings, day_start, day_end, modified(&records, &day)?, now);
             // The missing hours in the range shown, unless the day is up to date, and every hour in the reload period.
-            hours = day.fetchable.iter()
+            hours = day
+                .fetchable
+                .iter()
                 .copied()
-                .filter(|hour| (!day.up_to_date && day.missing.contains(hour) && hour_overlaps(*hour, start, end))
-                    || reload.is_some_and(|(reload_start, reload_end)| hour_overlaps(*hour, reload_start.unix_timestamp(), reload_end.unix_timestamp())))
+                .filter(|hour| {
+                    (!day.up_to_date && day.missing.contains(hour) && hour_overlaps(*hour, start, end))
+                        || reload.is_some_and(|(reload_start, reload_end)| {
+                            hour_overlaps(*hour, reload_start.unix_timestamp(), reload_end.unix_timestamp())
+                        })
+                })
                 .collect();
             hours.dedup();
             missing = day.missing;
         }
         // An offline profile only has what is cached.
         let requests = if config.offline { Vec::new() } else { requests(&hours) };
-        days.push(DayFetch { day_start, day_end, path, readings, hours, missing, requests });
+        days.push(DayFetch {
+            day_start,
+            day_end,
+            day: day.clone(),
+            readings,
+            hours,
+            missing,
+            requests,
+        });
         day = day.next_day();
     }
 
     let force = reload.is_some();
     let total_requests: usize = days.iter().map(|day| day.requests.len()).sum();
     let mut request_number = 0;
-    for DayFetch { day_start, day_end, path, mut readings, hours, missing, requests } in days {
+    for DayFetch {
+        day_start,
+        day_end,
+        day,
+        mut readings,
+        hours,
+        missing,
+        requests,
+    } in days
+    {
         let mut fetched = 0;
         let mut error = None;
         for (request_start, request_end) in &requests {
@@ -246,7 +307,10 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
                 break;
             }
             request_number += 1;
-            let (from, to) = (DateTime::from_unix_timestamp(*request_start)?.to_timezone(tz), DateTime::from_unix_timestamp(*request_end)?.to_timezone(tz));
+            let (from, to) = (
+                DateTime::from_unix_timestamp(*request_start)?.to_timezone(tz),
+                DateTime::from_unix_timestamp(*request_end)?.to_timezone(tz),
+            );
             let message = format!(
                 "{} {} {}–{}, request {request_number} of {total_requests}",
                 if force { "Reloading" } else { "Fetching" },
@@ -264,27 +328,48 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
                 .build()?;
             // Retried after a delay if it fails with e.g. a network error, or if there have been too many requests,
             // once the rate limit ends, with the waits shown as progress.
-            let rate_limit = FieldRateLimit { request_manager, field: RATE_LIMITED_FIELD };
+            let rate_limit = FieldRateLimit {
+                request_manager,
+                field: RATE_LIMITED_FIELD,
+            };
             match call_unless_cancelled(request_manager, &query, cancel, progress, &message, &rate_limit).await {
                 Ok(None) => break,
                 Ok(Some(response)) => {
-                    // Readings are added, never removed, see the module comment.
-                    for reading in response.smart_meter_telemetry_.into_iter().filter_map(TelemetryReading::from) {
-                        readings.insert(reading.read_at, reading);
+                    // Readings are added, never removed, see the module comment, each kept as the server gave it, and
+                    // put as one batch, off the main thread, as a response is thousands of them, see Records::put_all.
+                    let mut puts = Vec::new();
+                    for item in response.smart_meter_telemetry_ {
+                        let kept = serde_json::to_value(&item)?;
+                        if let Some(reading) = TelemetryReading::from(item) {
+                            if readings.get(&reading.read_at) != Some(&reading) {
+                                puts.push((bruce_db::Micros(reading.read_at * 1_000_000).to_text(), kept));
+                            }
+                            readings.insert(reading.read_at, reading);
+                        }
                     }
+                    records.put_all(puts).await?;
                     fetched += 1;
-                },
+                }
                 Err(request_error) => {
                     error = Some(request_error);
                     break;
-                },
+                }
             }
         }
         if !hours.is_empty() {
             // What was fetched is kept even if the rest was not, but the day is only dated as fetched if all its
             // missing hours were, not just those in the range shown, so that the rest are fetched next time.
             let all_fetched = fetched == requests.len() && missing.iter().all(|hour| hours.contains(hour));
-            save_day(&path, &readings, all_fetched)?;
+            records
+                .put_all(vec![(
+                    fetched_key(&day),
+                    if all_fetched {
+                        serde_json::json!({})
+                    } else {
+                        serde_json::json!({ "stale": true })
+                    },
+                )])
+                .await?;
         }
         if let Some(error) = error {
             return Err(error);
@@ -295,7 +380,11 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
         }
         // Only the day's own readings, the ones before and after it are also in the files of the days either side.
         let (from, to) = (start.max(day_start), end.min(day_end));
-        result.extend(readings.into_values().filter(|reading| reading.read_at >= from && reading.read_at < to));
+        result.extend(
+            readings
+                .into_values()
+                .filter(|reading| reading.read_at >= from && reading.read_at < to),
+        );
         if cancel.is_cancelled() {
             break;
         }
@@ -306,254 +395,68 @@ pub async fn fetch(account_number: &str, device_id: &str, start: &DateTime, end:
     Ok(result)
 }
 
-/// How long the periods of the graph and table are.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub enum TelemetryPeriod {
-    TenSeconds,
-    Minute,
-    TenMinutes,
-    HalfHour,
-    Day,
-    Week,
-    Month,
-}
-
-impl TelemetryPeriod {
-    pub const ALL: [TelemetryPeriod; 7] = [
-        TelemetryPeriod::TenSeconds,
-        TelemetryPeriod::Minute,
-        TelemetryPeriod::TenMinutes,
-        TelemetryPeriod::HalfHour,
-        TelemetryPeriod::Day,
-        TelemetryPeriod::Week,
-        TelemetryPeriod::Month,
-    ];
-
-    /// The length of a period shorter than a day, in seconds.
-    pub fn seconds(&self) -> Option<i64> {
-        match self {
-            TelemetryPeriod::TenSeconds => Some(READING_SECONDS),
-            TelemetryPeriod::Minute => Some(60),
-            TelemetryPeriod::TenMinutes => Some(600),
-            TelemetryPeriod::HalfHour => Some(1800),
-            _ => None,
-        }
-    }
-
-    /// The next shorter period, to drill down to, None for the shortest.
-    pub fn shorter(&self) -> Option<TelemetryPeriod> {
-        match self {
-            TelemetryPeriod::TenSeconds => None,
-            TelemetryPeriod::Minute => Some(TelemetryPeriod::TenSeconds),
-            TelemetryPeriod::TenMinutes => Some(TelemetryPeriod::Minute),
-            TelemetryPeriod::HalfHour => Some(TelemetryPeriod::TenMinutes),
-            TelemetryPeriod::Day => Some(TelemetryPeriod::HalfHour),
-            TelemetryPeriod::Week => Some(TelemetryPeriod::Day),
-            TelemetryPeriod::Month => Some(TelemetryPeriod::Week),
-        }
-    }
-
-    /// Whether the period is a day or longer.
-    pub fn is_calendar(&self) -> bool {
-        self.seconds().is_none()
-    }
-}
-
-impl std::fmt::Display for TelemetryPeriod {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TelemetryPeriod::TenSeconds => write!(f, "10s"),
-            TelemetryPeriod::Minute => write!(f, "1min"),
-            TelemetryPeriod::TenMinutes => write!(f, "10min"),
-            TelemetryPeriod::HalfHour => write!(f, "30min"),
-            TelemetryPeriod::Day => write!(f, "Day"),
-            TelemetryPeriod::Week => write!(f, "Week"),
-            TelemetryPeriod::Month => write!(f, "Month"),
-        }
-    }
-}
-
-/// The readings in a period, totalled.
-#[derive(Clone, PartialEq, Debug)]
-pub struct TelemetryPoint {
-    /// Unix timestamps.
-    pub start: i64,
-    pub end: i64,
-    /// The energy imported, in Wh, see energy_since.
-    pub energy: f64,
-    /// The energy exported, in Wh, see export_since.
-    pub export: f64,
-    /// The average power, in W, negative when more is exported than imported, None if there were no readings of it.
-    pub demand: Option<f64>,
-    /// The number of readings.
-    pub readings: usize,
-}
-
-/// The start and end of the day, week (from Monday) or month containing date, in the timezone, as unix timestamps.
-fn calendar_bounds(date: Date, period: TelemetryPeriod, tz: &'static Tz) -> (i64, i64) {
-    let (start, end) = match period {
-        TelemetryPeriod::Week => {
-            let monday = *date - time::Duration::days(date.weekday().number_days_from_monday() as i64);
-            (monday, monday + time::Duration::days(7))
-        },
-        TelemetryPeriod::Month => {
-            let first = date.replace_day(1).unwrap_or(*date);
-            let next = if first.month() == time::Month::December {
-                first.replace_year(first.year() + 1).and_then(|date| date.replace_month(time::Month::January))
-            }
-            else {
-                first.replace_month(first.month().next())
-            }.unwrap_or(first);
-            (first, next)
-        },
-        _ => (*date, *date + time::Duration::days(1)),
-    };
-    (Date::from(start).at_midnight(tz).unix_timestamp(), Date::from(end).at_midnight(tz).unix_timestamp())
-}
-
-/// The start and end of the period containing time, all as unix timestamps, in the timezone for days, weeks and months.
-pub fn period_bounds(time: i64, period: TelemetryPeriod, tz: &'static Tz) -> (i64, i64) {
-    match period.seconds() {
-        Some(seconds) => {
-            let start = time - time.rem_euclid(seconds);
-            (start, start + seconds)
-        },
-        None => match DateTime::from_unix_timestamp(time) {
-            Ok(time) => calendar_bounds(time.to_timezone(tz).to_date(), period, tz),
-            Err(_) => (time, time),
-        },
-    }
-}
-
-/// The energy imported up to reading since previous, the reading before it, in Wh. This is the change in the meter's
-/// import register, consumption, which is exact however far apart the readings are, so readings which are missing do
-/// not lose any energy, it is in the reading after them. A reading's consumption_delta is the energy since the reading
-/// before, and usually covers a reading which is missing too, but not always, so it is only used when there are no
-/// register readings, e.g. for the first reading, or the register goes down, e.g. if the meter is replaced.
-pub(crate) fn energy_since(previous: Option<&TelemetryReading>, reading: &TelemetryReading) -> f64 {
-    match (previous.and_then(|previous| previous.consumption), reading.consumption) {
-        (Some(before), Some(after)) if after >= before => after - before,
-        _ => reading.consumption_delta.unwrap_or_default(),
-    }
-}
-
-/// The energy exported, in Wh, since the reading before, from the export register as for energy_since, or 0 if there
-/// is not one before or it goes down, as there is no export delta.
-fn export_since(previous: Option<&TelemetryReading>, reading: &TelemetryReading) -> f64 {
-    match (previous.and_then(|previous| previous.export), reading.export) {
-        (Some(before), Some(after)) if after >= before => after - before,
-        _ => 0.0,
-    }
-}
-
-/// A point for each reading from start to end, from the reading before it to its time, which is the time its energy was
-/// used in, see energy_since, so that they meet although some 10 second slots have no reading, see BOUNDARY_SECONDS. A
-/// reading with none before it is 10 seconds long. Readings before start are not included, but the last of them gives
-/// the energy and start of the first reading from start.
-fn reading_points(readings: &[TelemetryReading], start: i64, end: i64) -> Vec<TelemetryPoint> {
-    let mut points: Vec<TelemetryPoint> = Vec::new();
-    let mut previous: Option<&TelemetryReading> = None;
-    for reading in readings.iter().take_while(|reading| reading.read_at < end) {
-        let since = previous.replace(reading);
-        if reading.read_at < start {
-            continue;
-        }
-        points.push(TelemetryPoint {
-            start: since.map(|since| since.read_at).unwrap_or(reading.read_at - READING_SECONDS),
-            end: reading.read_at,
-            energy: energy_since(since, reading),
-            export: export_since(since, reading),
-            demand: reading.demand,
-            readings: 1,
-        });
-    }
-    points
-}
-
-/// The periods from start to end, as unix timestamps, including ones with no readings, with the readings, which are in
-/// time order, totalled in each. Readings before start are not counted, but the last of them gives the energy of the
-/// first reading from start. For 10 seconds there is a period for each reading, see reading_points.
-pub fn aggregate(readings: &[TelemetryReading], start: i64, end: i64, period: TelemetryPeriod, tz: &'static Tz) -> Vec<TelemetryPoint> {
-    if period == TelemetryPeriod::TenSeconds {
-        return reading_points(readings, start, end);
-    }
-    let mut points = Vec::new();
-    let mut period_start = match period.seconds() {
-        Some(seconds) => start - start.rem_euclid(seconds),
-        None => match DateTime::from_unix_timestamp(start) {
-            Ok(start) => calendar_bounds(start.to_timezone(tz).to_date(), period, tz).0,
-            Err(_) => return points,
-        },
-    };
-    let mut readings = readings.iter().peekable();
-    // The reading before the next, for the energy since it.
-    let mut previous: Option<&TelemetryReading> = None;
-    while period_start < end {
-        let period_end = match period.seconds() {
-            Some(seconds) => period_start + seconds,
-            None => match DateTime::from_unix_timestamp(period_start) {
-                Ok(time) => calendar_bounds(time.to_timezone(tz).to_date(), period, tz).1,
-                Err(_) => break,
-            },
-        };
-        let mut point = TelemetryPoint { start: period_start, end: period_end, energy: 0.0, export: 0.0, demand: None, readings: 0 };
-        let mut demand_total = 0.0;
-        let mut demand_readings = 0;
-        while let Some(reading) = readings.next_if(|reading| reading.read_at < period_end) {
-            let since = previous.replace(reading);
-            if reading.read_at < period_start || reading.read_at < start {
-                continue;
-            }
-            point.readings += 1;
-            point.energy += energy_since(since, reading);
-            point.export += export_since(since, reading);
-            if let Some(demand) = reading.demand {
-                demand_total += demand;
-                demand_readings += 1;
-            }
-        }
-        if demand_readings > 0 {
-            point.demand = Some(demand_total / demand_readings as f64);
-        }
-        points.push(point);
-        period_start = period_end;
-    }
-    points
-}
-
 /// The readings as a table, for export.
 pub fn readings_export(readings: &[TelemetryReading], tz: &'static Tz) -> ExportTable {
     let value = |value: Option<f64>| value.map(ExportValue::number).unwrap_or(ExportValue::Empty);
     ExportTable {
-        columns: ["Read At", "Demand (W)", "Consumption Delta (Wh)", "Cost Delta (p)", "Cost Delta With Tax (p)", "Consumption (Wh)", "Export (Wh)"]
-            .iter().map(|column| column.to_string()).collect(),
-        rows: readings.iter()
-            .map(|reading| vec![
-                ExportValue::unix_time(reading.read_at, tz),
-                value(reading.demand),
-                value(reading.consumption_delta),
-                value(reading.cost_delta),
-                value(reading.cost_delta_with_tax),
-                value(reading.consumption),
-                value(reading.export),
-            ])
+        columns: [
+            "Read At",
+            "Demand (W)",
+            "Consumption Delta (Wh)",
+            "Cost Delta (p)",
+            "Cost Delta With Tax (p)",
+            "Consumption (Wh)",
+            "Export (Wh)",
+        ]
+        .iter()
+        .map(|column| column.to_string())
+        .collect(),
+        rows: readings
+            .iter()
+            .map(|reading| {
+                vec![
+                    ExportValue::unix_time(reading.read_at, tz),
+                    value(reading.demand),
+                    value(reading.consumption_delta),
+                    value(reading.cost_delta),
+                    value(reading.cost_delta_with_tax),
+                    value(reading.consumption),
+                    value(reading.export),
+                ]
+            })
             .collect(),
     }
 }
 
 /// The periods as a table, for export.
-pub fn points_export(points: &[TelemetryPoint], tz: &'static Tz) -> ExportTable {
+pub fn points_export(points: &[GridPoint], tz: &'static Tz) -> ExportTable {
     ExportTable {
-        columns: ["Start", "End", "Energy (kWh)", "Export (kWh)", "Average Demand (kW)", "Readings"].iter().map(|column| column.to_string()).collect(),
-        rows: points.iter()
-            .map(|point| vec![
-                ExportValue::unix_time(point.start, tz),
-                ExportValue::unix_time(point.end, tz),
-                ExportValue::number(point.energy / 1000.0),
-                ExportValue::number(point.export / 1000.0),
-                point.demand.map(|demand| ExportValue::number(demand / 1000.0)).unwrap_or(ExportValue::Empty),
-                ExportValue::number(point.readings as f64),
-            ])
+        columns: [
+            "Start",
+            "End",
+            "Energy (kWh)",
+            "Export (kWh)",
+            "Average Demand (kW)",
+            "Readings",
+        ]
+        .iter()
+        .map(|column| column.to_string())
+        .collect(),
+        rows: points
+            .iter()
+            .map(|point| {
+                vec![
+                    ExportValue::unix_time(point.start, tz),
+                    ExportValue::unix_time(point.end, tz),
+                    ExportValue::number(point.energy / 1000.0),
+                    ExportValue::number(point.export / 1000.0),
+                    point
+                        .demand
+                        .map(|demand| ExportValue::number(demand / 1000.0))
+                        .unwrap_or(ExportValue::Empty),
+                    ExportValue::number(point.readings as f64),
+                ]
+            })
             .collect(),
     }
 }
@@ -562,8 +465,12 @@ pub fn points_export(points: &[TelemetryPoint], tz: &'static Tz) -> ExportTable 
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{COMPLETE_AFTER_SECONDS, DAY_SECONDS, HOUR_SECONDS, SERVER_HISTORY_SECONDS, TelemetryPeriod, TelemetryReading, aggregate,
-        day_hours, requests};
+    use super::{
+        COMPLETE_AFTER_SECONDS, DAY_SECONDS, HOUR_SECONDS, SERVER_HISTORY_SECONDS, TelemetryReading, day_hours,
+        requests,
+    };
+    use crate::period::Period;
+    use crate::power::grid::aggregate;
 
     fn reading(read_at: i64, demand: f64, consumption_delta: f64) -> TelemetryReading {
         TelemetryReading {
@@ -602,14 +509,30 @@ mod tests {
         // Hour 4 has no reading just after it, as hour 5 is missing, and hour 23 none as there is none after the day.
         let day = day_hours(&readings, DAY_START, DAY_END, None, NOW);
         assert_eq!(day.fetchable.len(), 24);
-        assert_eq!(day.missing, [DAY_START + 4 * HOUR_SECONDS, DAY_START + 5 * HOUR_SECONDS, DAY_START + 23 * HOUR_SECONDS]);
+        assert_eq!(
+            day.missing,
+            [
+                DAY_START + 4 * HOUR_SECONDS,
+                DAY_START + 5 * HOUR_SECONDS,
+                DAY_START + 23 * HOUR_SECONDS
+            ]
+        );
         // Never fetched, fetched the day after, or a fetch which did not finish: not up to date.
         for modified in [None, Some(DAY_END), Some(0)] {
             assert!(!day_hours(&readings, DAY_START, DAY_END, modified, NOW).up_to_date);
         }
         // Fetched a minute ago, or with no reading after it but fetched a day after it: up to date.
         assert!(day_hours(&readings, DAY_START, DAY_END, Some(NOW - 60), NOW).up_to_date);
-        assert!(day_hours(&readings, DAY_START, DAY_END, Some(DAY_END + COMPLETE_AFTER_SECONDS), NOW).up_to_date);
+        assert!(
+            day_hours(
+                &readings,
+                DAY_START,
+                DAY_END,
+                Some(DAY_END + COMPLETE_AFTER_SECONDS),
+                NOW
+            )
+            .up_to_date
+        );
         // With the first reading after the day it is complete, whenever it was fetched.
         readings.insert(DAY_END + 5, reading(DAY_END + 5, 1.0, 1.0));
         assert!(day_hours(&readings, DAY_START, DAY_END, Some(DAY_END), NOW).up_to_date);
@@ -620,28 +543,44 @@ mod tests {
         let readings = BTreeMap::new();
         // A day which is all too old.
         let old_start = NOW - 40 * DAY_SECONDS;
-        assert!(day_hours(&readings, old_start, old_start + DAY_SECONDS, None, NOW).fetchable.is_empty());
+        assert!(
+            day_hours(&readings, old_start, old_start + DAY_SECONDS, None, NOW)
+                .fetchable
+                .is_empty()
+        );
         // A day which is partly too old starts at the first hour the server has.
         let limit = NOW - SERVER_HISTORY_SECONDS;
         let partly_start = limit - 3 * HOUR_SECONDS;
-        assert_eq!(day_hours(&readings, partly_start, partly_start + DAY_SECONDS, None, NOW).fetchable.first(), Some(&limit));
+        assert_eq!(
+            day_hours(&readings, partly_start, partly_start + DAY_SECONDS, None, NOW)
+                .fetchable
+                .first(),
+            Some(&limit)
+        );
         // Today is fetchable up to now, including the hour in progress.
         let today_start = NOW - 5 * HOUR_SECONDS - 600;
-        assert_eq!(day_hours(&readings, today_start, today_start + DAY_SECONDS, None, NOW).fetchable.len(), 6);
+        assert_eq!(
+            day_hours(&readings, today_start, today_start + DAY_SECONDS, None, NOW)
+                .fetchable
+                .len(),
+            6
+        );
     }
 
     #[test]
     fn readings_are_totalled_in_each_period_including_empty_ones() {
         let london = time_tz::timezones::db::europe::LONDON;
         let start = 1_790_000_000 - 1_790_000_000 % 60;
-        let readings: Vec<TelemetryReading> = (0..12).map(|index| reading(start + index * 10, 1000.0 + index as f64, 2.0)).collect();
-        let minutes = aggregate(&readings, start, start + 180, TelemetryPeriod::Minute, london);
+        let readings: Vec<TelemetryReading> = (0..12)
+            .map(|index| reading(start + index * 10, 1000.0 + index as f64, 2.0))
+            .collect();
+        let minutes = aggregate(&readings, start, start + 180, Period::Minute, london);
         assert_eq!(minutes.len(), 3);
         assert_eq!((minutes[0].readings, minutes[0].energy), (6, 12.0));
         assert_eq!(minutes[0].demand, Some(1002.5));
         assert_eq!(minutes[1].demand, Some(1008.5));
         assert_eq!((minutes[2].readings, minutes[2].demand), (0, None));
-        let days = aggregate(&readings, start, start + 180, TelemetryPeriod::Day, london);
+        let days = aggregate(&readings, start, start + 180, Period::Day, london);
         assert_eq!(days.len(), 1);
         assert_eq!(days[0].energy, 24.0);
     }
@@ -650,7 +589,10 @@ mod tests {
     fn energy_is_the_change_in_the_register_so_missing_readings_do_not_lose_any() {
         let london = time_tz::timezones::db::europe::LONDON;
         let start = 1_790_000_000 - 1_790_000_000 % 60;
-        let with_register = |read_at: i64, consumption: f64, delta: f64| TelemetryReading { consumption: Some(consumption), ..reading(read_at, 1000.0, delta) };
+        let with_register = |read_at: i64, consumption: f64, delta: f64| TelemetryReading {
+            consumption: Some(consumption),
+            ..reading(read_at, 1000.0, delta)
+        };
         // Two readings missing after the second, whose delta only covers 10 seconds of the 30 since it.
         let readings = vec![
             with_register(start, 1000.0, 3.0),
@@ -658,18 +600,18 @@ mod tests {
             with_register(start + 40, 1012.0, 3.0),
             with_register(start + 50, 1015.0, 3.0),
         ];
-        let minute = aggregate(&readings, start, start + 60, TelemetryPeriod::Minute, london);
+        let minute = aggregate(&readings, start, start + 60, Period::Minute, london);
         // The first reading has no register reading before it, so uses its delta, then the register's 15 Wh.
         assert_eq!(minute[0].energy, 3.0 + 15.0);
         // At 10 seconds each reading lasts from the one before, so the one after the missing ones is 30 seconds long.
-        let periods = aggregate(&readings, start, start + 60, TelemetryPeriod::TenSeconds, london);
+        let periods = aggregate(&readings, start, start + 60, Period::TenSeconds, london);
         let energies: Vec<f64> = periods.iter().map(|period| period.energy).collect();
         assert_eq!(energies, [3.0, 3.0, 9.0, 3.0]);
         let lengths: Vec<i64> = periods.iter().map(|period| period.end - period.start).collect();
         assert_eq!(lengths, [10, 10, 30, 10]);
 
         // From the second reading, the first is only used for the register reading before it, and is not counted.
-        let from_second = aggregate(&readings, start + 10, start + 60, TelemetryPeriod::Day, london);
+        let from_second = aggregate(&readings, start + 10, start + 60, Period::Day, london);
         assert_eq!((from_second[0].energy, from_second[0].readings), (15.0, 3));
     }
 
@@ -678,7 +620,10 @@ mod tests {
         let hour = |index: i64| DAY_START + index * HOUR_SECONDS;
         // A 25 hour day, with 3 hours missing in the middle of it from another fetch.
         let hours: Vec<i64> = (0..25).filter(|index| !(5..8).contains(index)).map(hour).collect();
-        assert_eq!(requests(&hours), [(hour(0), hour(5)), (hour(8), hour(20)), (hour(20), hour(25))]);
+        assert_eq!(
+            requests(&hours),
+            [(hour(0), hour(5)), (hour(8), hour(20)), (hour(20), hour(25))]
+        );
         assert_eq!(requests(&[]), []);
     }
 
@@ -686,11 +631,18 @@ mod tests {
     fn export_is_the_change_in_the_export_register() {
         let london = time_tz::timezones::db::europe::LONDON;
         let start = 1_790_000_000 - 1_790_000_000 % 60;
-        let exporting = |read_at: i64, export: f64| TelemetryReading { export: Some(export), ..reading(read_at, -2000.0, 0.0) };
-        let readings = vec![exporting(start - 10, 500.0), exporting(start, 505.0), exporting(start + 40, 527.0)];
-        let minute = aggregate(&readings, start, start + 60, TelemetryPeriod::Minute, london);
+        let exporting = |read_at: i64, export: f64| TelemetryReading {
+            export: Some(export),
+            ..reading(read_at, -2000.0, 0.0)
+        };
+        let readings = vec![
+            exporting(start - 10, 500.0),
+            exporting(start, 505.0),
+            exporting(start + 40, 527.0),
+        ];
+        let minute = aggregate(&readings, start, start + 60, Period::Minute, london);
         assert_eq!((minute[0].export, minute[0].demand), (27.0, Some(-2000.0)));
-        let periods = aggregate(&readings, start, start + 60, TelemetryPeriod::TenSeconds, london);
+        let periods = aggregate(&readings, start, start + 60, Period::TenSeconds, london);
         let exports: Vec<f64> = periods.iter().map(|period| period.export).collect();
         assert_eq!(exports, [5.0, 22.0]);
     }

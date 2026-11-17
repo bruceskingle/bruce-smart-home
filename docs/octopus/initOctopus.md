@@ -15,7 +15,7 @@ On the left of the screen you will see the module menu, which you can click on t
 
 <img src="Screenshot3.png" width="1024">
 
-If you now quit the application (by closing it's window) and look at the file ```.marco-sparko``` in your home directory you will find the following content:
+If you now quit the application (by closing it's window) and look at the file ```profiles.json``` in the folder ```.bruce-smart-home``` in your home directory you will find something like this:
 
 ```json
 [
@@ -35,8 +35,8 @@ Note that this file is updated as the program exits so you need to quit the appl
 If you check the file permissions (this is how to do it on MacOS)
 
 ```
-% ls -l .marco-sparko
--rw-------@ 1 bruce  staff  442 23 Sep 09:39 .marco-sparko
+% ls -l .bruce-smart-home/profiles.json
+-rw-------@ 1 bruce  staff  442 23 Sep 09:39 .bruce-smart-home/profiles.json
 ```
 
 You will see that the file is read write for you and there is no access to anyone else.
@@ -45,7 +45,7 @@ If you launch the application again you will see that you do not have to log in 
 
 <img src="Screenshot4.png" width="1024">
 
-If you are wondering how. the application is able to work without logging in the answer lies in the file ```default-octopus.json``` which you will find in a folder called ```.marco-sparko-cache``` in your home directory. That file looks like this:
+If you are wondering how. the application is able to work without logging in the answer lies in the file ```default-octopus.json``` which you will find in the folder ```tokens``` in ```.bruce-smart-home``` in your home directory. That file looks like this:
 
 ```json
 {

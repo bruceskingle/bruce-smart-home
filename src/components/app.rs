@@ -1,11 +1,9 @@
-
 use std::sync::Arc;
 
+use crate::{AppContext, Args, InitRequested, ModuleRegistrations, views::*};
 use dioxus::prelude::*;
-use crate::{Args, InitRequested, MarcoSparkoContext, ModuleRegistrations, views::*};
 
 // use crate::views::{Blog, Home, Navbar};
-
 
 /// The Route enum is used to define the structure of internal routes in our app. All route enums need to derive
 /// the [`Routable`] trait, which provides the necessary methods for the router to work.
@@ -43,9 +41,12 @@ const FAVICON: Asset = asset!("/icons/icon.ico");
 pub const MAIN_CSS: Asset = asset!("/assets/styling/main.css");
 
 /// The background of the app, as in main.css, for a window's webview and the page before the stylesheet has loaded,
-/// so that a window does not flash white as it opens.
+/// so that a window does not flash white as it opens. The page itself, in Dioxus's root element, main, is hidden until
+/// main.css has loaded, which shows it, so that it is not seen without its styles for a moment as the app starts. Every
+/// window links main.css, the main one in App and the bills' in BillWindow, or it would stay hidden.
 pub const BACKGROUND_COLOR: (u8, u8, u8, u8) = (0x0f, 0x11, 0x16, 0xff);
-pub const INITIAL_HEAD: &str = "<style>html, body { background-color: #0f1116; color: #ffffff; }</style>";
+pub const INITIAL_HEAD: &str =
+    "<style>html, body { background-color: #0f1116; color: #ffffff; } #main { visibility: hidden; }</style>";
 
 /// App is the main component of our app. Components are the building blocks of dioxus apps. Each component is a function
 /// that takes some props and returns an Element. In this case, App takes no props because it is the root of our app.
@@ -57,50 +58,72 @@ pub fn App() -> Element {
     // let args = (&*context.read()).clone();
 
     crate::components::child_windows::use_main_window();
-    crate::screenshots::use_screenshots(Args::ms_parse().screenshots());
+    crate::screenshots::use_screenshots(Args::parse_all().screenshots());
     // The app only ends when the user quits it, by closing the main window or with Quit.
     dioxus::desktop::use_wry_event_handler(|event, _| {
         if let dioxus::desktop::tao::event::Event::LoopDestroyed = event {
+            crate::polling::record_quit();
             crate::log_info!("Quit by user");
         }
     });
 
-    let args = Args::ms_parse();
-    let verbose = args.marco_sparko_args.verbose;
+    let args = Args::parse_all();
+    let verbose = args.app_args.verbose;
     let mut init_signal = use_signal(|| InitRequested(true));
     let init = init_signal.read().0;
-    let mut context_signal = use_signal::<Option<Arc<MarcoSparkoContext>>>(|| None);
-    
+    let mut context_signal = use_signal::<Option<Arc<AppContext>>>(|| None);
+
     // Store the init signal in context so it can be accessed and reset from anywhere
     use_context_provider::<Signal<InitRequested>>(move || init_signal);
-    
-    use_context_provider::<Signal<Option<Arc<MarcoSparkoContext>>>>(move || context_signal);
+
+    use_context_provider::<Signal<Option<Arc<AppContext>>>>(move || context_signal);
 
     use_context_provider::<ModuleRegistrations>(move || ModuleRegistrations::new(verbose));
+
+    use_context_provider::<crate::polling::PollStatuses>(|| Signal::new(Default::default()));
 
     // let window_icon =dioxus_desktop::tao::window::Icon::from_file(&std::path::Path::new("icons/icon.ico")).unwrap();
     // window.set_window_icon(window_icon);
 
     if init {
-        let marco_sparko_context = MarcoSparkoContext::new(args)?;
-        context_signal.set(Some(marco_sparko_context));
-        // let x: Signal<Arc<MarcoSparkoContext>>;
-        
-        
+        // The settings cannot be read, e.g. the key of their secrets is missing: say why, rather than show nothing.
+        let app_context = match AppContext::new(args) {
+            Ok(app_context) => app_context,
+            Err(error) => {
+                crate::log_error!("Unable to start, {error:#}");
+                let file = AppContext::get_file_path()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default();
+                // The stylesheet is linked here too, as the layout which links it is not drawn, and without it the
+                // text is black on the window's dark background.
+                return rsx! {
+                    document::Link { rel: "stylesheet", href: MAIN_CSS }
+                    div { class: "startup-error",
+                        h1 { "Unable to read the settings" }
+                        p { class: "error", "{error:#}" }
+                        p {
+                            "The passwords and keys in the settings are encrypted, with a key kept in the {crate::secrets::store_name()}. \
+                            If it asked whether the app may use it, quit the app, open it again, and allow it."
+                        }
+                        p { "The settings are in {file}." }
+                    }
+                };
+            }
+        };
+        context_signal.set(Some(app_context));
+        // let x: Signal<Arc<AppContext>>;
 
         init_signal.set(InitRequested(false));
-        
-        return rsx!{ "Loading..." };
-    }
 
+        return rsx! { "Loading..." };
+    }
 
     // let opt_context = &*context_signal.read();
     // let context = opt_context.as_ref().unwrap();
     // let profile = &context.profile.active_profile;
 
-
     // if !profile.version.eq(CURRENT_VERSION) {
-        
+
     //     let profile_version = if profile.version.len() == 0 {"0.0.0"} else { &profile.version };
 
     //     return rsx! {
@@ -128,7 +151,7 @@ pub fn App() -> Element {
     //         }
     //     }
     // }
-   
+
     rsx! {
         ErrorBoundary {
             handle_error: |errors: ErrorContext| {
@@ -144,9 +167,18 @@ pub fn App() -> Element {
             // we are using the `document::Link` component to add a link to our favicon and main CSS file into the head of our app.
             document::Link { rel: "icon", href: FAVICON }
             document::Link { rel: "stylesheet", href: MAIN_CSS }
+            crate::components::tooltips::Tooltips {}
 
             Router::<Route> {}
+
+            // A list of one, keyed by the context, so that a new profile's modules are polled, as Dioxus only uses
+            // keys in lists.
+            for context in context_signal.read().iter().cloned() {
+                crate::polling::Poller {
+                    key: "{Arc::as_ptr(&context):p}",
+                    context: crate::util::SharedProp(context),
+                }
+            }
         }
     }
 }
-

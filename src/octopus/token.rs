@@ -1,13 +1,13 @@
+use crate::AppContext;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use crate::MarcoSparkoContext;
 
 use super::graphql::ObtainJsonWebTokenInput;
 
-use sparko_graphql::{GraphQLCaller, RequestManager, TokenManager};
 use super::graphql::login::obtain_kraken_token::ObtainKrakenJsonWebToken;
+use bruce_graphql::{GraphQLCaller, RequestManager, TokenManager};
 
 /*
 Implementation of TokenManager for the Octopus API
@@ -41,10 +41,10 @@ const GRACE_PERIOD: u32 = 300;
 
 #[derive(Serialize, Deserialize)]
 struct StoredToken {
-    token_expires:      u32,
-    token:              String,
-    refresh_expires:    u32,
-    refresh:            String,
+    token_expires: u32,
+    token: String,
+    refresh_expires: u32,
+    refresh: String,
 }
 
 impl From<&OctopusToken> for StoredToken {
@@ -53,16 +53,16 @@ impl From<&OctopusToken> for StoredToken {
             token_expires: from.token_expires,
             token: from.token.as_ref().clone(),
             refresh_expires: from.refresh_expires,
-            refresh: from.refresh.as_ref().clone()
+            refresh: from.refresh.as_ref().clone(),
         }
     }
 }
 
 struct OctopusToken {
-    token_expires:      u32,
-    token:              Arc<String>,
-    refresh_expires:    u32,
-    refresh:            Arc<String>,
+    token_expires: u32,
+    token: Arc<String>,
+    refresh_expires: u32,
+    refresh: Arc<String>,
 }
 
 impl From<StoredToken> for OctopusToken {
@@ -71,15 +71,15 @@ impl From<StoredToken> for OctopusToken {
             token_expires: from.token_expires,
             token: Arc::new(from.token),
             refresh_expires: from.refresh_expires,
-            refresh: Arc::new(from.refresh)
+            refresh: Arc::new(from.refresh),
         }
     }
 }
 
 impl From<ObtainKrakenJsonWebToken> for OctopusToken {
     fn from(from: ObtainKrakenJsonWebToken) -> OctopusToken {
-        let mut expires= 0;
-        
+        let mut expires = 0;
+
         if let Some(object) = from.payload_.as_object() {
             if let Some(exp) = object.get("exp") {
                 if let Some(exp) = exp.as_u64() {
@@ -96,11 +96,9 @@ impl From<ObtainKrakenJsonWebToken> for OctopusToken {
     }
 }
 
-
 pub enum OctopusAuthenticator {
     ApiKey(String),
     EMailPassword { email: String, password: String },
-    
 }
 
 impl OctopusAuthenticator {
@@ -109,49 +107,67 @@ impl OctopusAuthenticator {
     }
 
     pub fn from_email_password(email: String, password: String) -> OctopusAuthenticator {
-        OctopusAuthenticator::EMailPassword { email, password } 
+        OctopusAuthenticator::EMailPassword { email, password }
     }
 
-    pub fn to_obtain_json_web_token_input(&self) ->  Result<ObtainJsonWebTokenInput, sparko_graphql::Error>{
+    pub fn to_obtain_json_web_token_input(&self) -> Result<ObtainJsonWebTokenInput, bruce_graphql::Error> {
         match self {
-            OctopusAuthenticator::ApiKey(api_key) => 
-                ObtainJsonWebTokenInput::builder()
-                    .with_apikey(api_key.clone())
-                    .build(),
-            OctopusAuthenticator::EMailPassword { email, password } => 
-                ObtainJsonWebTokenInput::builder()
-                            .with_email(email.clone())
-                            .with_password(password.clone())
-                            .build(),
+            OctopusAuthenticator::ApiKey(api_key) => {
+                ObtainJsonWebTokenInput::builder().with_apikey(api_key.clone()).build()
+            }
+            OctopusAuthenticator::EMailPassword { email, password } => ObtainJsonWebTokenInput::builder()
+                .with_email(email.clone())
+                .with_password(password.clone())
+                .build(),
         }
     }
 }
 
 pub struct OctopusTokenManager {
-    context: Arc<MarcoSparkoContext>,
+    context: Arc<AppContext>,
     request_manager: Arc<RequestManager>,
     authenticator: Mutex<Option<OctopusAuthenticator>>,
     token: Mutex<Option<OctopusToken>>,
+    /// Whether the login is the saved one, so that a refused login is reported, see refuse, but not one being tried on
+    /// the login page, see set_authenticator.
+    saved_login: std::sync::atomic::AtomicBool,
+}
+
+/// The error codes with which Octopus refuses a login: a refresh token which has expired or is not right, an email
+/// address and password which are not right, and an API key which is not right.
+const REFUSED_CODES: [&str; 4] = ["KT-CT-1134", "KT-CT-1135", "KT-CT-1138", "KT-CT-1139"];
+
+/// Whether Octopus refused the login, rather than e.g. not answering.
+fn is_refusal(error: &bruce_graphql::Error) -> bool {
+    match error {
+        bruce_graphql::Error::GraphQLError(errors) => errors.iter().any(|error| {
+            error
+                .extensions
+                .get("errorCode")
+                .and_then(|code| code.as_str())
+                .is_some_and(|code| REFUSED_CODES.contains(&code))
+        }),
+        _ => false,
+    }
 }
 
 impl OctopusTokenManager {
-
-    pub fn new(context: Arc<MarcoSparkoContext>,
+    pub fn new(
+        context: Arc<AppContext>,
         request_manager: Arc<RequestManager>,
         authenticator: Option<OctopusAuthenticator>,
     ) -> OctopusTokenManager {
-        let token: Option<OctopusToken> = if let Some(json_web_token) =  context.read_cache::<StoredToken>(crate::octopus::MODULE_ID) {
-            Some(OctopusToken::from(json_web_token))
-        }
-        else {
-            None
-        };
+        let token: Option<OctopusToken> =
+            if let Some(json_web_token) = context.read_cache::<StoredToken>(crate::octopus::MODULE_ID) {
+                Some(OctopusToken::from(json_web_token))
+            } else {
+                None
+            };
 
-        if context.args.marco_sparko_args.verbose {
+        if context.args.app_args.verbose {
             if token.is_some() {
                 println!("Loaded token from cache");
-            }
-            else {
+            } else {
                 println!("No cached token found");
             }
         }
@@ -161,18 +177,70 @@ impl OctopusTokenManager {
             request_manager,
             authenticator: Mutex::new(authenticator),
             token: Mutex::new(token),
+            saved_login: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
+    /// Says that the login is the saved one, see saved_login.
+    pub fn with_saved_login(self) -> Self {
+        self.saved_login.store(true, std::sync::atomic::Ordering::Relaxed);
+        self
+    }
+
+    /// The login to try, from the login page, which is not the saved one, see saved_login.
     pub async fn set_authenticator(&self, authenticator: OctopusAuthenticator) {
-        // let mut locked_authenticator = self.authenticator.lock().await;
+        self.saved_login.store(false, std::sync::atomic::Ordering::Relaxed);
         *self.authenticator.lock().await = Some(authenticator);
+    }
+
+    /// Whether there is a saved login which can be used without asking: a token which can still be refreshed, or an API
+    /// key. Checked without a request, so that opening the module does not need the network; a login which turns out
+    /// to be refused is reported by the request which finds it, see refuse.
+    pub async fn has_login(&self) -> bool {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as u32;
+        self.authenticator.lock().await.is_some()
+            || self
+                .token
+                .lock()
+                .await
+                .as_ref()
+                .is_some_and(|token| token.refresh_expires - GRACE_PERIOD > now)
+    }
+
+    /// Removes the token of the saved login which Octopus refused, which is no use, and reports it, see login.rs, if it
+    /// is the saved one. Any API key is kept, so that the login page can show what it was.
+    fn refuse(&self, reason: String) {
+        if !self.saved_login.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        if let Err(error) = self.context.remove_cache(crate::octopus::MODULE_ID) {
+            crate::log_error!("Unable to remove the refused Octopus token, {error:#}");
+        }
+        let _ = crate::login::refused(&self.context, crate::octopus::MODULE_ID, reason);
     }
 }
 
 impl TokenManager for OctopusTokenManager {
+    /// A token, see obtain, with a refused saved login removed and reported, see refuse.
+    async fn get_authenticator(&self, refresh: bool) -> Result<Arc<String>, bruce_graphql::Error> {
+        let result = self.obtain(refresh).await;
+        match &result {
+            Err(error) if is_refusal(error) => self.refuse(format!(
+                "Octopus refused the saved login, {}",
+                super::describe_login_error(error)
+            )),
+            Err(bruce_graphql::Error::MissingRequiredValueError(_)) => {
+                self.refuse(String::from("The saved Octopus login has expired"))
+            }
+            _ => {}
+        }
+        result
+    }
+}
 
-    async fn get_authenticator(&self, refresh: bool)  -> Result<Arc<String>, sparko_graphql::Error> {
+impl OctopusTokenManager {
+    /// The current token, refreshed or obtained again if it has expired, or if refresh is set.
+    async fn obtain(&self, refresh: bool) -> Result<Arc<String>, bruce_graphql::Error> {
         let mut locked_token = self.token.lock().await;
 
         let mut current_token = None;
@@ -180,10 +248,7 @@ impl TokenManager for OctopusTokenManager {
 
         if !refresh {
             if let Some(token) = &*locked_token {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs() as u32;
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as u32;
 
                 if token.token_expires - GRACE_PERIOD > now {
                     current_token = Some(token.token.clone());
@@ -191,15 +256,14 @@ impl TokenManager for OctopusTokenManager {
                 if token.refresh_expires - GRACE_PERIOD > now {
                     refresh_token = Some(token.refresh.clone());
                 }
-            } 
+            }
         }
 
         if let Some(token) = current_token {
             Ok(token)
-        }
-        else {
+        } else {
             if let Some(refresh_token) = refresh_token {
-                if self.context.args.marco_sparko_args.verbose {
+                if self.context.args.app_args.verbose {
                     println!("Refreshing Octopus token using refresh token...");
                 }
 
@@ -208,59 +272,69 @@ impl TokenManager for OctopusTokenManager {
                     .build()?;
 
                 let mutation = super::graphql::login::obtain_kraken_token::Mutation::new(input);
-                let response: crate::octopus::graphql::login::obtain_kraken_token::Response = self.request_manager.call2(&mutation, None).await?;
-        
+                let response: crate::octopus::graphql::login::obtain_kraken_token::Response =
+                    self.request_manager.call2(&mutation, None).await?;
+
                 let token = OctopusToken::from(response.obtain_kraken_token_);
 
-                if self.context.args.marco_sparko_args.verbose {
+                if self.context.args.app_args.verbose {
                     println!("Obtained new Octopus token via refresh");
                 }
 
-                if let Err(error) = self.context.update_cache(crate::octopus::MODULE_ID, &StoredToken::from(&token)) {
-                    return Err(sparko_graphql::Error::InternalError(format!("Failed to update cache {}", error)))
+                if let Err(error) = self
+                    .context
+                    .update_cache(crate::octopus::MODULE_ID, &StoredToken::from(&token))
+                {
+                    return Err(bruce_graphql::Error::InternalError(format!(
+                        "Failed to update cache {}",
+                        error
+                    )));
                 }
-        
+
                 let result = token.token.clone();
-        
+
                 *locked_token = Some(token);
-                
+
                 Ok(result)
-            }
-            else {
+            } else {
                 let locked_authenticator = self.authenticator.lock().await;
                 if let Some(authenticator) = &*locked_authenticator {
-                    
                     let input = authenticator.to_obtain_json_web_token_input()?;
 
-                    
-                    if self.context.args.marco_sparko_args.verbose {
+                    if self.context.args.app_args.verbose {
                         println!("Obtaining new Octopus token...");
                     }
 
                     let mutation = super::graphql::login::obtain_kraken_token::Mutation::new(input);
-                    let response: crate::octopus::graphql::login::obtain_kraken_token::Response = self.request_manager.call2(&mutation, None).await?;
-            
+                    let response: crate::octopus::graphql::login::obtain_kraken_token::Response =
+                        self.request_manager.call2(&mutation, None).await?;
+
                     let token = OctopusToken::from(response.obtain_kraken_token_);
-            
-                    if let Err(error) = self.context.update_cache(crate::octopus::MODULE_ID, &StoredToken::from(&token)) {
-                        return Err(sparko_graphql::Error::InternalError(format!("Failed to update cache {}", error)))
+
+                    if let Err(error) = self
+                        .context
+                        .update_cache(crate::octopus::MODULE_ID, &StoredToken::from(&token))
+                    {
+                        return Err(bruce_graphql::Error::InternalError(format!(
+                            "Failed to update cache {}",
+                            error
+                        )));
                     }
-            
+
                     let result = token.token.clone();
-            
+
                     *locked_token = Some(token);
-                    
+
                     Ok(result)
-                }
-                else {
-                    Err(sparko_graphql::Error::MissingRequiredValueError("No authenticator provided"))
+                } else {
+                    Err(bruce_graphql::Error::MissingRequiredValueError(
+                        "No authenticator provided",
+                    ))
                 }
             }
         }
     }
-
 }
-
 
 // These tests actually hit the API and cause "Too many requests." errors
 // #[cfg(test)]
@@ -274,7 +348,7 @@ impl TokenManager for OctopusTokenManager {
 //             println!("result {:?}", octopus_error);
 //             if let Error::GraphQLError(gql_error) = octopus_error {
 
-//                 if let sparko_graphql::error::Error::GraphQLError(json_errors) = &gql_error {
+//                 if let bruce_graphql::error::Error::GraphQLError(json_errors) = &gql_error {
 //                     let x = json_errors.get(0).unwrap().extensions.error_code.as_ref().unwrap();
 //                     assert_eq!(x, "KT-CT-1139");
 //                 }
@@ -298,14 +372,14 @@ impl TokenManager for OctopusTokenManager {
 //         else {
 //             panic!("Expected error, got token");
 //         }
-        
+
 //     }
 
 //     fn test_api_key(api_key: String)  -> anyhow::Result<Arc<std::string::String>> {
 //         let mut octopus_client = crate::octopus::ClientBuilder::new_test()
 //             .with_api_key(api_key)?
 //             .do_build(false)?;
-        
+
 //         tokio_test::block_on(octopus_client.token_manager.authenticate())
 //     }
 
@@ -316,7 +390,7 @@ impl TokenManager for OctopusTokenManager {
 //             println!("result {:?}", octopus_error);
 //             if let Error::GraphQLError(gql_error) = octopus_error {
 
-//                 if let sparko_graphql::error::Error::GraphQLError(json_errors) = &gql_error {
+//                 if let bruce_graphql::error::Error::GraphQLError(json_errors) = &gql_error {
 //                     let x = json_errors.get(0).unwrap().extensions.error_code.as_ref().unwrap();
 //                     assert_eq!(x, "KT-CT-1135");
 //                 }
@@ -340,7 +414,7 @@ impl TokenManager for OctopusTokenManager {
 //         else {
 //             panic!("Expected error, got token");
 //         }
-        
+
 //     }
 
 //     #[test]
@@ -376,7 +450,7 @@ impl TokenManager for OctopusTokenManager {
 //             println!("result {:?}", octopus_error);
 //             if let Error::GraphQLError(gql_error) = octopus_error {
 
-//                 if let sparko_graphql::error::Error::GraphQLError(json_errors) = &gql_error {
+//                 if let bruce_graphql::error::Error::GraphQLError(json_errors) = &gql_error {
 //                     let x = json_errors.get(0).unwrap().extensions.error_code.as_ref().unwrap();
 //                      assert_eq!(x, "KT-CT-1135");
 //                 }
@@ -400,7 +474,7 @@ impl TokenManager for OctopusTokenManager {
 //         else {
 //             panic!("Expected error, got token");
 //         }
-        
+
 //     }
 
 //     fn test_refresh_token(refresh_token: String)  -> anyhow::Result<Arc<std::string::String>> {
@@ -420,7 +494,7 @@ impl TokenManager for OctopusTokenManager {
 //             refresh_token: Some(refresh_token),
 //         }
 //     });
-        
+
 //         tokio_test::block_on(octopus_client.token_manager.authenticate())
 //     }
 // }

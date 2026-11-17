@@ -1,0 +1,45 @@
+# As boards/cyd-esp32-28 in bruce-esp-idf, but with a bigger main task stack, as the scheduler runs the HTTPS requests to
+# the Tesla gateway, myenergi and Octopus in it. At 16 KB, /api/memory showed at most about 10 KB used.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=12288
+
+# Increase a bit these stack sizes as they are also a bit too small by default
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
+CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=4096
+
+# You might have to increase this further if you spawn your own Rust threads
+# that allocate large stack variables; or better yet - use
+# `std::thread::Builder::new().stack_size(XXX)` for spawning
+CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=16384
+
+CONFIG_MBEDTLS_TLS_ENABLED=y
+CONFIG_ESP_TLS_USING_MBEDTLS=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+
+# The Tesla gateway's certificate is one it made itself, so it cannot be checked. These only skip the check for
+# connections given no CA, i.e. only the gateway's: one given the certificate bundle is still checked.
+# TODO: pin the gateway's certificate instead, as bruce-smart-home should too.
+CONFIG_ESP_TLS_INSECURE=y
+CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
+
+# Enable multicast support for mDNS
+CONFIG_LWIP_IGMP=y
+
+# HTTPS for the device API. Dynamic buffers allocate TLS buffers only while they are needed, which saves tens of KB
+# a connection on the CYD, which has no PSRAM.
+CONFIG_ESP_HTTPS_SERVER_ENABLE=y
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y
+# Two HTTP servers (port 80 and the HTTPS API) and the gateway client.
+CONFIG_LWIP_MAX_SOCKETS=16
+
+# Long file names on the SD card, e.g. 2026-10-29.jsonl, see records.rs.
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255
+
+# For the tasks' stack high water marks in /api/memory.
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+
+# 6 WiFi receive buffers reserved, rather than 10, about 1.6 KB each, as the RAM is needed for the HTTPS connections to
+# myenergi and Octopus, which check certificate chains.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6

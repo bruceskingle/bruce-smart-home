@@ -1,12 +1,20 @@
 [application]
-name = "Marco Sparko"
+name = "Bruces Smart Home"
 
 [bundle]
 # The .ico for Windows. The .png for macOS, where dx (since 0.7.10) makes the app's .icns only from .png or .icns files,
 # and leaves the app without an icon if there are none.
-icon = ["icons/icon.ico", "assets/MarcoSparko.png"]
-identifier = "org.skingle"
+icon = ["icons/icon.ico", "assets/app-icon.png"]
+identifier = "org.skingle.bruce-smart-home"
 publisher = "BruceSkingle"
+# The virtual capture device, its launcher and the firmware for each board it simulates, see capture/README.md, which
+# capture/build-sim.sh builds, each name with the target's triple, as dx's bundler, tauri-bundler, wants, and which the
+# installers put beside the app's own program, without it, where the Devices page starts it from.
+external_bin = [
+    "capture/target-sim/bundle/bruce-smart-home-capture-sim",
+    "capture/target-sim/bundle/bruce-smart-home-capture-rlcd42",
+    "capture/target-sim/bundle/bruce-smart-home-capture-guitron",
+]
 
 [bundle.windows]
 icon_path = "icons/icon.ico"
@@ -18,11 +26,13 @@ webview_install_mode = { DownloadBootstrapper = { silent = true } }
 [bundle.windows.nsis]
 # The setup.exe's own icon, which is not taken from bundle.icon.
 installer_icon = "icons/icon.ico"
+# Puts the virtual capture device beside the app, as dx leaves out external_bin on Windows, see the file.
+installer_hooks = "windows/installer-hooks.nsh"
 
 [web.app]
 
 # HTML title tag content
-title = "Marco Sparko"
+title = "Bruce's Smart Home"
 
 # include `assets` in web platform
 [web.resource]

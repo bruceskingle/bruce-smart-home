@@ -14,6 +14,10 @@ pub use home::Home;
 mod module;
 pub use module::Module;
 
+mod sidebar;
+
+mod polling;
+
 mod navbar;
 pub use navbar::Navbar;
 
@@ -23,5 +27,19 @@ pub use profile_size::ProfileSize;
 mod settings;
 pub use settings::Settings;
 
-pub mod log_panel;
+mod devices;
+
+pub mod electricity;
+
+mod site;
+pub use site::SitePage;
+
+mod live;
+pub use devices::Devices;
+pub use live::LivePage;
+
+mod climate;
+pub use climate::ClimatePage;
+
 pub mod help_panel;
+pub mod log_panel;

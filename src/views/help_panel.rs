@@ -3,7 +3,10 @@
 //! be resized by dragging its left edge, and hidden, see Navbar and the bill window.
 
 use dioxus::prelude::*;
-use dioxus_free_icons::{Icon, icons::ld_icons::{LdArrowLeft, LdX}};
+use dioxus_free_icons::{
+    Icon,
+    icons::ld_icons::{LdArrowLeft, LdX},
+};
 
 use crate::help::{self, HelpLink};
 
@@ -48,18 +51,24 @@ pub fn HelpPanel(topic: String, on_close: EventHandler<()>) -> Element {
         spawn(async move {
             let mut links = document::eval(LINK_LISTENER);
             while let Ok(href) = links.recv::<String>().await {
-                let from = followed.peek().last().cloned().unwrap_or_else(|| screen_topic.peek().clone());
+                let from = followed
+                    .peek()
+                    .last()
+                    .cloned()
+                    .unwrap_or_else(|| screen_topic.peek().clone());
                 match help::follow(&from, &href) {
                     HelpLink::Page(path) => {
                         followed.write().push(path);
-                        document::eval("const content = document.getElementById('help-content'); if (content) { content.scrollTop = 0; }");
-                    },
+                        document::eval(
+                            "const content = document.getElementById('help-content'); if (content) { content.scrollTop = 0; }",
+                        );
+                    }
                     HelpLink::Web(url) => {
                         if let Err(error) = webbrowser::open(&url) {
                             crate::log_error!("Failed to open {url} in the browser: {error}");
                         }
-                    },
-                    HelpLink::None => {},
+                    }
+                    HelpLink::None => {}
                 }
             }
         });
@@ -67,7 +76,10 @@ pub fn HelpPanel(topic: String, on_close: EventHandler<()>) -> Element {
 
     let html = match help::page(&shown) {
         Some(page) => help::to_html(&shown, page.markdown),
-        None => help::to_html(&shown, &format!("There is no help for this screen yet.\n\nIt would be in docs/help/{shown}")),
+        None => help::to_html(
+            &shown,
+            &format!("There is no help for this screen yet.\n\nIt would be in docs/help/{shown}"),
+        ),
     };
 
     rsx! {

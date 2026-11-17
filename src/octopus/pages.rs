@@ -5,16 +5,18 @@
  * rather than by the enclosing Module component, which renders different pages at different times.
  */
 
+mod account;
 mod bills;
-mod properties;
-mod measurements;
 mod charging_sessions;
-mod ev_charging;
-mod telemetry;
 mod electricity;
+mod ev_charging;
+mod measurements;
+mod properties;
+mod telemetry;
 
+pub use account::AccountRow;
 pub use bills::BillsPage;
-pub use properties::PropertiesPage;
-pub use measurements::MeasurementsPage;
+pub use electricity::OctopusElectricity;
 pub use ev_charging::EvChargingPage;
-pub use electricity::ElectricityPage;
+pub use measurements::MeasurementsPage;
+pub use properties::PropertiesPage;

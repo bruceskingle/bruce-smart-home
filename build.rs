@@ -1,6 +1,6 @@
+use std::io::Write;
 use std::process::{Command, Stdio};
 use std::{env, error::Error, fs::File, path::Path, process};
-use std::io::Write;
 
 // fn get_current_working_dir() -> String {
 //     let res = std::env::current_dir();
@@ -16,8 +16,7 @@ fn main() {
     }
 }
 
-fn build()  -> Result<(), Box<dyn Error>> {
-    
+fn build() -> Result<(), Box<dyn Error>> {
     if let Some(dir) = env::var_os("OUT_DIR") {
         let format = time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
         let now = time::OffsetDateTime::now_utc();
@@ -27,34 +26,43 @@ fn build()  -> Result<(), Box<dyn Error>> {
 
         let mut file = File::create(dest_path)?;
 
-        writeln!(file, r#"
+        writeln!(
+            file,
+            r#"
 mod create_info {{
     #![allow(dead_code)]
     pub const PACKAGE_NAME: &'static str = "{}";
     pub const PACKAGE_VERSION: &'static str = "{}";
     pub const USER_AGENT: &'static str = "{}-{}";
     pub const BUILD_TIMESTAMP: &'static str = "{}";
-"#, env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), now.format(&format).unwrap())?;
+"#,
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION"),
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION"),
+            now.format(&format).unwrap()
+        )?;
 
         git_status(&mut file)?;
         writeln!(file, "}}")?;
     }
 
     println!("cargo::rerun-if-changed=build.rs");
-    sparko_graphql_builder::builder("graphql")
-        .with_type("Date", "sparko_graphql::types::Date")
-        .with_type("DateTime", "sparko_graphql::types::DateTime")
+    bruce_graphql_builder::builder("graphql")
+        .with_type("Date", "bruce_graphql::types::Date")
+        .with_type("DateTime", "bruce_graphql::types::DateTime")
         .with_type("Decimal", "crate::octopus::decimal::Decimal")
         .with_schema("graphql/octopus/octopus-schema.graphql")
         .with_query("graphql/octopus/Login.graphql", "login")
         .with_query("graphql/octopus/account.graphql", "account")
         .with_query("graphql/octopus/meter.graphql", "meter")
         .with_query("graphql/octopus/bill.graphql", "bill")
+        .with_query("graphql/octopus/flex.graphql", "flex")
         // .with_query("force_error", "force_error")
         // .with_print(true)
         .build()?;
 
-    // panic!("Panic test!"); 
+    // panic!("Panic test!");
     Ok(())
 }
 
@@ -62,10 +70,7 @@ mod create_info {{
 git --no-optional-locks status --porcelain=v2 --branch --show-stash --ignore-submodules -uno
 */
 
-
-
-fn git_status(file: &mut File)   -> Result<(), std::io::Error> {
-
+fn git_status(file: &mut File) -> Result<(), std::io::Error> {
     let mut is_git = false;
     let mut tag_name = String::new();
     let mut branch_name = String::new();
@@ -87,8 +92,7 @@ fn git_status(file: &mut File)   -> Result<(), std::io::Error> {
 
     for line in output_str.lines() {
         tag_name = line.trim().to_string();
-    } 
-
+    }
 
     let output = Command::new("git")
         .arg("--no-optional-locks")
@@ -143,13 +147,17 @@ fn git_status(file: &mut File)   -> Result<(), std::io::Error> {
     writeln!(file, "\tpub const GIT_REPOSITORY : bool = {};", is_git)?;
     if is_git {
         // pub const USER_AGENT: &'static str = "{}-{};";
-            writeln!(file, "\tpub const GIT_BRANCH : &'static str = \"{}\";", branch_name)?;
-            writeln!(file, "\tpub const GIT_TAG : &'static str = \"{}\";", tag_name)?;
+        writeln!(file, "\tpub const GIT_BRANCH : &'static str = \"{}\";", branch_name)?;
+        writeln!(file, "\tpub const GIT_TAG : &'static str = \"{}\";", tag_name)?;
     }
     writeln!(file, "\tpub const GIT_DIRTY : bool = {};", is_dirty)?;
     writeln!(file, "\tpub const GIT_STAGED : bool = {};", is_staged)?;
     if upstream.is_some() {
-            writeln!(file, "\tpub const GIT_UPSTREAM : &'static str = \"{}\";", upstream.unwrap())?;
+        writeln!(
+            file,
+            "\tpub const GIT_UPSTREAM : &'static str = \"{}\";",
+            upstream.unwrap()
+        )?;
     }
     writeln!(file, "\tpub const GIT_STASH : bool = {};", has_stash)
 }

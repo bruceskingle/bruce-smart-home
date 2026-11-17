@@ -1,20 +1,20 @@
 [package]
-name = "marco-sparko"
+name = "bruce-smart-home"
 description = "The Energy Explorer"
-version = "0.4.4"
+version = "0.5.0"
 edition = "2024"
-default-run = "marco-sparko"
+default-run = "bruce-smart-home"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-sparko_graphql_builder = { path = "../sparko_graphql/sparko_graphql_builder" }
+bruce-graphql-builder = "0.5.0"
 time = { version = "0.3", features = ["serde", "parsing", "formatting"] }
 
 [dependencies]
 semver = "1"
 time = { version = "0.3", features = ["serde", "parsing", "formatting"] }
-serde = { version = "1.0", features = ["derive"], with = "iso8601"}
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.48.0", features = ["full"] }
 dirs = "5.0"
@@ -24,7 +24,14 @@ async-trait = "0.1.81"
 display_json = "0.2.1"
 rust_decimal = "1.36.0"
 rust_decimal_macros = "1.36.0"
-sparko_graphql = {version = "0.4.4", path = "../sparko_graphql" }
+bruce-graphql = "0.5.0"
+# The store every module keeps its data in, see store.rs; a git-ignored .cargo/config.toml may patch in a checkout of
+# bruce-db next to this one, to work on both.
+bruce-db = "0.2.0"
+# The log records of Bruce's libraries, e.g. bruce-db's timings, which logging.rs puts into the profile's log.
+log = "0.4"
+# Flashing the capture firmware to boards on USB, from bruce-embedded-flash.
+bruce-embedded-flash-ui = "0.1.0"
 #serde_with = "3.9.0"
 #reedline-repl-rs = { version = "1.2.1", features = ["async"] }
 futures = "0.3.31"
@@ -46,7 +53,25 @@ pulldown-cmark = { version = "0.13", default-features = false, features = ["html
 webbrowser = "1.0.6"
 aho-corasick = "1.1"
 regex = "1.11"
+# The text of GloBird's bills, which are PDFs, in pure Rust so that a capture device could read them too
+pdf-extract = "0.9"
 rand = "0.9"
+# Pinning a capture device's self-signed certificate, see capture_device.rs, the same rustls as reqwest's.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+sha2 = "0.10"
+hmac = "0.12"
+# A capture device's poll schedule, the same cron specs as the device's, see capture_device.rs.
+croner = "3.0.1"
+chrono = "0.4"
+# HTTP for the modules whose APIs are not GraphQL, the same version and features as bruce-graphql uses
+reqwest = { version = "0.12.7", default-features = false, features = ["json", "rustls-tls", "charset", "http2", "macos-system-configuration"] }
+# The digest authentication of the myenergi API
+md-5 = "0.10"
+# The GloBird portal's login, which encrypts the password with RSA-OAEP-SHA256 to the portal's public key
+rsa = { version = "0.9", features = ["sha2", "getrandom"] }
+base64 = "0.22"
+keyring = "4.2"
+chacha20poly1305 = "0.11"
 
 
 # Windows only, to create files which only their owner can access, see private_file.rs
@@ -71,6 +96,25 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std"
 [features]
 default = ["desktop"]
 desktop = ["dioxus/desktop"]
+
+# Reading a GloBird bill's PDF takes 600 ms in a debug build, 150 ms with these crates optimised, and 50 ms in a release
+# build, so they are optimised in debug builds too, which only slows their first build.
+# Reading the store parses tens of thousands of records for a week of Tesla snapshots or telemetry, which is several
+# times slower unoptimised, so the store and the JSON parser are optimised in debug builds too.
+[profile.dev.package.bruce-db]
+opt-level = 3
+
+[profile.dev.package.serde_json]
+opt-level = 3
+
+[profile.dev.package.pdf-extract]
+opt-level = 3
+
+[profile.dev.package.lopdf]
+opt-level = 3
+
+[profile.dev.package.miniz_oxide]
+opt-level = 3
 
 [profile.wasm-dev]
 inherits = "dev"
