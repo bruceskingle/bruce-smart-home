@@ -3,12 +3,27 @@ name = "bruce-smart-home"
 description = "The Energy Explorer"
 version = "0.6.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
 default-run = "bruce-smart-home"
+# An app, not published to crates.io.
+publish = false
+
+# How bruce-method-release releases it, see docs/Release.md: the workflow which builds the installers, and the
+# installer it makes for each platform, which also names the run's artifact with it in.
+[package.metadata.bruce-method]
+kind = "app"
+workflow = "release.yml"
+installers = [
+    { platform = "macos-aarch64", file = "BruceSmartHome_{version}_aarch64.dmg" },
+    { platform = "macos-x64", file = "BruceSmartHome_{version}_x86_64.dmg" },
+    { platform = "windows-x64", file = "BruceSmartHome_{version}_x64-setup.exe" },
+    { platform = "windows-arm64", file = "BruceSmartHome_{version}_arm64-setup.exe" },
+]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-bruce-graphql-builder = "0.5.0"
+bruce-graphql-builder = "0.6.0"
 time = { version = "0.3", features = ["serde", "parsing", "formatting"] }
 
 [dependencies]
@@ -24,7 +39,7 @@ async-trait = "0.1.81"
 display_json = "0.2.1"
 rust_decimal = "1.36.0"
 rust_decimal_macros = "1.36.0"
-bruce-graphql = "0.5.0"
+bruce-graphql = "0.6.0"
 # The store every module keeps its data in, see store.rs; a git-ignored .cargo/config.toml may patch in a checkout of
 # bruce-db next to this one, to work on both.
 bruce-db = "0.2.0"
@@ -54,7 +69,7 @@ webbrowser = "1.0.6"
 aho-corasick = "1.1"
 regex = "1.11"
 # The text of GloBird's bills, which are PDFs, in pure Rust so that a capture device could read them too
-pdf-extract = "0.9"
+pdf-extract = "0.12"
 rand = "0.9"
 # Pinning a capture device's self-signed certificate, see capture_device.rs, the same rustls as reqwest's.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }

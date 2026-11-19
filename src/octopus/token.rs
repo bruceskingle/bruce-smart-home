@@ -80,12 +80,11 @@ impl From<ObtainKrakenJsonWebToken> for OctopusToken {
     fn from(from: ObtainKrakenJsonWebToken) -> OctopusToken {
         let mut expires = 0;
 
-        if let Some(object) = from.payload_.as_object() {
-            if let Some(exp) = object.get("exp") {
-                if let Some(exp) = exp.as_u64() {
-                    expires = exp as u32;
-                }
-            }
+        if let Some(object) = from.payload_.as_object()
+            && let Some(exp) = object.get("exp")
+            && let Some(exp) = exp.as_u64()
+        {
+            expires = exp as u32;
         }
         OctopusToken {
             token_expires: expires,
@@ -157,12 +156,9 @@ impl OctopusTokenManager {
         request_manager: Arc<RequestManager>,
         authenticator: Option<OctopusAuthenticator>,
     ) -> OctopusTokenManager {
-        let token: Option<OctopusToken> =
-            if let Some(json_web_token) = context.read_cache::<StoredToken>(crate::octopus::MODULE_ID) {
-                Some(OctopusToken::from(json_web_token))
-            } else {
-                None
-            };
+        let token: Option<OctopusToken> = context
+            .read_cache::<StoredToken>(crate::octopus::MODULE_ID)
+            .map(OctopusToken::from);
 
         if context.args.app_args.verbose {
             if token.is_some() {
@@ -246,16 +242,14 @@ impl OctopusTokenManager {
         let mut current_token = None;
         let mut refresh_token = None;
 
-        if !refresh {
-            if let Some(token) = &*locked_token {
-                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as u32;
+        if !refresh && let Some(token) = &*locked_token {
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as u32;
 
-                if token.token_expires - GRACE_PERIOD > now {
-                    current_token = Some(token.token.clone());
-                }
-                if token.refresh_expires - GRACE_PERIOD > now {
-                    refresh_token = Some(token.refresh.clone());
-                }
+            if token.token_expires - GRACE_PERIOD > now {
+                current_token = Some(token.token.clone());
+            }
+            if token.refresh_expires - GRACE_PERIOD > now {
+                refresh_token = Some(token.refresh.clone());
             }
         }
 

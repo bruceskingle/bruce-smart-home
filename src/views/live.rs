@@ -6,6 +6,7 @@
 //! is about as fresh as their polls; a circuit worked out from older readings, e.g. the zappi's minutes, which come from
 //! myenergi every few minutes, says when they are of.
 
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -49,7 +50,7 @@ pub fn LivePage() -> Element {
         async move {
             let found =
                 super::electricity::find(context.ok_or_else(|| anyhow!("There is no profile"))?, registrations).await?;
-            anyhow::Ok(Arc::new(found))
+            anyhow::Ok(Rc::new(found))
         }
     });
     let mut tick = use_signal(|| 0u32);

@@ -27,6 +27,8 @@ pub struct LineItemDataSet {
 }
 
 impl LineItemDataSet {
+    /// Its arguments are more than clippy's limit, as each is needed and its callers give them separately.
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         account_number: &String,
         meter_type: &MeterType,
@@ -41,7 +43,7 @@ impl LineItemDataSet {
         let meter_agreements = MeterAgreementDataSet::new(
             cache_config,
             request_manager,
-            &account_number,
+            account_number,
             &properties.meter_node_ids,
         )
         .await?;
@@ -82,12 +84,15 @@ impl LineItemDataSet {
     }
 
     /// The line items for one agreement which start in the given period.
+    ///
+    /// Its arguments are more than clippy's limit, as each is needed and its callers give them separately.
+    #[allow(clippy::too_many_arguments)]
     async fn agreement_line_items(
         cache_config: &CacheConfig,
         request_manager: &impl GraphQLCaller,
-        account_number: &String,
+        account_number: &str,
         meter_type: &MeterType,
-        agreement_id: &String,
+        agreement_id: &str,
         start_date_time: &DateTime,
         end_date_time: &DateTime,
         billing_timezone: &time_tz::Tz,
@@ -98,9 +103,9 @@ impl LineItemDataSet {
             let line_items = AgreementLineItems::new(
                 cache_config,
                 request_manager,
-                account_number.clone(),
+                account_number.to_string(),
                 meter_type,
-                agreement_id.clone(),
+                agreement_id.to_string(),
                 &bucket_date,
                 billing_timezone,
             )

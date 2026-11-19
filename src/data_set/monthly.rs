@@ -30,6 +30,9 @@ where
     /// ended, so it has had time to get the data for its end, and then it is not fetched again unless forced. An empty
     /// month counts as fetched, but a new file is dated the epoch, so if the fetch fails it is fetched again next time.
     /// With force, the whole month is fetched rather than from the last final record.
+    ///
+    /// Its arguments are more than clippy's limit, as each is needed and its callers give them separately.
+    #[allow(clippy::too_many_arguments)]
     pub async fn new<R, Q, IQP, CQP, RI, IN, I>(
         hash_key: &str,
         date: &Date,
@@ -89,10 +92,10 @@ where
                     }
                     if is_final {
                         if last_final_index.as_ref().is_none_or(|current| index > *current) {
-                            last_final_index = Some(index.clone());
+                            last_final_index = Some(index);
                         }
                     } else if first_non_final_index.as_ref().is_none_or(|current| index < *current) {
-                        first_non_final_index = Some(index.clone());
+                        first_non_final_index = Some(index);
                     }
                     data.insert(index, (DataSetAttributes { cached: true }, value));
                 }
@@ -121,10 +124,8 @@ where
             }
             let last_index = match (&last_final_index, &first_non_final_index) {
                 _ if force => None,
-                (Some(last_final), Some(first_non_final)) if first_non_final < last_final => {
-                    first_non_final_index.clone()
-                }
-                (Some(_), _) => last_final_index.clone(),
+                (Some(last_final), Some(first_non_final)) if first_non_final < last_final => first_non_final_index,
+                (Some(_), _) => last_final_index,
                 (None, _) => None,
             };
             let last_record = last_index.and_then(|index| data.get(&index)).map(|(_, record)| record);

@@ -498,8 +498,8 @@ fn readings_table(points: &[GridPoint], tz: &'static Tz) -> Element {
     if rows.is_empty() {
         return rsx! { p { "No readings in this period" } };
     }
-    let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
-    let time_format = time::format_description::parse("[hour]:[minute]:[second]").unwrap();
+    let date_format = time::format_description::parse_borrowed::<1>("[year]-[month]-[day]").unwrap();
+    let time_format = time::format_description::parse_borrowed::<1>("[hour]:[minute]:[second]").unwrap();
     let local = |timestamp: i64| {
         time::OffsetDateTime::from_unix_timestamp(timestamp)
             .map(|time| time.to_timezone(tz))
@@ -595,6 +595,9 @@ fn readings_table(points: &[GridPoint], tz: &'static Tz) -> Element {
 }
 
 /// A bar for each period, of the energy or average demand.
+///
+/// Its arguments are more than clippy's limit, as each is needed and its callers give them separately.
+#[allow(clippy::too_many_arguments)]
 fn readings_graph(
     points: &[GridPoint],
     start: &DateTime,
@@ -609,11 +612,11 @@ fn readings_graph(
     if points.len() > MAX_SHOWN {
         return too_many(points.len());
     }
-    let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
-    let seconds_format = time::format_description::parse("[hour]:[minute]:[second]").unwrap();
-    let day_format = time::format_description::parse("[day] [month repr:short]").unwrap();
-    let month_format = time::format_description::parse("[month repr:short] [year]").unwrap();
-    let long_month_format = time::format_description::parse("[month repr:long] [year]").unwrap();
+    let date_format = time::format_description::parse_borrowed::<1>("[year]-[month]-[day]").unwrap();
+    let seconds_format = time::format_description::parse_borrowed::<1>("[hour]:[minute]:[second]").unwrap();
+    let day_format = time::format_description::parse_borrowed::<1>("[day] [month repr:short]").unwrap();
+    let month_format = time::format_description::parse_borrowed::<1>("[month repr:short] [year]").unwrap();
+    let long_month_format = time::format_description::parse_borrowed::<1>("[month repr:long] [year]").unwrap();
     let local = |timestamp: i64| {
         time::OffsetDateTime::from_unix_timestamp(timestamp)
             .map(|time| time.to_timezone(tz))

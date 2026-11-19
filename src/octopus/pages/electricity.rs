@@ -85,54 +85,6 @@ fn meter_point_for_direction(
         })
 }
 
-#[cfg(test)]
-mod meter_point_selection_tests {
-    use super::{ElectricityMeterPoint, meter_point_for_direction};
-    use crate::octopus::graphql::ElectricityDirection;
-
-    fn point(mpan: &str, direction: ElectricityDirection, has_active_agreement: bool) -> ElectricityMeterPoint {
-        ElectricityMeterPoint {
-            mpan: mpan.to_string(),
-            direction: Some(direction),
-            has_active_agreement,
-            cheap_times: None,
-            intelligent: false,
-            rates: None,
-        }
-    }
-
-    #[test]
-    fn intelligent_octopus_tariffs_are_known_by_their_product_codes() {
-        use super::is_intelligent;
-        assert!(
-            is_intelligent("IOG-VAR-24-10-29")
-                && is_intelligent("INTELLI-VAR-22-10-14")
-                && !is_intelligent("GO-VAR-22-10-14")
-        );
-    }
-
-    #[test]
-    fn prefers_a_meter_point_with_an_active_agreement() {
-        let meter_points = [
-            point("inactive", ElectricityDirection::Import, false),
-            point("active", ElectricityDirection::Import, true),
-        ];
-        assert_eq!(
-            meter_point_for_direction(&meter_points, ElectricityDirection::Import).map(|point| point.mpan.as_str()),
-            Some("active")
-        );
-    }
-
-    #[test]
-    fn falls_back_to_a_meter_point_without_an_active_agreement() {
-        let meter_points = [point("only", ElectricityDirection::Import, false)];
-        assert_eq!(
-            meter_point_for_direction(&meter_points, ElectricityDirection::Import).map(|point| point.mpan.as_str()),
-            Some("only")
-        );
-    }
-}
-
 /// Whether a tariff's product code is an Intelligent Octopus one, e.g. IOG-VAR-24-10-29 (Intelligent Octopus Go) or
 /// INTELLI-VAR-22-10-14 (Intelligent Octopus), on which charging the car outside the cheap times is at the low rate.
 fn is_intelligent(product_code: &str) -> bool {
@@ -501,5 +453,53 @@ impl ElectricitySource for OctopusElectricity {
                 rsx! { div { class: "error", ErrorText { error: format!("{error:#}"), message: "Failed to load the readings" } } }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod meter_point_selection_tests {
+    use super::{ElectricityMeterPoint, meter_point_for_direction};
+    use crate::octopus::graphql::ElectricityDirection;
+
+    fn point(mpan: &str, direction: ElectricityDirection, has_active_agreement: bool) -> ElectricityMeterPoint {
+        ElectricityMeterPoint {
+            mpan: mpan.to_string(),
+            direction: Some(direction),
+            has_active_agreement,
+            cheap_times: None,
+            intelligent: false,
+            rates: None,
+        }
+    }
+
+    #[test]
+    fn intelligent_octopus_tariffs_are_known_by_their_product_codes() {
+        use super::is_intelligent;
+        assert!(
+            is_intelligent("IOG-VAR-24-10-29")
+                && is_intelligent("INTELLI-VAR-22-10-14")
+                && !is_intelligent("GO-VAR-22-10-14")
+        );
+    }
+
+    #[test]
+    fn prefers_a_meter_point_with_an_active_agreement() {
+        let meter_points = [
+            point("inactive", ElectricityDirection::Import, false),
+            point("active", ElectricityDirection::Import, true),
+        ];
+        assert_eq!(
+            meter_point_for_direction(&meter_points, ElectricityDirection::Import).map(|point| point.mpan.as_str()),
+            Some("active")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_a_meter_point_without_an_active_agreement() {
+        let meter_points = [point("only", ElectricityDirection::Import, false)];
+        assert_eq!(
+            meter_point_for_direction(&meter_points, ElectricityDirection::Import).map(|point| point.mpan.as_str()),
+            Some("only")
+        );
     }
 }

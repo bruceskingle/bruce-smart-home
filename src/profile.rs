@@ -54,11 +54,13 @@ pub fn read_profile_file_at(path: &Path) -> anyhow::Result<ProfileFile> {
     Ok(read_profile_file_with_unreadable(path)?.0)
 }
 
+/// A field of a profile file which could not be read: the profile, the module it is in, if one, and the field, e.g.
+/// ("Home", Some("octopus"), "apiKey").
+type UnreadableField = (String, Option<String>, String);
+
 /// The profiles in the profile file at path, as read_profile_file_at, and the secrets which could not be decrypted, by
 /// the profile and the module they are in, if one, and the field, e.g. ("Home", Some("octopus"), "apiKey").
-fn read_profile_file_with_unreadable(
-    path: &Path,
-) -> anyhow::Result<(ProfileFile, Vec<(String, Option<String>, String)>)> {
+fn read_profile_file_with_unreadable(path: &Path) -> anyhow::Result<(ProfileFile, Vec<UnreadableField>)> {
     let mut value: serde_json::Value = serde_json::from_reader(fs::File::open(path)?)?;
     let unreadable = crate::secrets::decrypt_secrets(&mut value)?
         .into_iter()
@@ -164,24 +166,22 @@ pub fn fetch_active_profile(profile_name: &Option<String>) -> anyhow::Result<Act
         }
     }
 
-    if let Some(name) = profile_name {
-        if active_profile.is_none() {
-            return Err(anyhow!("No such profile \"{}\"", name));
-        }
+    if let Some(name) = profile_name
+        && active_profile.is_none()
+    {
+        return Err(anyhow!("No such profile \"{}\"", name));
     }
 
     Ok(if let Some(active_profile) = active_profile {
         let profile_version_state = ProfileVersionState::from(&active_profile.version)?;
         ActiveProfile {
             all_profiles,
-            active_profile: active_profile,
+            active_profile,
             profile_version_state,
         }
     } else {
         let active_profile = ActiveProfile::new();
-        let mut profiles = Vec::new();
-
-        profiles.push(&active_profile.active_profile);
+        let profiles = vec![&active_profile.active_profile];
 
         write_profile_file(&profiles)?;
 
@@ -679,7 +679,7 @@ impl ProfileVersionState {
     pub fn from(version: &str) -> anyhow::Result<ProfileVersionState> {
         let version = version.trim();
 
-        if version.len() == 0 {
+        if version.is_empty() {
             return Ok(ProfileVersionState::OlderThanCurrent);
         }
 

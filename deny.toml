@@ -1,0 +1,75 @@
+# Made by bruce-method-release's setup from its deny.toml template, except for this repository's approvals and ignored
+# advisories below, which setup keeps. Change the template, or this repository's hooks, not this file: setup replaces
+# it, and the release checks fail while it differs.
+#
+# cargo-deny's checks, run with `cargo deny check`: the licences of every crate in the build, the advisories against
+# them, and where they come from.
+
+[graph]
+all-features = true
+
+[licenses]
+# The licences approved for every crate: MIT and Apache-2.0, alone or as a choice; MPL-2.0, for a crate used unmodified;
+# Unicode-3.0, the Unicode Consortium's MIT-like licence for its tables; ISC and BSD-3-Clause; CDLA-Permissive-2.0, for
+# data such as Mozilla's root certificates; CC0-1.0, a dedication to the public domain; and BSL-1.0, the Boost licence,
+# which asks for its notice only with source. The notice of each but MIT, Apache-2.0, CC0-1.0 and BSL-1.0 goes in the
+# third-party notices. Any other licence fails until it is approved for a crate and listed below, with what pulls it in.
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "ISC",
+    "BSD-3-Clause",
+    "CDLA-Permissive-2.0",
+    "CC0-1.0",
+    "BSL-1.0",
+]
+confidence-threshold = 0.9
+# The list is the same in every repository, so a licence which no crate in this one has is not reported.
+unused-allowed-license = "allow"
+
+exceptions = [
+    # This repository's approvals, which setup keeps: each crate, the licences approved for it, and what pulls it in.
+    # Permissive crates which Dioxus pulls in, approved by Bruce on 13 Nov 2026, as in Bruce's Quiz Party. A new crate
+    # under one of these licences still needs approving, by name, before it is added here.
+    # BSD-2-Clause, AVIF decoding in the image crate, which dioxus-desktop pulls in.
+    { crate = "av1-grain", allow = ["BSD-2-Clause"] },
+    { crate = "rav1e", allow = ["BSD-2-Clause"] },
+    { crate = "v_frame", allow = ["BSD-2-Clause"] },
+    # Zlib, Dioxus's core.
+    { crate = "const_format", allow = ["Zlib"] },
+    { crate = "const_format_proc_macros", allow = ["Zlib"] },
+    { crate = "konst", allow = ["Zlib"] },
+    { crate = "konst_macro_rules", allow = ["Zlib"] },
+    { crate = "slotmap", allow = ["Zlib"] },
+    # (MIT OR Apache-2.0) AND NCSA, LLVM's fuzzer, through rav1e, and Apache-2.0 WITH LLVM-exception, through cfg-expr.
+    { crate = "libfuzzer-sys", allow = ["NCSA"] },
+    { crate = "target-lexicon", allow = ["Apache-2.0 WITH LLVM-exception"] },
+    # The end of this repository's approvals.
+]
+
+[advisories]
+# RustSec's advisories: a vulnerable crate fails, an unmaintained one is a warning, so that it is seen.
+unmaintained = "workspace"
+ignore = [
+    # This repository's ignored advisories, which setup keeps: each one, and why it does not apply or cannot be fixed.
+    # The Marvin Attack recovers a private key by timing its decryption or signing; the app only encrypts, the GloBird
+    # password to the portal's public key, and rsa has no fixed version.
+    { id = "RUSTSEC-2023-0071", reason = "only public-key encryption, which the attack does not affect" },
+    # chrono is unmaintained; the app uses it only because croner, which reads the capture devices' cron schedules,
+    # takes chrono's types. To go when croner no longer needs it.
+    { id = "RUSTSEC-2026-0543", reason = "needed by croner, until it no longer needs chrono" },
+    # A decompression bomb in ruzstd, through espflash's object, which reads only firmware files built or downloaded
+    # by the user. To fix in bruce-embedded-flash, by a newer espflash, after the board work there (19 Nov 2026).
+    { id = "RUSTSEC-2026-0344", reason = "firmware files are the user's own; fix in bruce-embedded-flash" },
+    # The end of this repository's ignored advisories.
+]
+
+[bans]
+# An app's frameworks, e.g. Dioxus, pull in several versions of some crates, which cannot be helped.
+multiple-versions = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

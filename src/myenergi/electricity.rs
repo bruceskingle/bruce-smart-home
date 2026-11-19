@@ -3,8 +3,6 @@
 //! the site's topology places, e.g. the grid clamp at the grid connection.
 
 use std::collections::BTreeMap;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::power::measured::{Flow, MeasurementSource, Measurements};
@@ -143,7 +141,7 @@ impl ZappiMeasurements {
     }
 
     /// The zappi of a channel, and whether it is its grid clamp's, None if it is not a zappi's.
-    fn channel<'a>(channel: &'a str) -> Option<(&'a str, bool)> {
+    fn channel(channel: &str) -> Option<(&str, bool)> {
         let rest = channel.strip_prefix("myenergi:Z")?;
         Some(match rest.strip_suffix(":grid") {
             Some(serial) => (serial, true),
@@ -221,7 +219,7 @@ impl MeasurementSource for ZappiMeasurementSource {
         "myenergi"
     }
 
-    fn load(&self, start: i64, end: i64) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn Measurements>>>>> {
+    fn load(&self, start: i64, end: i64) -> crate::power::measured::LoadingMeasurements {
         let store = self.store.clone();
         Box::pin(async move {
             let zappis = tokio::task::spawn_blocking(move || load(&store, start, end)).await?;

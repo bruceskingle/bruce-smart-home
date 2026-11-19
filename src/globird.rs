@@ -84,11 +84,6 @@ fn redacted(secret: &Option<String>) -> Option<&'static str> {
     secret.as_ref().map(|_| bruce_graphql::redact::REDACTED)
 }
 
-/// How many days of readings GloBird keeps, about, see fetch::FETCH_DAYS, which asks for more.
-const GLOBIRD_KEEPS_DAYS: i64 = 40;
-/// How long after the last fetch the Electricity page says GloBird's readings should be fetched, see notice: half of
-/// what GloBird keeps, so there is time.
-const WARN_AFTER: time::Duration = time::Duration::days(GLOBIRD_KEEPS_DAYS / 2);
 /// How long GloBird's readings and costs are used before they are fetched again, when a page which shows them opens, see
 /// GlobirdContext::fetch_if_due.
 const FRESH_FOR: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
@@ -108,6 +103,30 @@ impl GlobirdContext {
     /// Fetches the latest data, see fetch::fetch, and saves the session if it changed, e.g. after a login.
     async fn fetch(&self, progress: &mut dyn FnMut(String)) -> anyhow::Result<()> {
         let result = fetch::fetch(&self.client, &self.cache_config, progress).await;
+        self.finish(result)
+    }
+
+    /// Fetches the days from from to today which are not cached, and the latest, see fetch::fetch_since, for the Days
+    /// page, and saves the session if it changed.
+    async fn fetch_since(&self, from: time::Date, progress: &mut dyn FnMut(String)) -> anyhow::Result<()> {
+        let result = fetch::fetch_since(&self.client, &self.cache_config, from, progress).await;
+        self.finish(result)
+    }
+
+    /// Fetches the days from from to to which are not cached, see fetch::fetch_days, e.g. a bill's, and saves the
+    /// session if it changed.
+    async fn fetch_days(
+        &self,
+        from: time::Date,
+        to: time::Date,
+        progress: &mut dyn FnMut(String),
+    ) -> anyhow::Result<()> {
+        let result = fetch::fetch_days(&self.client, &self.cache_config, from, to, progress).await;
+        self.finish(result)
+    }
+
+    /// Saves the session if a request changed it, e.g. by logging in, and reports a refused login, see handle_error.
+    fn finish(&self, result: anyhow::Result<()>) -> anyhow::Result<()> {
         self.save_session()?;
         result.map_err(|error| self.handle_error(error))
     }
@@ -222,25 +241,6 @@ impl GlobirdModule {
 impl Module for GlobirdModule {
     async fn fetch_latest_data(&self) -> anyhow::Result<()> {
         self.context.fetch(&mut |message| println!("{message}")).await
-    }
-
-    /// That GloBird's readings have not been fetched for WARN_AFTER or more, and when those not fetched start to be
-    /// lost, as GloBird keeps only a few weeks of them, and they are fetched only when a GloBird page opens, see
-    /// GlobirdContext::fetch_if_due.
-    fn notice(&self) -> Option<String> {
-        if self.context.cache_config.offline {
-            return None;
-        }
-        let fetched = fetch::fetched_at(&self.context.cache_config)?;
-        let since = time::OffsetDateTime::now_utc() - fetched;
-        (since >= WARN_AFTER).then(|| {
-            let lost = (fetched + time::Duration::days(GLOBIRD_KEEPS_DAYS)).date();
-            format!(
-                "GloBird's readings were last fetched {} days ago. GloBird keeps only about {GLOBIRD_KEEPS_DAYS} days \
-                 of them, so from {lost} those not fetched will be lost: open a GloBird page to fetch them.",
-                since.whole_days()
-            )
-        })
     }
 
     /// The meter's readings.
@@ -364,6 +364,69 @@ fn FetchIfDue(context: SharedProp<GlobirdContext>, generation: Signal<u32>) -> E
     }
 }
 
+/// Fetches the days from one the user chooses to today which are not cached, see GlobirdContext::fetch_since, so that
+/// the days GloBird keeps from before the app fetched, e.g. a year, can be kept, saying what it is doing, and bumps
+/// generation once it has, so that the page shows them. Shows nothing for an offline profile.
+#[component]
+fn FetchSince(context: SharedProp<GlobirdContext>, generation: Signal<u32>) -> Element {
+    let mut generation = generation;
+    let today = fetch::nem_today();
+    let mut from = use_signal(move || {
+        today
+            .replace_year(today.year() - 1)
+            .unwrap_or(today - time::Duration::days(365))
+            .to_string()
+    });
+    let mut busy = use_signal(|| false);
+    let mut progress = use_signal(|| None::<String>);
+    let mut problem = use_signal(|| None::<String>);
+    if context.0.cache_config.offline {
+        return rsx! {};
+    }
+    let start = move |_| {
+        let context = context.clone();
+        spawn(async move {
+            let format = time::macros::format_description!("[year]-[month]-[day]");
+            let date = match time::Date::parse(&from(), &format) {
+                Ok(date) => date,
+                Err(error) => {
+                    problem.set(Some(format!("{error:#}")));
+                    return;
+                }
+            };
+            busy.set(true);
+            problem.set(None);
+            let result = context
+                .0
+                .fetch_since(date, &mut |message| progress.set(Some(message)))
+                .await;
+            busy.set(false);
+            progress.set(None);
+            problem.set(result.err().map(|error| format!("{error:#}")));
+            generation += 1;
+        });
+    };
+    rsx! {
+        div { style: "margin-bottom: 1em;",
+            "Fetch the days from "
+            input {
+                r#type: "date",
+                max: "{today}",
+                value: "{from}",
+                onchange: move |e| from.set(e.value()),
+            }
+            " to today which are not cached: "
+            button { disabled: busy(), onclick: start, if busy() { "Fetching..." } else { "Fetch" } }
+        }
+        if let Some(progress) = progress() {
+            p { "{progress}" }
+        }
+        if let Some(problem) = problem() {
+            p { class: "error", crate::components::error_text::ErrorText { error: problem, message: String::from("Unable to fetch from GloBird") } }
+        }
+    }
+}
+
 /// The meters, and the registers of the cached readings, each a link to its readings.
 #[component]
 fn MetersPage(context: SharedProp<GlobirdContext>) -> Element {
@@ -458,9 +521,10 @@ fn DaysPage(context: SharedProp<GlobirdContext>) -> Element {
     rsx! {
         h1 { "GloBird Days" }
         p {
-            "Each day's energy from and to the grid, in kWh, as the smart meter measured it, by the tariff's charge types, and its costs in AUD, by category. Days run from midnight to midnight in AEST, UTC+10, all year, without daylight saving, as GloBird's do, so in summer a day starts at 1am by the clock in Sydney. Readings is how many of the day's 288 five minute import readings there are. GloBird keeps only a few weeks of readings, so the app keeps every day it fetches. The days not cached yet, and the last {fetch::REFETCH_DAYS} days again, as readings arrive a day or so late, are fetched when this page, the Meters page or the Rates page opens, once a day."
+            "Each day's energy from and to the grid, in kWh, as the smart meter measured it, by the tariff's charge types, and its costs in AUD, by category. Days run from midnight to midnight in AEST, UTC+10, all year, without daylight saving, as GloBird's do, so in summer a day starts at 1am by the clock in Sydney. Readings is how many of the day's 288 five minute import readings there are. The app keeps every day it fetches. The days of the last {fetch::FETCH_DAYS} not cached yet, and the last {fetch::REFETCH_DAYS} days again, as readings arrive a day or so late, are fetched when this page, the Meters page or the Rates page opens, once a day. GloBird keeps earlier days too: to fetch them, choose the first day and Fetch, which gets the days from then which are not cached, a few weeks at a time."
         }
         FetchIfDue { context: context.clone(), generation }
+        FetchSince { context: context.clone(), generation }
         p {
             if let Some(latest) = latest {
                 "Readings up to {latest}. "

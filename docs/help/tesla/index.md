@@ -5,6 +5,8 @@ The Tesla module fetches data about Tesla Powerwalls from the Powerwall's gatewa
 - **Powerwall**, what the gateway said at the time of the latest snapshot: the power of the grid, battery, home and solar, and their energy totals. **Take a Snapshot** asks the gateway again.
 - **Cache Files**, every snapshot, as the gateway sent it, and once a day, or when the gateway's software changes, its details which rarely change, such as the Powerwalls it has.
 
+It reads a Powerwall 2's Backup Gateway (or Backup Gateway 2). A Powerwall 3 does not give the same API on the home network, so for now the module cannot read one: logging in to one fails with **404 Not Found**.
+
 The gateway only says what is happening now, it keeps no history. Its energy totals only ever increase though, so the energy between two snapshots is the difference between them.
 
 The app only reads from the gateway, it never changes any of its settings, so it can be used alongside other programs which use the gateway, such as Home Assistant.

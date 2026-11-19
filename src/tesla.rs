@@ -125,29 +125,29 @@ impl TeslaContext {
             return Ok(());
         }
         let din = self.profile.lock().unwrap().din.clone();
-        if let Some(din) = din.filter(|_| !self.cache_config.offline) {
-            if let Err(error) = self.client.get("status").await {
-                let unreachable = error
-                    .downcast_ref::<reqwest::Error>()
-                    .is_some_and(|error| error.is_connect() || error.is_timeout());
-                if !unreachable {
-                    return Err(self.handle_error(error));
-                }
-                progress(format!(
-                    "The gateway does not answer at {}, searching the network for it",
-                    self.client.host()
-                ));
-                let Some((host, _)) = local::find_gateway(Some(&din), Some(&self.client.host())).await? else {
-                    return Err(anyhow::anyhow!("The gateway was not found on the network"));
-                };
-                progress(format!("Found the gateway at {host}"));
-                self.client.set_host(host.clone());
-                let profile = Profile {
-                    gateway_host: Some(host),
-                    ..self.profile.lock().unwrap().clone()
-                };
-                self.save_profile(profile)?;
+        if let Some(din) = din.filter(|_| !self.cache_config.offline)
+            && let Err(error) = self.client.get("status").await
+        {
+            let unreachable = error
+                .downcast_ref::<reqwest::Error>()
+                .is_some_and(|error| error.is_connect() || error.is_timeout());
+            if !unreachable {
+                return Err(self.handle_error(error));
             }
+            progress(format!(
+                "The gateway does not answer at {}, searching the network for it",
+                self.client.host()
+            ));
+            let Some((host, _)) = local::find_gateway(Some(&din), Some(&self.client.host())).await? else {
+                return Err(anyhow::anyhow!("The gateway was not found on the network"));
+            };
+            progress(format!("Found the gateway at {host}"));
+            self.client.set_host(host.clone());
+            let profile = Profile {
+                gateway_host: Some(host),
+                ..self.profile.lock().unwrap().clone()
+            };
+            self.save_profile(profile)?;
         }
         let result = snapshot::take(&self.client, &self.store, self.cache_config.offline, slot, progress).await;
         if let Some(token) = self.client.token() {
@@ -535,7 +535,6 @@ impl TeslaModuleFactory {
             din,
             email: Some(email),
             password: Some(password),
-            ..profile
         };
         crate::profile::update_profile(&context.profile.active_profile.name, MODULE_ID, &profile)?;
         if let Some(token) = client.token() {

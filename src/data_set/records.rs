@@ -166,10 +166,10 @@ impl Records {
     pub fn range(&self, range: std::ops::Range<&str>) -> anyhow::Result<Vec<(String, Value)>> {
         let mut records = Vec::new();
         self.store.query(&self.hk, range, &mut |item| {
-            if !item.sk.starts_with('#') {
-                if let Some(value) = item.attributes {
-                    records.push((item.sk, value));
-                }
+            if !item.sk.starts_with('#')
+                && let Some(value) = item.attributes
+            {
+                records.push((item.sk, value));
             }
             Ok(Flow::Continue)
         })?;

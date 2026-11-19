@@ -145,7 +145,7 @@ impl ExportTable {
 /// The format of times in CSV, which Excel recognises as a date and time. There is no offset, so a time in the hour
 /// repeated when the clocks go back is ambiguous.
 fn csv_time_format() -> Vec<time::format_description::BorrowedFormatItem<'static>> {
-    time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap()
+    time::format_description::parse_borrowed::<1>("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap()
 }
 
 /// Quote a CSV field if it contains a comma, quote or line break.
@@ -160,7 +160,7 @@ fn csv_field(text: &str) -> String {
 /// The suggested name for an export, without an extension, e.g. measurements_1012779334755_2026-10-01_to_2026-10-31_rate
 /// The end is exclusive, so the last day in the name is the day before it if it is midnight.
 pub fn export_file_name(prefix: &str, id: &str, start: &OffsetDateTime, end: &OffsetDateTime, what: &str) -> String {
-    let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
+    let date_format = time::format_description::parse_borrowed::<1>("[year]-[month]-[day]").unwrap();
     let last = *end - time::Duration::SECOND;
     format!(
         "{prefix}_{id}_{}_to_{}_{what}",

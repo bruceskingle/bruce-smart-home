@@ -44,34 +44,26 @@ fn page_for(path: &[String], page_list: &[PageInfo]) -> Option<(&'static str, Ve
 }
 
 fn get_page(
-    module: &Box<dyn crate::Module + Send>,
+    module: &(dyn crate::Module + Send),
     path: &Vec<String>,
     page_list: &Vec<PageInfo>,
 ) -> (&'static str, Element) {
     let mut page_id = "";
-    let mut it = path.into_iter();
+    let mut it = path.iter();
 
     if let Some(p) = it.next() {
         page_id = p;
     }
 
-    let mut remaining_path = Vec::new();
-
-    loop {
-        if let Some(s) = it.next() {
-            remaining_path.push((*s).clone());
-        } else {
-            break;
-        }
-    }
-    if page_list.len() < 1 {
+    let remaining_path: Vec<String> = it.cloned().collect();
+    if page_list.is_empty() {
         let module_id = module.module_id();
 
         return ("", rsx!("Module page list is empty {module_id}"));
     }
 
     for page_info in page_list {
-        if page_id == "" || page_id == page_info.path {
+        if page_id.is_empty() || page_id == page_info.path {
             return (page_info.path, module.get_component(page_info.path, remaining_path));
         }
     }
@@ -95,7 +87,7 @@ pub fn Module(module_id: String) -> Element {
 #[component]
 fn ModulePage(module_id: String) -> Element {
     let mut path_signal = use_signal(|| vec![String::from("")]);
-    let path = (&*path_signal.read()).clone();
+    let path = (*path_signal.read()).clone();
 
     use_context_provider::<Signal<Vec<String>>>(move || path_signal);
 
@@ -188,7 +180,7 @@ fn ModulePage(module_id: String) -> Element {
                             rsx! { LoginPage { factory: crate::util::SharedProp(builder.clone()), refusal: None } },
                         )
                     } else {
-                        get_page(&module, &path, &page_list)
+                        get_page(module.as_ref(), &path, &page_list)
                     };
 
                     let body = match content {

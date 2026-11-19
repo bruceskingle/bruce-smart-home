@@ -357,6 +357,9 @@ impl TopologySplit {
     /// Shares circuit's share of the import, kwh, with power its power through each point, between its children, and
     /// adds each load's and battery's to shares, each less than MEASUREMENT_NOISE as none unless it is rest's, None if
     /// it can not be split, as two children are not measured.
+    ///
+    /// Its arguments are more than clippy's limit, as each is needed and its callers give them separately.
+    #[allow(clippy::too_many_arguments)]
     fn allot(
         &self,
         circuit: &Circuit,
@@ -585,8 +588,11 @@ pub(crate) mod tests {
         })]
     }
 
+    /// Points' bounds, unix timestamps, the kWh imported in each, and the grid's demand at each, in W, if measured.
+    type Points = (Vec<(i64, i64)>, Vec<f64>, Vec<Option<f64>>);
+
     /// A half hour of 10 second points, the grid importing 14 kW.
-    fn half_hour() -> (Vec<(i64, i64)>, Vec<f64>, Vec<Option<f64>>) {
+    fn half_hour() -> Points {
         let bounds: Vec<(i64, i64)> = (0..180)
             .map(|index| (DAY + index * 10, DAY + index * 10 + 10))
             .collect();

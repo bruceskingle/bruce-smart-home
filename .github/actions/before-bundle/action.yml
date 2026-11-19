@@ -1,0 +1,18 @@
+# Bruce's Smart Home's own steps before its installers are built, which the release workflow, made by
+# bruce-method-release's setup, runs if this file is here: builds the virtual capture device, which the installers
+# include, see Dioxus.toml's external_bin, and says where the Windows installer's hooks take it from, see
+# windows/installer-hooks.nsh.
+name: Before bundling
+description: Builds the virtual capture device, which the installers include
+
+runs:
+  using: composite
+  steps:
+    - name: Build the virtual capture device
+      shell: bash
+      working-directory: ${{ github.workspace }}/bruce-smart-home
+      run: capture/build-sim.sh
+
+    - name: Say where the virtual capture device is
+      shell: bash
+      run: printf 'SIM_BIN=%s\n' '${{ github.workspace }}\bruce-smart-home\capture\target-sim\bin' >> "$GITHUB_ENV"

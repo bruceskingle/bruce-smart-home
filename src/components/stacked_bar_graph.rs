@@ -226,7 +226,7 @@ pub fn time_tick_label(start: i64, end: i64, tz: &'static Tz) -> (Option<String>
     };
     let label = DateTime::from_unix_timestamp(boundary).ok().and_then(|time| {
         time.to_timezone(tz)
-            .format(&time::format_description::parse(format).unwrap())
+            .format(&time::format_description::parse_borrowed::<1>(format).unwrap())
             .ok()
     });
     (label, rank)
@@ -267,9 +267,10 @@ pub struct XBand {
 /// A band for each day from start to end, as unix timestamps, in the timezone, for the x axis of a graph whose bars
 /// are not periods which are easy to label, e.g. charging sessions or readings over several days.
 pub fn day_bands(start: i64, end: i64, tz: &'static Tz) -> Vec<XBand> {
-    let long_format = time::format_description::parse("[weekday repr:short] [day] [month repr:short]").unwrap();
-    let short_format = time::format_description::parse("[day] [month repr:short]").unwrap();
-    let day_format = time::format_description::parse("[day padding:none]").unwrap();
+    let long_format =
+        time::format_description::parse_borrowed::<1>("[weekday repr:short] [day] [month repr:short]").unwrap();
+    let short_format = time::format_description::parse_borrowed::<1>("[day] [month repr:short]").unwrap();
+    let day_format = time::format_description::parse_borrowed::<1>("[day padding:none]").unwrap();
     let Ok(first) = DateTime::from_unix_timestamp(start) else {
         return Vec::new();
     };
@@ -295,7 +296,7 @@ pub fn day_bands(start: i64, end: i64, tz: &'static Tz) -> Vec<XBand> {
 
 /// A readable step between y axis ticks of at least raw, e.g. 0.25 or 50, and the number of decimal places it needs.
 pub(crate) fn nice_step(raw: f64) -> (f64, usize) {
-    if !(raw > 0.0) {
+    if raw.is_nan() || raw <= 0.0 {
         return (1.0, 0);
     }
     let magnitude = 10f64.powf(raw.log10().floor());
@@ -720,10 +721,10 @@ pub fn StackedBarGraph(
             let periods = periods.clone();
             move |_: MouseEvent| {
                 // A drag across more than one bar zooms to them, a click on one bar does nothing.
-                if let (Some((from, to)), Some(on_zoom)) = (dragged.take(), on_zoom) {
-                    if from != to {
-                        on_zoom.call((periods[from.min(to)].0, periods[from.max(to)].1));
-                    }
+                if let (Some((from, to)), Some(on_zoom)) = (dragged.take(), on_zoom)
+                    && from != to
+                {
+                    on_zoom.call((periods[from.min(to)].0, periods[from.max(to)].1));
                 }
             }
         }

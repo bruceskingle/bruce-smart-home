@@ -209,6 +209,9 @@ fn hour_overlaps(hour: i64, start: i64, end: i64) -> bool {
 /// before start if it is cached, fetched from the server where the cache does not have them and the server still does,
 /// see the module comment. The days which
 /// reload covers are fetched again whatever is cached. If cancel is set the hours not yet fetched are left out.
+///
+/// Its arguments are more than clippy's limit, as each is needed and its callers give them separately.
+#[allow(clippy::too_many_arguments)]
 pub async fn fetch(
     account_number: &str,
     device_id: &str,
@@ -222,8 +225,8 @@ pub async fn fetch(
     cancel: &CancelToken,
 ) -> anyhow::Result<Vec<TelemetryReading>> {
     let hash_key = format!("{account_number}#{device_id}#Telemetry");
-    let date_format = time::format_description::parse("[day] [month repr:short] [year]").unwrap();
-    let hour_format = time::format_description::parse("[hour]:[minute]").unwrap();
+    let date_format = time::format_description::parse_borrowed::<1>("[day] [month repr:short] [year]").unwrap();
+    let hour_format = time::format_description::parse_borrowed::<1>("[hour]:[minute]").unwrap();
     let (start, end) = (start.unix_timestamp(), end.unix_timestamp());
     let mut result = Vec::new();
     // The last reading before start, for the energy of the first reading, see energy_since.
@@ -278,7 +281,7 @@ pub async fn fetch(
         days.push(DayFetch {
             day_start,
             day_end,
-            day: day.clone(),
+            day,
             readings,
             hours,
             missing,

@@ -138,11 +138,11 @@ impl GlobirdClient {
         {
             let mut cookies = self.cookies.lock().unwrap();
             for header in response.headers().get_all(reqwest::header::SET_COOKIE) {
-                if let Some((name, value)) = header.to_str().ok().and_then(parse_set_cookie) {
-                    if cookies.get(&name) != Some(&value) {
-                        cookies.insert(name, value);
-                        changed = true;
-                    }
+                if let Some((name, value)) = header.to_str().ok().and_then(parse_set_cookie)
+                    && cookies.get(&name) != Some(&value)
+                {
+                    cookies.insert(name, value);
+                    changed = true;
                 }
             }
         }

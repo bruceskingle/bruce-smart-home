@@ -17,7 +17,7 @@ impl ViewerDataSet {
         request_manager: &impl GraphQLCaller,
         preferred_account_id: Option<&str>,
     ) -> anyhow::Result<Self> {
-        let hash_key = format!("#Viewer");
+        let hash_key = "#Viewer".to_string();
         let data_set = SingleRecordDataSet::new(
             &hash_key,
             Duration::from_hours(20 * 24), // 30 days

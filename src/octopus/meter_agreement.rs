@@ -37,7 +37,7 @@ impl MeterAgreementDataSet {
         for meter_node_id in meter_node_ids {
             let query = meter::meter_agreements::Query::builder()
                 .with_meter_node_id(meter_node_id.clone())
-                .with_valid_after(the_beginning.clone())
+                .with_valid_after(the_beginning)
                 .build();
 
             queries.push(query);
@@ -45,13 +45,12 @@ impl MeterAgreementDataSet {
         let data =
             MultiQueryDataSet::new(&hash_key, Duration::from_hours(24), queries, config, request_manager).await?;
 
-        if !data._attributes.cached {
-            if let Err(error) = config
+        if !data._attributes.cached
+            && let Err(error) = config
                 .store()
                 .and_then(|store| record_tariffs(store, account_number, &data.data))
-            {
-                crate::log_warning!("Unable to record the tariffs' history, {error:#}");
-            }
+        {
+            crate::log_warning!("Unable to record the tariffs' history, {error:#}");
         }
 
         let mut export_electricity_map = HashMap::new();

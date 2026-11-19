@@ -315,10 +315,10 @@ pub fn Poller(context: crate::util::SharedProp<AppContext>) -> Element {
     // When a new profile's poller replaces this one, as the app quitting is recorded by record_quit.
     use_drop(move || {
         let mut running = RUNNING.lock().unwrap();
-        if running.as_ref().is_some_and(|(running_id, _)| *running_id == id) {
-            if let Some((_, log)) = running.take() {
-                log.record(serde_json::json!({ "event": "stop", "reason": "replaced, e.g. the profile changed" }));
-            }
+        if running.as_ref().is_some_and(|(running_id, _)| *running_id == id)
+            && let Some((_, log)) = running.take()
+        {
+            log.record(serde_json::json!({ "event": "stop", "reason": "replaced, e.g. the profile changed" }));
         }
     });
 
@@ -341,10 +341,10 @@ pub fn set_paused(mut statuses: PollStatuses, module_id: &str, paused: bool) {
 
 /// Polls the module as soon as it can, whether it is due or not, unless it is not polled at all.
 pub fn poll_now(mut statuses: PollStatuses, module_id: &str) {
-    if let Some(status) = statuses.write().get_mut(module_id) {
-        if matches!(status.state, PollState::Waiting | PollState::Paused) {
-            status.poll_now = true;
-        }
+    if let Some(status) = statuses.write().get_mut(module_id)
+        && matches!(status.state, PollState::Waiting | PollState::Paused)
+    {
+        status.poll_now = true;
     }
 }
 

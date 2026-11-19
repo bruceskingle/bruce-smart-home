@@ -499,6 +499,9 @@ fn billed_uses(reading: &MeterReading, measured: &[BTreeMap<String, f64>]) -> BT
         .collect()
 }
 
+/// A value for each label, e.g. the kWh of each use, for each half hour or other period.
+type ByLabel = Vec<BTreeMap<String, f64>>;
+
 /// The labels of each of a half hour's points, by the use measured, measured, at the rates it was billed at, see
 /// billed_uses, e.g. EV Standard Rate, and the cost of each, at the meter's price of what it was billed as, made to add
 /// up to the meter's cost over the half hour. The use of each label is added to label_uses.
@@ -506,7 +509,7 @@ fn billed_labels(
     reading: &MeterReading,
     measured: &[BTreeMap<String, f64>],
     label_uses: &mut BTreeMap<String, String>,
-) -> (Vec<BTreeMap<String, f64>>, Vec<BTreeMap<String, f64>>) {
+) -> (ByLabel, ByLabel) {
     let billed_uses = billed_uses(reading, measured);
     let mut billed_costs: BTreeMap<Billed, (f64, f64)> = BTreeMap::new();
     for (label, units) in &reading.units {
@@ -644,6 +647,9 @@ fn charging_half_hours(readings: &[GridReading], watts: f64) -> std::collections
 /// The electricity from start to end, as unix timestamps, in periods of period, from the import and export meters'
 /// half hours, the Home Mini's readings and the Tesla gateway's registers, see the module comment. Periods shorter than a half hour are only made from
 /// the Home Mini's readings, half hours which only the meters have are shown as a half hour.
+///
+/// Its arguments are more than clippy's limit, as each is needed and its callers give them separately.
+#[allow(clippy::too_many_arguments)]
 pub fn combine(
     import: &[MeterReading],
     export: &[MeterReading],
@@ -720,46 +726,45 @@ pub fn combine(
         // The labels of each point, and their costs, which only the meter's reading has, not an estimate, and the use of
         // each label, where it is known.
         let mut label_uses: BTreeMap<String, String> = BTreeMap::new();
-        let (labels, costs, octopus_ev): (Vec<BTreeMap<String, f64>>, Vec<BTreeMap<String, f64>>, Option<f64>) =
-            match (reading, &measured) {
-                (Some(reading), Some(measured)) => {
-                    let (labels, costs) = billed_labels(reading, measured, &mut label_uses);
-                    (labels, costs, Some(reading.units_of(CAR)))
-                }
-                (Some(reading), _) => {
-                    label_uses = reading.uses.clone();
-                    let labels = split_half_hour(&kwh, &seconds, reading, estimate.charger_watts, placement);
-                    let costs = shared_costs(reading, &labels, |label| reading.rate(label).to_string());
-                    (labels, costs, None)
-                }
-                (None, measured) => {
-                    let rate = estimated_rate(half_hour, measured_ev >= MEASURED_CHARGING);
-                    let labels: Vec<BTreeMap<String, f64>> = match (rate, measured) {
-                        (Some(rate), Some(measured)) => measured
-                            .iter()
-                            .map(|uses| measured_labels(uses, &[(rate.clone(), 1.0)], " (estimated)", &mut label_uses))
-                            .collect(),
-                        // Neither billed nor estimated, e.g. a site with no supplier's readings, so only by use.
-                        (None, Some(measured)) => measured
-                            .iter()
-                            .map(|uses| measured_labels(uses, &[(String::new(), 1.0)], "", &mut label_uses))
-                            .collect(),
-                        // Not split by use, so the whole import's, labelled as the house's, as a supplier's would be.
-                        (rate, None) => {
-                            let label = match rate {
-                                Some(rate) => format!(
-                                    "{} {rate} (estimated)",
-                                    super::topology::label_prefix(super::topology::HOUSE)
-                                ),
-                                None => String::from(UNMETERED_LABEL),
-                            };
-                            kwh.iter().map(|kwh| BTreeMap::from([(label.clone(), *kwh)])).collect()
-                        }
-                    };
-                    let costs = vec![BTreeMap::new(); labels.len()];
-                    (labels, costs, None)
-                }
-            };
+        let (labels, costs, octopus_ev): (ByLabel, ByLabel, Option<f64>) = match (reading, &measured) {
+            (Some(reading), Some(measured)) => {
+                let (labels, costs) = billed_labels(reading, measured, &mut label_uses);
+                (labels, costs, Some(reading.units_of(CAR)))
+            }
+            (Some(reading), _) => {
+                label_uses = reading.uses.clone();
+                let labels = split_half_hour(&kwh, &seconds, reading, estimate.charger_watts, placement);
+                let costs = shared_costs(reading, &labels, |label| reading.rate(label).to_string());
+                (labels, costs, None)
+            }
+            (None, measured) => {
+                let rate = estimated_rate(half_hour, measured_ev >= MEASURED_CHARGING);
+                let labels: Vec<BTreeMap<String, f64>> = match (rate, measured) {
+                    (Some(rate), Some(measured)) => measured
+                        .iter()
+                        .map(|uses| measured_labels(uses, &[(rate.clone(), 1.0)], " (estimated)", &mut label_uses))
+                        .collect(),
+                    // Neither billed nor estimated, e.g. a site with no supplier's readings, so only by use.
+                    (None, Some(measured)) => measured
+                        .iter()
+                        .map(|uses| measured_labels(uses, &[(String::new(), 1.0)], "", &mut label_uses))
+                        .collect(),
+                    // Not split by use, so the whole import's, labelled as the house's, as a supplier's would be.
+                    (rate, None) => {
+                        let label = match rate {
+                            Some(rate) => format!(
+                                "{} {rate} (estimated)",
+                                super::topology::label_prefix(super::topology::HOUSE)
+                            ),
+                            None => String::from(UNMETERED_LABEL),
+                        };
+                        kwh.iter().map(|kwh| BTreeMap::from([(label.clone(), *kwh)])).collect()
+                    }
+                };
+                let costs = vec![BTreeMap::new(); labels.len()];
+                (labels, costs, None)
+            }
+        };
         let mut sources = BTreeSet::from([source(GRID_SOURCE, grid_name)]);
         if let (Some(measurements), Some(_)) = (measurements, &measured) {
             sources.insert((MEASURED_SOURCE, measurements.name()));
@@ -1150,7 +1155,7 @@ mod tests {
 
         fn cheap_time(&self, half_hour: i64) -> Option<bool> {
             let minute = half_hour.rem_euclid(86400) / 60;
-            Some(minute >= 23 * 60 + 30 || minute < 5 * 60 + 30)
+            Some(!(5 * 60 + 30..23 * 60 + 30).contains(&minute))
         }
     }
 

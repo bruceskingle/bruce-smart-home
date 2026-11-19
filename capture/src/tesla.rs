@@ -112,6 +112,12 @@ impl Feature for TeslaCapture {
         initializer: &mut Esp32PlatformInitializer,
         config: TeslaConfig,
     ) -> anyhow::Result<()> {
+        // A device in a home without a Tesla gateway, or one not set up yet, polls nothing and shows nothing of it,
+        // rather than an error.
+        if config.tesla_host.trim().is_empty() {
+            info!("No Tesla gateway is set up, so none is polled");
+            return Ok(());
+        }
         let schedule_spec = config
             .tesla_schedule
             .map(|schedule| schedule.pattern.to_string())

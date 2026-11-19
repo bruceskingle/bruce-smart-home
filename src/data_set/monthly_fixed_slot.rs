@@ -426,8 +426,7 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
     }
 
     fn key_for(start: &Date) -> i32 {
-        let key = start.year() * 12 + start.month() as i32 - 1;
-        key
+        start.year() * 12 + start.month() as i32 - 1
     }
 
     /// The data from start to end, from the cache, and fetched from the server for each month of the period which is
@@ -440,6 +439,9 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
     /// date. With reload, the period it gives is fetched again however up to date the cache is,
     /// as a single request even if it crosses a month boundary, and the months it covers are returned too; a reload
     /// does not change when its months count as fetched, as it may cover only part of them.
+    ///
+    /// Its arguments are more than clippy's limit, as each is needed and its callers give them separately.
+    #[allow(clippy::too_many_arguments)]
     pub async fn fetch(
         mut source: S,
         tz: &'static Tz,
@@ -472,12 +474,12 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
             // end is exclusive so a bucket starting at end is not needed
             while start_date.at_midnight(tz) < *end {
                 let open_data_set: OpenMonthlyFixedSlotDataSet<S> =
-                    OpenMonthlyFixedSlotDataSet::new(&source, &config, source.hash_key(), &start_date, tz)?;
+                    OpenMonthlyFixedSlotDataSet::new(&source, config, source.hash_key(), &start_date, tz)?;
 
                 let key = Self::key_for(&start_date);
                 result_keys.push(key);
 
-                start_date = open_data_set.data_set.next_date.clone();
+                start_date = open_data_set.data_set.next_date;
                 data_set_map.insert(key, open_data_set);
             }
         }
@@ -527,7 +529,8 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
             // The number of requests made and of rows they returned, for progress messages.
             let mut requests = 0;
             let mut rows = 0;
-            let date_format = time::format_description::parse("[year]-[month]-[day] [hour]:[minute]").unwrap();
+            let date_format =
+                time::format_description::parse_borrowed::<1>("[year]-[month]-[day] [hour]:[minute]").unwrap();
 
             // The number of windows fetched, windows may be added as they are split into days.
             let mut window_number = 0;
@@ -577,7 +580,7 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
                         } else {
                             data_set_map.insert(
                                 key,
-                                OpenMonthlyFixedSlotDataSet::new(&source, &config, source.hash_key(), &start_date, tz)?,
+                                OpenMonthlyFixedSlotDataSet::new(&source, config, source.hash_key(), &start_date, tz)?,
                             );
                             data_set_map.get_mut(&key).unwrap()
                         };
@@ -680,7 +683,7 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
         let failed = cancel.is_cancelled() || fetch_result.is_err();
         for key in result_keys {
             let ods = data_set_map.remove(&key).unwrap();
-            let fetched = attempted_keys.contains(&key).then(|| ods.fetched && !failed);
+            let fetched = attempted_keys.contains(&key).then_some(ods.fetched && !failed);
             result.push(ods.flush(fetched).await?);
         }
         for (_key, ods) in data_set_map {

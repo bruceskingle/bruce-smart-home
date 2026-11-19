@@ -1,30 +1,49 @@
 # bruce-smart-home
 # Release Process
 
-Each release is developed on a branch called `vX.X.X`, which is squash merged to `main` and tagged `releaseX.X.X`.
+Each release is developed on a branch called `vX.Y.Z`, which is squash merged to `main` and tagged `releaseX.Y.Z`.
 The installers are built on GitHub and attached to a draft release, which is published once they have been tried.
 Then the branch for the next version is started.
 
-The steps are run with [scripts/release.sh](../scripts/release.sh) on the main dev machine. It needs the GitHub CLI,
-`gh`, signed in with `gh auth login`. The version comes from bruce-smart-home's Cargo.toml, which `start` sets at the
-beginning of each release, so it never needs to be typed again. Each command checks that the repo is in the state it
-expects (the right branch, nothing uncommitted, the tags it needs) and stops with an explanation at the first problem.
+The steps are run with [bruce-method-release](https://github.com/bruceskingle/bruce-method-release), which releases
+the libraries too, the same way; its README describes the method. Install it with `cargo install bruce-method-release`,
+or, for a version not yet published, from its checkout with `cargo install --path ~/git/bruce-method-release`. It needs
+the GitHub CLI, `gh`, signed in with `gh auth login`. The app's settings for it, its workflow and the installers it
+builds, are in [Cargo.toml](../Cargo.toml), under `[package.metadata.bruce-method]`.
+
+The version comes from Cargo.toml, which `start` sets at the beginning of each release, so it never needs to be typed.
+Each command checks that the repo is in the state it expects, says what it will do and asks once before changing
+anything, and stops with an explanation at the first problem. Run them in the checkout, e.g. in
+`~/git/bruce-smart-home`.
+
+```
+bruce-method-release status
+```
+
+shows where things are: the branch, version and uncommitted changes, the commits last tried and tagged, the GitHub
+release and the latest workflow runs.
+
+The [Release workflow](../.github/workflows/release.yml) is made by bruce-method-release's `setup`, from its template
+for Dioxus desktop apps, so change the template, not the workflow; `check` fails while they differ. The app's own step,
+building the virtual capture device before the installers, is its hook,
+[.github/actions/before-bundle/action.yml](../.github/actions/before-bundle/action.yml), which is the app's own file.
+After updating Dioxus, run `bruce-method-release setup` to build with the new version of its CLI.
 
 ## 0. Release the Libraries
 
 The app's libraries, e.g. bruce-graphql, bruce-db and bruce-embedded-flash, are separate repositories, published to
 crates.io, and the app is built with their published versions, as the workflow checks out only this repo. While one is
 being changed with the app, the app takes it from its checkout next to this one, by path or a link, so release those
-first, with [bruce-method-release](https://github.com/bruceskingle/bruce-method-release):
+first:
 
 ```
-cd ~/git/bruce-smart-home
 bruce-method-release dependencies
 ```
 
 lists them in the order to release them, a tick for each one which is ready and a cross and what to do for each which
-is not. Releasing a library makes the app take it from crates.io. The release script's commands stop while the app
-still takes a library by path.
+is not. Releasing a library makes the app take it from crates.io. `release` stops while the app still takes a library
+by path or links it. `try` builds with the libraries the app links, each checked out from its branch beside the app,
+so commit and push them first; it stops while the app takes one by path.
 
 The capture firmware, in `capture/`, is a project of its own, which bruce-method-release's `dependencies` does not
 see, though `link` and releasing a library update it: it takes bruce-embedded-std, bruce-embedded-sim and bruce-esp-idf
@@ -32,35 +51,29 @@ from crates.io. While one of them is changed with the firmware, it takes it by p
 branch out next to this repo, so that `try` can build the virtual capture device, see `capture/build-sim.sh`: release
 the library, and take it from crates.io again, before the app's release.
 
-```
-cd ~/git/bruce-smart-home
-./scripts/release.sh status
-```
+The manual commands for some steps are in the collapsed sections, in case the tool cannot be used. They need the
+version in `RELEASE`, e.g. `export RELEASE=0.6.0`.
 
-shows where things are: the branch, version and uncommitted changes of each repo, the test and release tags, the
-GitHub release and the latest workflow runs.
-
-The manual commands for each step are in the collapsed sections, in case the script cannot be used. They need the
-version in `RELEASE`, e.g. `export RELEASE=0.4.4`.
-
-## 1. Try the Installers (optional)
+## 1. Try the Installers
 
 ```
-./scripts/release.sh try
+bruce-method-release try
 ```
 
-Builds the installers from the release branch before anything is merged, to try them on other machines. It tags the
-release branch `testX.X.X` (moving the tag if it exists), runs the workflow, watches it (about 30 to 40 minutes,
+Builds the installers from the release branch's last commit before anything is merged, to try them on other machines.
+It tags the commit `testX.Y.Z` (moving the tag if it exists), runs the workflow, watches it (about 30 to 40 minutes,
 the Intel Mac is the slowest) and downloads the installers, each in a folder named after its build:
 
 ```
-~/Downloads/bruce-smart-home-X.X.X-test/macos-aarch64/BruceSmartHome_X.X.X_aarch64.dmg      Apple silicon Mac
-~/Downloads/bruce-smart-home-X.X.X-test/macos-x64/BruceSmartHome_X.X.X_x86_64.dmg           Intel Mac
-~/Downloads/bruce-smart-home-X.X.X-test/windows-arm64/BruceSmartHome_X.X.X_arm64-setup.exe  ARM PC
-~/Downloads/bruce-smart-home-X.X.X-test/windows-x64/BruceSmartHome_X.X.X_x64-setup.exe      Intel or AMD PC
+~/Downloads/bruce-smart-home-X.Y.Z-test/macos-aarch64/BruceSmartHome_X.Y.Z_aarch64.dmg      Apple silicon Mac
+~/Downloads/bruce-smart-home-X.Y.Z-test/macos-x64/BruceSmartHome_X.Y.Z_x86_64.dmg           Intel Mac
+~/Downloads/bruce-smart-home-X.Y.Z-test/windows-arm64/BruceSmartHome_X.Y.Z_arm64-setup.exe  ARM PC
+~/Downloads/bruce-smart-home-X.Y.Z-test/windows-x64/BruceSmartHome_X.Y.Z_x64-setup.exe      Intel or AMD PC
 ```
 
-Each run of `try` replaces them. Run it again after fixing anything. The test tag is deleted by `merge`.
+Each run of `try` replaces them. Run it again after fixing anything. A successful try of the branch's last commit is
+also its CI run, which `release` checks for, so the last thing done before releasing is always a try. The test tag is
+deleted by `release`.
 
 If a build fails, it shows the commands to see why and to re-run the failed jobs.
 
@@ -68,7 +81,7 @@ Ctrl+C stops watching but not the run. To pick it up again, e.g. after a re-run 
 installers when it finishes:
 
 ```
-./scripts/release.sh watch
+bruce-method-release watch
 ```
 
 To try the installer on another machine, see
@@ -102,14 +115,14 @@ gh run download $RUN -n windows-arm64 -n macos-aarch64 --dir ~/Downloads/bruce-s
 gh api repos/bruceskingle/bruce-smart-home/actions/runs/$RUN/artifacts --jq '.artifacts[] | "\(.name) \(.size_in_bytes)"'
 ```
 
-On a Windows VM, in PowerShell:
+On a Windows VM without bruce-method-release, in PowerShell:
 
 1. Install `gh` with `winget install --id GitHub.cli`, or from https://github.com/cli/cli/releases (the "windows
    arm64 installer" or "windows amd64 installer", which is the `.msi`). Then open a new PowerShell window and sign in
    with `gh auth login`.
 
 2. Find the run ID, the number which identifies the run of the workflow. It is shown in any of these places:
-   - On the Mac, in the output of `try`, `build` or `watch`: `==> Watching run 40215599738 ...`
+   - On the Mac, in the output of `try`, `release` or `watch`: `bruce-smart-home: watching run 40215599738, ...`
    - In the first line which `gh run watch` shows, after "Release ·": `* v0.4.4 Release · 40215599738`. The other
      numbers it shows, `(ID 121252356794)` after each job, are job IDs, which are not what is needed here (they are
      only used to get one job's log, see below).
@@ -153,150 +166,91 @@ gh api repos/bruceskingle/bruce-smart-home/actions/jobs/<job id>/logs | grep -B2
 gh run rerun $RUN --failed
 ```
 
-Delete the test tag afterwards:
-
-```
-cd ~/git/bruce-smart-home
-git tag -d test$RELEASE
-git push origin --delete test$RELEASE
-```
-
 </details>
 
-## 2. Merge to Main and Tag
+## 2. Release, up to the Draft
+
+Write the release's section of the [ChangeLog](ChangeLog.md) first, see [Release Notes](#release-notes). Then:
 
 ```
-./scripts/release.sh merge
+bruce-method-release release
 ```
 
-Creates a pull request from the release branch (unless there is one), squash merges it to `main` (`gh` asks for
-confirmation), and tags `main` `releaseX.X.X`. It then merges `main` back into the release branch, which changes no
-files but means a later pull request only shows new changes, and deletes the test tag.
+makes the release's checks, and stops if any fails: the branch, version, nothing uncommitted or unpushed, no library
+linked or taken by path, the ChangeLog's section, `cargo fmt`, `cargo clippy` with no warnings, the tests, and a
+successful try of the last commit. Then it lists what it will do, and asks once:
 
-To make more changes after merging, before the release is published:
-
-```
-./scripts/release.sh untag
-```
-
-deletes the release tag (and the draft release, if `build` has made one). Commit the changes to the release branch,
-then run `merge` again.
-
-<details>
-<summary>Manual commands</summary>
+1. Creates a pull request from the release branch and squash merges it to `main`.
+2. Tags `main` `releaseX.Y.Z`.
+3. Merges `main` back into the release branch, which changes no files but means a later pull request only shows new
+   changes, and deletes the test tag.
+4. Creates a draft GitHub release for the tag, with the release's section of the ChangeLog as its notes.
+5. Runs the [Release workflow](../.github/workflows/release.yml) on the tag, which builds and tests the installers and
+   attaches them to the draft. The files are only attached if all four builds succeed.
+6. Downloads them from the draft, all in one folder, and shows the draft's URL:
 
 ```
-cd ~/git/bruce-smart-home
-git checkout v$RELEASE
-git status --short
-git push
-gh pr create --base main --head v$RELEASE --title "V$RELEASE" --body "Release $RELEASE"
-gh pr merge v$RELEASE --squash
+~/Downloads/bruce-smart-home-X.Y.Z/BruceSmartHome_X.Y.Z_aarch64.dmg      Apple silicon Mac
+~/Downloads/bruce-smart-home-X.Y.Z/BruceSmartHome_X.Y.Z_x86_64.dmg       Intel Mac
+~/Downloads/bruce-smart-home-X.Y.Z/BruceSmartHome_X.Y.Z_arm64-setup.exe  ARM PC
+~/Downloads/bruce-smart-home-X.Y.Z/BruceSmartHome_X.Y.Z_x64-setup.exe    Intel or AMD PC
 ```
 
-The pull request can be merged on GitHub instead, choose **Squash and merge**. Then tag `main` and merge it back into
-the release branch:
+Then it stops. Try the installers, and check the release notes on GitHub (the draft is at the top of the Releases page).
+A draft is only visible to people who can push to the repo.
+
+If it stops part way, e.g. a build fails, or Ctrl+C stops it watching, run `release` again: it carries on where it
+stopped, watching a run which is still going rather than starting another. A failed run's jobs can be re-run with the
+commands it shows, then `bruce-method-release watch` picks it up again.
+
+To make more changes before the release is published:
 
 ```
-git fetch origin
-git tag release$RELEASE origin/main
-git push origin release$RELEASE
-git merge origin/main -m "Merge main after squash merge"
-git push
+bruce-method-release untag
 ```
 
-To make more changes, delete the draft release (if there is one) and the release tag:
-
-```
-gh release delete release$RELEASE --yes
-git tag -d release$RELEASE
-git push origin --delete release$RELEASE
-```
-
-</details>
-
-## 3. Final Check
-
-```
-./scripts/release.sh check
-```
-
-Checks out the release tag, does a clean build and runs the app. Click around, then quit the app and it switches back to
-the release branch. If something needs fixing, use `untag` as in step 2.
-
-<details>
-<summary>Manual commands</summary>
-
-```
-cd ~/git/bruce-smart-home
-git checkout release$RELEASE
-cargo clean
-dx run --release
-```
-
-Then go back to the release branch. If Cargo.lock shows as changed, it was regenerated (e.g. by the editor) and it is
-safe to discard it:
-
-```
-git restore Cargo.lock
-git checkout v$RELEASE
-```
-
-</details>
-
-## 4. Build the Draft Release
-
-```
-./scripts/release.sh build
-```
-
-Creates a draft GitHub release for the tag, with the release's section of the [ChangeLog](ChangeLog.md) as its notes
-(see [Release Notes](#release-notes)), then runs the
-[Release workflow](../.github/workflows/release.yml) on the tag, which builds and tests the installers and attaches
-them to the draft. The files are only attached if all four builds succeed. It downloads them from the draft, all in
-one folder, and shows the draft's URL:
-
-```
-~/Downloads/bruce-smart-home-X.X.X/BruceSmartHome_X.X.X_aarch64.dmg      Apple silicon Mac
-~/Downloads/bruce-smart-home-X.X.X/BruceSmartHome_X.X.X_x86_64.dmg       Intel Mac
-~/Downloads/bruce-smart-home-X.X.X/BruceSmartHome_X.X.X_arm64-setup.exe  ARM PC
-~/Downloads/bruce-smart-home-X.X.X/BruceSmartHome_X.X.X_x64-setup.exe    Intel or AMD PC
-```
-
-Try the installers, and check the release notes on GitHub (the draft is at the top of the Releases page). A draft is
-only visible to people who can push to the repo.
+deletes the draft release and the release tag. Commit the changes to the release branch, `try` them, and run `release`
+again, which merges the new changes.
 
 ### Release Notes
 
-The notes are the `## Release X.X.X` section of [ChangeLog.md](ChangeLog.md) as it is at the `releaseX.X.X` tag,
-without that heading, as the release has its own title. So write the ChangeLog for the release before `merge`, and
-`build` stops if it has no section for the release. GitHub shows every line break in release notes, so the lines of
-each paragraph, list item and quote are joined, and links to other docs, e.g. `[...](ScheduledFetch.md)`, are made
-links to the docs on GitHub at the tag.
+The notes are the `## Release X.Y.Z` section of [ChangeLog.md](ChangeLog.md) as it is at the `releaseX.Y.Z` tag,
+without that heading, as the release has its own title, `bruce-smart-home X.Y.Z`. So write the ChangeLog for the
+release before `release`, which checks that it has a section for the release. GitHub shows every line break in release
+notes, so the lines of each paragraph, list item and quote are joined, and links to other docs, e.g.
+`[...](ScheduledFetch.md)`, are made links to the docs on GitHub at the tag.
 
-Running `build` again on an existing draft leaves its notes alone. To change them, either edit them on GitHub (choose
-**Edit** on the draft), or change the ChangeLog (`untag`, commit, `merge`, as in step 2) and replace the notes with
-its section with:
-
-```
-./scripts/release.sh notes
-```
-
-If a build fails, fix it as in step 2 (`untag`, commit, `merge`, `check`) and run `build` again. Running `build` again
-on an existing draft replaces its installers. As with `try`, `./scripts/release.sh watch` picks up the run again after
-Ctrl+C or a re-run of failed jobs, and downloads the installers from the draft when it finishes. To try the installer
-on another machine, see [Trying the Installer on Another Machine](#trying-the-installer-on-another-machine).
+To change the notes of a draft, edit them on GitHub (choose **Edit** on the draft), or change the ChangeLog: `untag`,
+commit, `try`, `release`.
 
 <details>
 <summary>Manual commands</summary>
 
 ```
 cd ~/git/bruce-smart-home
-gh release create release$RELEASE --draft --verify-tag --title "Release $RELEASE" --notes-file <file>
+git switch v$RELEASE
+git status --short
+git push
+gh pr create --base main --head v$RELEASE --title "Release $RELEASE" --body "Release $RELEASE"
+gh pr merge v$RELEASE --squash
+```
+
+The pull request can be merged on GitHub instead, choose **Squash and merge**. Then tag `main`, merge it back into
+the release branch, make the draft and build the installers:
+
+```
+git fetch origin
+git tag --annotate release$RELEASE origin/main --message "bruce-smart-home release$RELEASE"
+git push origin release$RELEASE
+git merge origin/main -m "Merge main after squash merge"
+git push
+gh release create release$RELEASE --draft --verify-tag --title "bruce-smart-home $RELEASE" --notes-file <file>
 gh workflow run release.yml --ref release$RELEASE -f tag=release$RELEASE -f attach=true
 ```
 
-Wait a few seconds for the run to start, then watch it and download the installers from the draft:
+`<file>` is the release's section of the ChangeLog, without its heading, with the lines of each paragraph joined, see
+[Release Notes](#release-notes). `--generate-notes` in place of `--notes-file <file>` lists the merged pull requests
+instead. Wait a few seconds for the run to start, then watch it and download the installers from the draft:
 
 ```
 RUN=$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
@@ -304,23 +258,18 @@ gh run watch $RUN
 gh release download release$RELEASE --dir ~/Downloads/bruce-smart-home-$RELEASE
 ```
 
-`<file>` is the release's section of the ChangeLog, without its heading, with the lines of each paragraph joined, see
-[Release Notes](#release-notes). `--generate-notes` in place of `--notes-file <file>` lists the merged pull requests
-instead.
-
-On a Windows VM in PowerShell, just the Windows installers (with the version in place of 0.4.4):
+On a Windows VM in PowerShell, just the Windows installers (with the version in place of 0.6.0):
 
 ```
-gh release download release0.4.4 -R bruceskingle/bruce-smart-home -p '*-setup.exe' --dir $HOME\Downloads\bruce-smart-home
+gh release download release0.6.0 -R bruceskingle/bruce-smart-home -p '*-setup.exe' --dir $HOME\Downloads\bruce-smart-home
 ```
 
-The release should have these files:
+To make more changes, delete the draft release and the release tag:
 
 ```
-BruceSmartHome_X.X.X_aarch64.dmg
-BruceSmartHome_X.X.X_x86_64.dmg
-BruceSmartHome_X.X.X_x64-setup.exe
-BruceSmartHome_X.X.X_arm64-setup.exe
+gh release delete release$RELEASE --yes
+git tag -d release$RELEASE
+git push origin --delete release$RELEASE
 ```
 
 </details>
@@ -340,14 +289,18 @@ gh release upload release$RELEASE "$(dirname "$(./build-firmware.sh --path cyd-e
 
 The repository needs the GitHub topic `bruce-embedded-firmware` for the apps to find it, once.
 
-## 5. Publish
+## 3. Publish
 
 ```
-./scripts/release.sh publish
+bruce-method-release release
 ```
 
-Checks that the draft has all four installers, then publishes it as the latest release. Nothing is built again, so the
-installers are the ones which were tried.
+again, once the installers have been tried, checks that the draft has all four installers, then publishes it as the
+latest release. Nothing is built again, so the installers are the ones which were tried. Then it starts the next
+release: it creates the `vX.Y.Z` branch for the next minor version (e.g. 0.7.0 after 0.6.0) from `main`, sets the
+version in Cargo.toml, updates Cargo.lock, commits and pushes.
+
+Then commit to the new branch and push as usual. When it is ready to release, go back to step 1.
 
 <details>
 <summary>Manual commands</summary>
@@ -356,93 +309,60 @@ installers are the ones which were tried.
 gh release edit release$RELEASE --draft=false --latest
 ```
 
-or choose **Publish release** on the draft's edit page on GitHub.
+or choose **Publish release** on the draft's edit page on GitHub. Then start the next version with
+`bruce-method-release start`.
 
 </details>
 
-## 6. Start the Next Release
-
-```
-./scripts/release.sh start
-```
-
-Creates the `vX.X.X` branch for the next minor version (e.g. 0.5.0 after 0.4.4) from `main`, sets the version in
-Cargo.toml, builds to update Cargo.lock, commits and pushes. For a different version, give it, e.g.
-`./scripts/release.sh start 0.4.5`. If the branch already exists it switches to it.
-
-Then commit to the `vX.X.X` branch and push as usual. When it is ready to release, go back to step 1.
-
 ### Patch Releases
 
-Patch versions are kept for fixes to the last release, so that a fix can be released without the new features being
-developed for the next one. Until the next minor version is merged, `main` is the last release, so start the patch
-release from it, e.g. while 0.5.0 is being developed:
+Patch versions are kept for fixes to a release, so that a fix can be released without the new features being developed
+for the next one. Start one from the release's tag, e.g. while 0.7.0 is being developed:
 
 ```
-./scripts/release.sh start 0.4.5
+bruce-method-release start 0.6.1
 ```
 
 Make the fix and release it as usual. Then merge `main` into the release branch for the next minor version, so that it
 has the fix too, keeping its own version where Cargo.toml conflicts:
 
 ```
-./scripts/release.sh sync v0.5.0
-git -C ~/git/bruce-smart-home merge origin/main
+bruce-method-release sync 0.7.0
+git merge origin/main
 ```
 
 If a change needs its own branch, e.g. because someone else is working on it, branch from the release branch and
 merge it back into it, or merge their pull request on GitHub with the release branch as the base:
 
 ```
-git checkout -b my-feature v0.4.4
+git switch -c my-feature v0.6.0
 # ... commit and push my-feature, then when it is done
-git checkout v0.4.4
+git switch v0.6.0
 git pull
 git merge my-feature
 git push
 ```
-
-<details>
-<summary>Manual commands</summary>
-
-```
-export RELEASE=0.4.5
-
-cd ~/git/bruce-smart-home
-git checkout main
-git pull
-git checkout -b v$RELEASE
-sed -i '' "1,/^version = /s/^version = .*/version = \"$RELEASE\"/" Cargo.toml
-cargo build
-git diff --stat
-git commit -am "Start v$RELEASE"
-git push -u origin v$RELEASE
-```
-
-</details>
 
 ## Other Build and Test Machines
 
 To build and test the latest release branch on another machine:
 
 ```
-./scripts/release.sh sync
+bruce-method-release sync
 ```
 
-Fetches the repo and checks out and updates the latest `vX.X.X` branch. For another branch, give it, e.g.
-`./scripts/release.sh sync 0.4.4` or `./scripts/release.sh sync main`. It does not need `gh`. It stops without changing
-anything if the repo has uncommitted changes, and only fast forwards, so it stops if the branch has commits on that
-machine which are not on GitHub. Then build as usual, e.g. `dx serve`.
+Fetches the repo and updates the branch it is on, moving on to the latest `vX.Y.Z` branch if its version has been
+released. For another branch, give it, e.g. `bruce-method-release sync 0.6.0` or `bruce-method-release sync main`. It
+stops without changing anything if the repo has uncommitted changes, and only fast forwards, so it stops if the branch
+has commits on that machine which are not on GitHub. Then build as usual, e.g. `dx serve`.
 
 <details>
 <summary>Manual commands</summary>
 
 ```
-export RELEASE=0.4.4
-
 cd ~/git/bruce-smart-home
 git fetch
-git checkout v$RELEASE
+git switch v$RELEASE
 git pull --ff-only
 ```
 
@@ -450,31 +370,31 @@ git pull --ff-only
 
 ## Trying the Installer on Another Machine
 
-When `try` or `build` has finished on the main dev machine, on the other machine run:
+When `try` or `release` has built the installers on the main dev machine, on the other machine run:
 
 ```
-./scripts/release.sh sync
-./scripts/release.sh download
+bruce-method-release sync
+bruce-method-release download
 ```
 
-`sync` puts the repo on the release branch, which `download` needs because the version comes from them. `download`
+`sync` puts the repo on the release branch, which `download` needs because the version comes from it. `download`
 then downloads just the installer for that machine, from the latest run: the `.dmg` for an Apple silicon or Intel Mac,
 or the `setup.exe` for an ARM or Intel/AMD PC. It stops if the run has not finished, so wait for it with `watch` first.
 
 After `try`, the installer is in a folder named after its build, e.g. on an Apple silicon Mac:
 
 ```
-~/Downloads/bruce-smart-home-X.X.X-test/macos-aarch64/BruceSmartHome_X.X.X_aarch64.dmg
+~/Downloads/bruce-smart-home-X.Y.Z-test/macos-aarch64/BruceSmartHome_X.Y.Z_aarch64.dmg
 ```
 
-After `build`, it is downloaded from the draft release, e.g. on an ARM PC:
+After `release`, it is downloaded from the draft release, e.g. on an ARM PC:
 
 ```
-~/Downloads/bruce-smart-home-X.X.X/BruceSmartHome_X.X.X_arm64-setup.exe
+~/Downloads/bruce-smart-home-X.Y.Z/BruceSmartHome_X.Y.Z_arm64-setup.exe
 ```
 
-The folder and file names for each machine are listed in [step 1](#1-try-the-installers-optional) and
-[step 4](#4-build-the-draft-release). On Windows `~` is the user's folder, e.g. `C:\Users\yourname`.
+The folder and file names for each machine are listed in [step 1](#1-try-the-installers) and
+[step 2](#2-release-up-to-the-draft). On Windows `~` is the user's folder, e.g. `C:\Users\yourname`.
 
 On Windows, in PowerShell (or a Command Prompt), one command does both:
 
@@ -482,19 +402,8 @@ On Windows, in PowerShell (or a Command Prompt), one command does both:
 ~\git\bruce-smart-home\scripts\sync-and-download.cmd
 ```
 
-It runs `release.sh` in Git Bash, which comes with Git for Windows. `gh` needs to be installed and signed in, as in the
-manual commands of [step 1](#1-try-the-installers-optional). The other commands of `release.sh` are for the Mac.
-
-Git for Windows usually gives files Windows line endings, which bash cannot run, so
-[.gitattributes](../.gitattributes) keeps `release.sh` with Unix ones. A copy checked out before that was added may
-still have Windows ones, and fail with errors like `$'\r': command not found`. Fix it once, in PowerShell:
-
-```
-cd ~\git\bruce-smart-home
-git pull
-Remove-Item scripts\release.sh
-git checkout scripts/release.sh
-```
+It needs bruce-method-release, installed with `cargo install bruce-method-release` (which needs Rust, from
+https://rustup.rs), and `gh` installed and signed in, as in the manual commands of [step 1](#1-try-the-installers).
 
 # One Time Setup Steps
 

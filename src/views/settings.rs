@@ -35,11 +35,13 @@ pub fn Settings() -> Element {
     });
     let mut status = use_signal(|| None::<Result<String, String>>);
 
-    let chosen = |kind: &str| match (kind, retention()) {
-        ("eachRun", LogRetention::EachRun)
-        | ("hours", LogRetention::Hours { .. })
-        | ("size", LogRetention::Size { .. }) => true,
-        _ => false,
+    let chosen = |kind: &str| {
+        matches!(
+            (kind, retention()),
+            ("eachRun", LogRetention::EachRun)
+                | ("hours", LogRetention::Hours { .. })
+                | ("size", LogRetention::Size { .. })
+        )
     };
     let log_path = logging::log_path(&profile_name)
         .map(|path| path.display().to_string())

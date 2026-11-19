@@ -20,7 +20,7 @@ use bill::get_statement_transactions::{Charge, TransactionType};
 use bruce_graphql::{GraphQLCaller, GraphQLQueryBuilder};
 
 // const one_hundred: Decimal = Decimal::new(100, 0);
-// const format: time::format_description = time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
+// const format: time::format_description = time::format_description::parse_borrowed::<1>("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
 
 pub type BillType = super::graphql::BillTypeEnum;
 
@@ -300,10 +300,10 @@ mod total_charges_module {
             consumption: &crate::octopus::graphql::bill::get_statement_transactions::Consumption,
             net_factor: f64,
         ) {
-            self.gross += *&transaction.amounts_.gross_;
+            self.gross += transaction.amounts_.gross_;
             self.gross_usage += consumption.usage_cost_;
 
-            self.net += (*&transaction.amounts_.gross_ as f64 / net_factor) as i32;
+            self.net += (transaction.amounts_.gross_ as f64 / net_factor) as i32;
 
             self.units += consumption.quantity_;
             self.inputs += 1;
@@ -409,28 +409,28 @@ impl BillTransactionBreakDown {
                 // print the line items making up this charge
                 //println!("Get line items {:?} - {:?}",  &consumption.start_date_, &consumption.end_date_);
 
-                if let TransactionType::Charge(charge) = transaction {
-                    if let Some(consumption) = &charge.consumption_ {
-                        let meter_type = match charge.as_transaction_type().title_.as_str() {
-                            "Gas" => MeterType::Gas,
-                            "Electricity" => MeterType::Electricity,
-                            _ => panic!("Unknown consumption type"),
-                        };
+                if let TransactionType::Charge(charge) = transaction
+                    && let Some(consumption) = &charge.consumption_
+                {
+                    let meter_type = match charge.as_transaction_type().title_.as_str() {
+                        "Gas" => MeterType::Gas,
+                        "Electricity" => MeterType::Electricity,
+                        _ => panic!("Unknown consumption type"),
+                    };
 
-                        let line_items = LineItemDataSet::new(
-                            &account_number,
-                            &meter_type,
-                            charge.is_export_,
-                            &consumption.start_date_,
-                            &consumption.end_date_,
-                            billing_timezone,
-                            cache_config,
-                            request_manager,
-                        )
-                        .await?;
+                    let line_items = LineItemDataSet::new(
+                        &account_number,
+                        &meter_type,
+                        charge.is_export_,
+                        &consumption.start_date_,
+                        &consumption.end_date_,
+                        billing_timezone,
+                        cache_config,
+                        request_manager,
+                    )
+                    .await?;
 
-                        result.push(BillTransactionBreakDown::from_charge(charge, line_items.agreements));
-                    }
+                    result.push(BillTransactionBreakDown::from_charge(charge, line_items.agreements));
                 }
             } else {
                 result.push(BillTransactionBreakDown::from_abstract(transaction));
@@ -451,9 +451,9 @@ impl BillTransactionBreakDown {
                 line_item_map,
             };
         }
-        return BillTransactionBreakDown::Abstract {
+        BillTransactionBreakDown::Abstract {
             transaction: TransactionType::Charge(charge),
-        };
+        }
     }
 
     pub fn from_abstract(transaction: TransactionType) -> Self {
@@ -641,9 +641,9 @@ impl BillTransactionBreakDown {
 
     pub fn gui_display(&self) -> Element {
         let one_hundred = Decimal::new(100, 0);
-        // let format = time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
-        let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
-        let time_format = time::format_description::parse("           [hour]:[minute]:[second]").unwrap();
+        // let format = time::format_description::parse_borrowed::<1>("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
+        let date_format = time::format_description::parse_borrowed::<1>("[year]-[month]-[day]").unwrap();
+        let time_format = time::format_description::parse_borrowed::<1>("           [hour]:[minute]:[second]").unwrap();
 
         let mut parts = Vec::new();
 
@@ -768,9 +768,9 @@ impl BillTransactionBreakDown {
 
                     let mut consumption_analysis = None;
 
-                    if line_items.len() > 0 {
-                        let start_date = line_items.get(0).unwrap().start_at_.date();
-                        let end_date = line_items.get(line_items.len() - 1).unwrap().end_at_.date();
+                    if !line_items.is_empty() {
+                        let start_date = line_items.first().unwrap().start_at_.date();
+                        let end_date = line_items.last().unwrap().end_at_.date();
                         let days = end_date.to_julian_day() - start_date.to_julian_day();
 
                         if let Some(standing_charge_rate) = tariff.standing_charge() {
@@ -922,7 +922,7 @@ impl BillDataSet {
                 // If we ever found ourselves in the position that there are two bills on the same issue date
                 // and we fetch one of them as the last item in a query we would never see the second one.
                 // By stepping back one day we usually read one bill we already have but we avoid that gap.
-                let start_date = last_record.as_bill_interface().from_date_.clone(); //.previous_day();
+                let start_date = last_record.as_bill_interface().from_date_; //.previous_day();
                 builder = builder.with_from_date(start_date);
             }
 
@@ -954,11 +954,10 @@ impl BillDataSet {
             };
 
             let bill = bill.as_bill_interface();
-            (bill.id_.clone(), bill.from_date_.clone(), is_final)
+            (bill.id_.clone(), bill.from_date_, is_final)
         };
         let response_iterator = |response: super::graphql::bill::get_bills::Response| {
-            let it = response.account_.bills_.edges.into_iter().map(|edge| edge.node);
-            it
+            response.account_.bills_.edges.into_iter().map(|edge| edge.node)
         };
 
         let data_set = OrderedListDataSet::new(
@@ -1028,8 +1027,7 @@ impl StatementTransactionDataSet {
 
         let response_iterator = |response: super::graphql::bill::get_statement_transactions::Response| {
             if let bill::get_statement_transactions::BillInterface::StatementType(statement) = response.account_.bill_ {
-                let it = statement.transactions_.edges.into_iter().map(|edge| edge.node);
-                it
+                statement.transactions_.edges.into_iter().map(|edge| edge.node)
             } else {
                 panic!("Bill {} is not a statement", statement_id)
             }

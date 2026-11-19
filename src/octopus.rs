@@ -45,7 +45,6 @@ use crate::{
 };
 use bruce_graphql::TokenManager;
 
-// include!("octopus/graphql.rs");
 include!(concat!(env!("OUT_DIR"), "/graphql.rs"));
 include!(concat!(env!("OUT_DIR"), "/crate_info.rs"));
 
@@ -202,13 +201,13 @@ impl OctopusModule {
     fn get_billing_timezone(profile: &Profile) -> &'static time_tz::Tz {
         // if let Some(profile) = profile {
         if let Some(name) = &profile.billing_timezone {
-            if let Some(tz) = timezones::get_by_name(&name) {
+            if let Some(tz) = timezones::get_by_name(name) {
                 return tz;
             }
             panic!("Unable to load billing_timezone '{}'", name);
         }
         // }
-        return timezones::db::europe::LONDON;
+        timezones::db::europe::LONDON
     }
 
     pub fn registration() -> ModuleRegistration {
@@ -351,8 +350,8 @@ impl Module for OctopusModule {
     fn get_component(&self, page_id: &str, path: Vec<String>) -> Element {
         let page = match page_id {
             "user" => {
-                // let format = time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
-                let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
+                // let format = time::format_description::parse_borrowed::<1>("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
+                let date_format = time::format_description::parse_borrowed::<1>("[year]-[month]-[day]").unwrap();
                 let account_user = &self.account_manager.data_set.data.viewer_;
                 let dob = if let Some(date) = &account_user.date_of_birth_ {
                     date.format(&date_format).unwrap()
@@ -587,11 +586,11 @@ impl OctopusModuleFactory {
                     for graphql_error in graphql_errors {
                         if let Some(error_code) = graphql_error.extensions.get("errorCode") {
                             if error_code == "KT-CT-1138" {
-                                errors.push(format!("Username or password is incorrect."));
+                                errors.push("Username or password is incorrect.".to_string());
                                 return Err(anyhow!(error));
                             }
                             if error_code == "KT-CT-1139" {
-                                errors.push(format!("API KEY is incorrect."));
+                                errors.push("API KEY is incorrect.".to_string());
                                 return Err(anyhow!(error));
                             }
                         }
@@ -599,7 +598,7 @@ impl OctopusModuleFactory {
                 }
                 errors.push(format!("Login failed, {}", describe_login_error(&error)));
                 crate::log_error!("Login to Octopus failed, {}", describe_login_error(&error));
-                return Err(anyhow!(error));
+                Err(anyhow!(error))
             }
         }
     }
@@ -638,7 +637,7 @@ impl OctopusModuleFactory {
                     ))
                     .await;
 
-                if let Ok(_) = Self::login(&mut errors, &token_manager).await {
+                if Self::login(&mut errors, &token_manager).await.is_ok() {
                     crate::login::cleared(&context, MODULE_ID);
                     let init_signal = try_consume_context::<Signal<InitRequested>>();
                     if let Some(mut init_sig) = init_signal {
@@ -658,7 +657,7 @@ impl OctopusModuleFactory {
                 token_manager
                     .set_authenticator(OctopusAuthenticator::from_api_key(api_key.clone()))
                     .await;
-                if let Ok(_) = Self::login(&mut errors, &token_manager).await {
+                if Self::login(&mut errors, &token_manager).await.is_ok() {
                     println!("Login successful!");
                     // Store the api_key into the profile
                     let new_profile = Profile {
@@ -698,8 +697,8 @@ impl ModuleFactory for OctopusModuleFactory {
     }
 
     fn init_page(&self) -> Element {
-        let mut email = use_signal(|| String::new());
-        let password = use_signal(|| String::new());
+        let mut email = use_signal(String::new);
+        let password = use_signal(String::new);
         let saved_api_key = self.profile.api_key.clone();
         let login_method_default = if saved_api_key.is_some() { "api_key" } else { "email" };
         let api_key = use_signal(|| saved_api_key.unwrap_or_default());
@@ -832,11 +831,7 @@ impl OctopusModuleFactoryBuilder {
         context: Arc<AppContext>,
         json_profile: Option<serde_json::Value>,
     ) -> anyhow::Result<OctopusModuleFactoryBuilder> {
-        let module_args = if let Some(args) = context.args.module_args(MODULE_ID) {
-            args
-        } else {
-            Vec::new()
-        };
+        let module_args = context.args.module_args(MODULE_ID).unwrap_or_default();
 
         let octopus_args = OctopusArgs::parse_from(module_args);
         let profile = if let Some(json) = json_profile {
@@ -848,18 +843,10 @@ impl OctopusModuleFactoryBuilder {
         let option_api_key = if let Some(api_key) = &octopus_args.octopus_api_key {
             Some(api_key.to_string())
         } else {
-            if let Some(api_key) = &profile.api_key {
-                Some(api_key.to_string())
-            } else {
-                None
-            }
+            profile.api_key.as_ref().map(|api_key| api_key.to_string())
         };
 
-        let authenticator = if let Some(api_key) = option_api_key {
-            Some(OctopusAuthenticator::from_api_key(api_key))
-        } else {
-            None
-        };
+        let authenticator = option_api_key.map(OctopusAuthenticator::from_api_key);
 
         let verbose = context.args.app_args.verbose;
 

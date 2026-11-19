@@ -220,7 +220,7 @@ impl CategoryFilter {
                 };
                 let default_color = known.unwrap_or_else(|| String::from(*other_colors.next().unwrap()));
                 let default_color = self.saved.get(label).cloned().unwrap_or(default_color);
-                self.styles.get(label).cloned().unwrap_or_else(|| CategoryStyle {
+                self.styles.get(label).cloned().unwrap_or(CategoryStyle {
                     color: default_color,
                     visible: true,
                 })

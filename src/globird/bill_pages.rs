@@ -494,18 +494,19 @@ fn BillDetail(context: SharedProp<GlobirdContext>, document_id: i64) -> Element 
     let comparison = compare(&bill, &summaries).unwrap_or_default();
     // The days' figures only when they are all of the bill's, which they can only be compared with then.
     let complete = comparison.complete();
-    // Its missing days can be fetched only while GloBird keeps them, FETCH_DAYS.
-    let fetchable = !complete
-        && bill
-            .period
-            .is_some_and(|(_, last)| last > fetch::nem_today() - time::Duration::days(fetch::FETCH_DAYS));
+    // Its missing days can be fetched, as GloBird keeps them, unless the profile is offline.
+    let period = bill.period;
+    let fetchable = !complete && period.is_some() && !context.0.cache_config.offline;
     let fetch_days = {
         let context = context.clone();
         move |_| {
             let context = context.clone();
+            let Some((first, last)) = period else {
+                return;
+            };
             spawn(async move {
                 fetching.set(true);
-                let fetched = context.0.fetch(&mut |_| {}).await;
+                let fetched = context.0.fetch_days(first, last, &mut |_| {}).await;
                 fetch_problem.set(fetched.err().map(|error| format!("{error:#}")));
                 fetching.set(false);
                 generation += 1;
@@ -570,9 +571,6 @@ fn BillDetail(context: SharedProp<GlobirdContext>, document_id: i64) -> Element 
                     " "
                 }
                 "{comparison.days_cached} of the bill's {comparison.days} days are cached, so the days' figures are not all of its period."
-                if !fetchable {
-                    " GloBird keeps only the last {fetch::FETCH_DAYS} days, so the rest can no longer be fetched."
-                }
             }
             if let Some(problem) = fetch_problem() {
                 p { class: "error", ErrorText { error: problem, message: String::from("Unable to fetch the days") } }

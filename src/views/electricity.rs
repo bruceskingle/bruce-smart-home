@@ -246,7 +246,7 @@ pub fn ElectricityExplorer(
                 if reload_period.is_some() {
                     reload.set(None);
                 }
-                anyhow::Ok(Arc::new(Loaded {
+                anyhow::Ok(Rc::new(Loaded {
                     electricity,
                     measurements,
                 }))
@@ -278,7 +278,7 @@ pub fn ElectricityExplorer(
         .copied()
         .find(|option| *option >= period() && fits(*option))
         .unwrap_or(Period::Month);
-    let readings: Option<Arc<Loaded>> = match &*readings_resource.read() {
+    let readings: Option<Rc<Loaded>> = match &*readings_resource.read() {
         Some(Ok(readings)) => Some(readings.clone()),
         _ => None,
     };
@@ -649,8 +649,8 @@ fn electricity_table(electricity: &Electricity, compares_ev: bool, derived: bool
     if electricity.points.len() > MAX_SHOWN {
         return too_many(electricity.points.len());
     }
-    let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
-    let time_format = time::format_description::parse("[hour]:[minute]:[second]").unwrap();
+    let date_format = time::format_description::parse_borrowed::<1>("[year]-[month]-[day]").unwrap();
+    let time_format = time::format_description::parse_borrowed::<1>("[hour]:[minute]:[second]").unwrap();
     let local = |timestamp: i64| {
         time::OffsetDateTime::from_unix_timestamp(timestamp)
             .map(|time| time.to_timezone(tz))
@@ -658,7 +658,10 @@ fn electricity_table(electricity: &Electricity, compares_ev: bool, derived: bool
     };
 
     let mut previous_date = String::new();
-    let rows: Vec<(String, String, String, Vec<String>, String, String, String)> = electricity
+    /// A row of the table, as shown: the date, if it is the first of its date, the start and end times, the import of
+    /// each label, the export, Octopus's EV comparison, and where the point's readings came from.
+    type Row = (String, String, String, Vec<String>, String, String, String);
+    let rows: Vec<Row> = electricity
         .points
         .iter()
         .map(|point| {
@@ -816,10 +819,16 @@ fn bar_labels(start: i64, end: i64, period: Period, tz: &'static Tz) -> Option<(
     })
 }
 
+/// The cost of each category, by name, at each point, and their currency, see cost_categories.
+type CostValues = (Vec<(String, Vec<f64>)>, Currency);
+
 /// The graph of electricity, or of its costs, by category, and their currency, if cost_values, see cost_categories.
+///
+/// Its arguments are more than clippy's limit, as each is needed and its callers give them separately.
+#[allow(clippy::too_many_arguments)]
 fn electricity_graph(
     electricity: &Electricity,
-    cost_values: Option<(Vec<(String, Vec<f64>)>, Currency)>,
+    cost_values: Option<CostValues>,
     start: &DateTime,
     end: &DateTime,
     period: Period,
@@ -1078,6 +1087,9 @@ fn flow_labels(flows: &[power::flows::FlowPoint]) -> (Vec<String>, Vec<String>) 
 /// Where the energy came from and where it went, see power::flows, as two graphs over the range, one above the other,
 /// each in the categories' colours, as filter shows them, which on_drill and on_zoom show in more detail, as the Graph's
 /// do.
+///
+/// Its arguments are more than clippy's limit, as each is needed and its callers give them separately.
+#[allow(clippy::too_many_arguments)]
 fn flows_graphs(
     flows: &[power::flows::FlowPoint],
     start: &DateTime,

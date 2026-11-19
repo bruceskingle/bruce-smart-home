@@ -172,8 +172,15 @@ impl LocalClient {
         let status = response.status();
         let text = response.text().await?;
         if !status.is_success() {
+            // A Powerwall 3 does not give the API a Powerwall 2's Backup Gateway does on the home network, so every
+            // endpoint is Not Found, even status, which every Backup Gateway gives.
+            let hint = if status == StatusCode::NOT_FOUND {
+                ". It may be a Powerwall 3, which does not give the local API the app reads on the home network"
+            } else {
+                ""
+            };
             return Err(anyhow!(
-                "the gateway responded {status} to {endpoint}: {}",
+                "the gateway responded {status} to {endpoint}: {}{hint}",
                 crate::http::summary(&text)
             ));
         }

@@ -1085,10 +1085,12 @@ struct ChangesPage {
     error: Option<String>,
 }
 
+/// A device's latest replication, when it was and what the device said of itself then, locked while one is made.
+type Replication = Arc<tokio::sync::Mutex<Option<(std::time::Instant, StoreInfo)>>>;
+
 /// The latest replication of each device, by its ID, with what it said of itself then, see REPLICATED_FOR.
-static REPLICATIONS: Mutex<
-    std::collections::BTreeMap<String, Arc<tokio::sync::Mutex<Option<(std::time::Instant, StoreInfo)>>>>,
-> = Mutex::new(std::collections::BTreeMap::new());
+static REPLICATIONS: Mutex<std::collections::BTreeMap<String, Replication>> =
+    Mutex::new(std::collections::BTreeMap::new());
 
 /// Sets the device's store up for the profile's site, see set_up_store, if it is off or keeps no site, but not if it
 /// keeps another site, the first time replicate finds it so, once each time the app runs, as a device from before the
@@ -1276,6 +1278,60 @@ pub async fn replicate(
     Ok(Some(info))
 }
 
+/// For --deviceget: GETs path, which may have a query, e.g. capture/climate/records?limit=5, of the active profile's
+/// capture device device, signed with the key the app keeps for it, which is not shown, and prints its response.
+pub fn cli_get(args: &crate::Args, device_id: &str, path: &str) -> anyhow::Result<()> {
+    let device = cli_device(args, device_id)?;
+    let (path, query) = path
+        .trim_start_matches('/')
+        .trim_start_matches("api/")
+        .split_once('?')
+        .unwrap_or((path, ""));
+    let query: Vec<(String, String)> = reqwest::Url::parse(&format!("http://device/?{query}"))?
+        .query_pairs()
+        .into_owned()
+        .collect();
+    let query: Vec<(&str, String)> = query
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.clone()))
+        .collect();
+    let client = DeviceClient::for_device(&device)?;
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let json = runtime.block_on(client.get_query(path, &query))?;
+    println!("{}", serde_json::to_string_pretty(&json)?);
+    Ok(())
+}
+
+/// For --devicepost: POSTs body, JSON, to path, e.g. config, of the active profile's capture device device, signed as
+/// cli_get's are, and prints its response.
+pub fn cli_post(args: &crate::Args, device_id: &str, path: &str, body: &str) -> anyhow::Result<()> {
+    let device = cli_device(args, device_id)?;
+    let body: Value = serde_json::from_str(body).map_err(|error| anyhow!("The body is not JSON: {error:#}"))?;
+    let client = DeviceClient::for_device(&device)?;
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let json = runtime.block_on(client.post(path.trim_start_matches('/').trim_start_matches("api/"), &body))?;
+    println!("{}", serde_json::to_string_pretty(&json)?);
+    Ok(())
+}
+
+/// The active profile's capture device with the ID device_id, for --deviceget and --devicepost.
+fn cli_device(args: &crate::Args, device_id: &str) -> anyhow::Result<DeviceProfile> {
+    let profile = crate::profile::fetch_active_profile(&args.app_args.profile)?;
+    profile
+        .active_profile
+        .settings
+        .capture_devices
+        .iter()
+        .find(|device| device.id == device_id)
+        .cloned()
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "The profile {} has no capture device {device_id}",
+                profile.active_profile.name
+            )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1427,58 +1483,4 @@ mod tests {
         println!("with the wrong fingerprint: {error:#}");
         assert!(format!("{error:#}").contains("not the one it had"));
     }
-}
-
-/// For --deviceget: GETs path, which may have a query, e.g. capture/climate/records?limit=5, of the active profile's
-/// capture device device, signed with the key the app keeps for it, which is not shown, and prints its response.
-pub fn cli_get(args: &crate::Args, device_id: &str, path: &str) -> anyhow::Result<()> {
-    let device = cli_device(args, device_id)?;
-    let (path, query) = path
-        .trim_start_matches('/')
-        .trim_start_matches("api/")
-        .split_once('?')
-        .unwrap_or((path, ""));
-    let query: Vec<(String, String)> = reqwest::Url::parse(&format!("http://device/?{query}"))?
-        .query_pairs()
-        .into_owned()
-        .collect();
-    let query: Vec<(&str, String)> = query
-        .iter()
-        .map(|(name, value)| (name.as_str(), value.clone()))
-        .collect();
-    let client = DeviceClient::for_device(&device)?;
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    let json = runtime.block_on(client.get_query(path, &query))?;
-    println!("{}", serde_json::to_string_pretty(&json)?);
-    Ok(())
-}
-
-/// For --devicepost: POSTs body, JSON, to path, e.g. config, of the active profile's capture device device, signed as
-/// cli_get's are, and prints its response.
-pub fn cli_post(args: &crate::Args, device_id: &str, path: &str, body: &str) -> anyhow::Result<()> {
-    let device = cli_device(args, device_id)?;
-    let body: Value = serde_json::from_str(body).map_err(|error| anyhow!("The body is not JSON: {error:#}"))?;
-    let client = DeviceClient::for_device(&device)?;
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    let json = runtime.block_on(client.post(path.trim_start_matches('/').trim_start_matches("api/"), &body))?;
-    println!("{}", serde_json::to_string_pretty(&json)?);
-    Ok(())
-}
-
-/// The active profile's capture device with the ID device_id, for --deviceget and --devicepost.
-fn cli_device(args: &crate::Args, device_id: &str) -> anyhow::Result<DeviceProfile> {
-    let profile = crate::profile::fetch_active_profile(&args.app_args.profile)?;
-    profile
-        .active_profile
-        .settings
-        .capture_devices
-        .iter()
-        .find(|device| device.id == device_id)
-        .cloned()
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "The profile {} has no capture device {device_id}",
-                profile.active_profile.name
-            )
-        })
 }

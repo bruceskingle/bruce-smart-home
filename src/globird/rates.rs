@@ -132,8 +132,9 @@ fn least_squares(a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
         for row in 0..n {
             if row != column {
                 let factor = m[row][column] / m[column][column];
-                for k in column..=n {
-                    m[row][k] -= factor * m[column][k];
+                let pivot = m[column].clone();
+                for (value, above) in m[row][column..=n].iter_mut().zip(&pivot[column..=n]) {
+                    *value -= factor * above;
                 }
             }
         }
@@ -294,7 +295,7 @@ pub fn tariffs(days: &[DaySummary]) -> Vec<Tariff> {
 }
 
 /// The tariff of a day, from tariffs.
-pub fn tariff_of<'a>(tariffs: &'a [Tariff], date: Date) -> Option<&'a Tariff> {
+pub fn tariff_of(tariffs: &[Tariff], date: Date) -> Option<&Tariff> {
     tariffs
         .iter()
         .find(|tariff| tariff.first <= date && date <= tariff.last)

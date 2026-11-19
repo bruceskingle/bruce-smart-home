@@ -198,7 +198,9 @@ fn add_checks(circuit: &Circuit, top: bool, series: &Series, checks: &mut Vec<Ch
         }
     }
     if let (Some((parent_name, parent_values)), false) = (first, circuit.children.is_empty()) {
-        let children: Vec<(&Circuit, Option<(&str, &[Option<f64>])>)> = circuit
+        /// A child circuit, with the name and values of what measures it, if anything does.
+        type Child<'a> = (&'a Circuit, Option<(&'a str, &'a [Option<f64>])>);
+        let children: Vec<Child> = circuit
             .children
             .iter()
             .map(|child| (child, series.of(child, false)))

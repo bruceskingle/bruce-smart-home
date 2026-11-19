@@ -280,7 +280,7 @@ impl Tariff {
 }
 
 impl meter::electricity_agreement_line_items::AgreementInterface {
-    pub fn as_electricity_agreement(self) -> meter::electricity_agreement_line_items::ElectricityAgreementType {
+    pub fn into_electricity_agreement(self) -> meter::electricity_agreement_line_items::ElectricityAgreementType {
         match self {
             meter::electricity_agreement_line_items::AgreementInterface::ElectricityAgreementType(
                 electricity_agreement_type,
@@ -303,7 +303,7 @@ impl meter::electricity_agreement_line_items::AgreementInterface {
 }
 
 impl meter::gas_agreement_line_items::AgreementInterface {
-    pub fn as_gas_agreement(self) -> meter::gas_agreement_line_items::GasAgreementType {
+    pub fn into_gas_agreement(self) -> meter::gas_agreement_line_items::GasAgreementType {
         match self {
             meter::gas_agreement_line_items::AgreementInterface::ElectricityAgreementType(
                 _electricity_agreement_type,
@@ -326,14 +326,14 @@ impl meter::gas_agreement_line_items::AgreementInterface {
     }
 }
 
-impl Into<meter::electricity_agreement_line_items::LineItemType> for meter::gas_agreement_line_items::LineItemType {
-    fn into(self) -> meter::electricity_agreement_line_items::LineItemType {
+impl From<meter::gas_agreement_line_items::LineItemType> for meter::electricity_agreement_line_items::LineItemType {
+    fn from(val: meter::gas_agreement_line_items::LineItemType) -> Self {
         meter::electricity_agreement_line_items::LineItemType {
-            start_at_: self.start_at_,
-            end_at_: self.end_at_,
-            net_amount_: self.net_amount_,
-            number_of_units_: self.number_of_units_,
-            settlement_unit_: self.settlement_unit_,
+            start_at_: val.start_at_,
+            end_at_: val.end_at_,
+            net_amount_: val.net_amount_,
+            number_of_units_: val.number_of_units_,
+            settlement_unit_: val.settlement_unit_,
         }
     }
 }
@@ -383,7 +383,7 @@ impl AgreementLineItems {
                 let initial_query_provider =
                     |bucket_start: &Date, last_record: Option<&meter::gas_agreement_line_items::LineItemType>| {
                         let start_date = if let Some(last_record) = last_record {
-                            last_record.start_at_.clone()
+                            last_record.start_at_
                         } else {
                             bucket_start.at_midnight(billing_timezone)
                         };
@@ -406,7 +406,7 @@ impl AgreementLineItems {
                             .clone()
                             .filter(|_| agreement.line_items_.page_info.has_next_page)
                         {
-                            let start_date = agreement.line_items_.edges.last().unwrap().node.start_at_.clone();
+                            let start_date = agreement.line_items_.edges.last().unwrap().node.start_at_;
                             Some(
                                 meter::gas_agreement_line_items::Query::builder()
                                     .with_agreement_id(agreement_id.clone())
@@ -426,14 +426,14 @@ impl AgreementLineItems {
                 let response_iterator = |response: meter::gas_agreement_line_items::Response| {
                     response
                         .gas_agreement_
-                        .as_gas_agreement()
+                        .into_gas_agreement()
                         .line_items_
                         .edges
                         .into_iter()
                         .map(|edge| edge.node)
                 };
 
-                let indexer = |item: &meter::gas_agreement_line_items::LineItemType| (item.start_at_.clone(), true);
+                let indexer = |item: &meter::gas_agreement_line_items::LineItemType| (item.start_at_, true);
 
                 let data_set = MonthlyDataSet::new(
                     &hash_key,
@@ -463,7 +463,7 @@ impl AgreementLineItems {
                     |bucket_start: &Date,
                      last_record: Option<&meter::electricity_agreement_line_items::LineItemType>| {
                         let start_date = if let Some(last_record) = last_record {
-                            last_record.start_at_.clone()
+                            last_record.start_at_
                         } else {
                             bucket_start.at_midnight(billing_timezone)
                         };
@@ -489,11 +489,11 @@ impl AgreementLineItems {
                             .clone()
                             .filter(|_| agreement.line_items_.page_info.has_next_page)
                         {
-                            let start_date = agreement.line_items_.edges.last().unwrap().node.start_at_.clone();
+                            let start_date = agreement.line_items_.edges.last().unwrap().node.start_at_;
                             Some(
                                 meter::electricity_agreement_line_items::Query::builder()
                                     .with_agreement_id(agreement_id.clone())
-                                    .with_start_at(start_date.clone())
+                                    .with_start_at(start_date)
                                     .with_timezone(String::from("Europe/London"))
                                     .with_item_type(super::graphql::LineItemTypeOptions::ConsumptionCharge)
                                     .with_line_item_grouping(super::graphql::LineItemGroupingOptions::None)
@@ -509,15 +509,14 @@ impl AgreementLineItems {
                 let response_iterator = |response: meter::electricity_agreement_line_items::Response| {
                     response
                         .electricity_agreement_
-                        .as_electricity_agreement()
+                        .into_electricity_agreement()
                         .line_items_
                         .edges
                         .into_iter()
                         .map(|edge| edge.node)
                 };
 
-                let indexer =
-                    |item: &meter::electricity_agreement_line_items::LineItemType| (item.start_at_.clone(), true);
+                let indexer = |item: &meter::electricity_agreement_line_items::LineItemType| (item.start_at_, true);
 
                 let data_set = MonthlyDataSet::new(
                     &hash_key,

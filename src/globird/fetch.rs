@@ -3,8 +3,8 @@
 //! The replies are kept as GloBird sent them: the account, `globird.account`, each power service's meters,
 //! `globird.meters`, and each row of the usage and costs, `globird.usage` and `globird.cost`, a DataSet for each NMI, by
 //! its hash, of each row by its NEM day and the fields which tell it from the day's others, e.g. its register and
-//! charge type. GloBird only keeps a few weeks of readings, 35 days when first asked, so they
-//! are kept for ever, as captured data is, and the last few days are fetched again, as the meter's readings arrive a
+//! charge type. The app fetches the last FETCH_DAYS days by itself, and earlier ones, which GloBird keeps
+//! too, when asked; they are kept for ever, as captured data is, and the last few days are fetched again, as the meter's readings arrive a
 //! day or so late and may be corrected. A NEM day is the day in Australia's National Electricity Market time, UTC+10
 //! all year, whatever the clocks in Sydney say, and GloBird's tariff periods are in NEM time too.
 
@@ -40,8 +40,12 @@ pub const LABELS: [(&str, &str); 12] = [
     ("Battery Peak Usage", "#d946ef"),
 ];
 
-/// How many days back a fetch asks for, more than GloBird keeps, so that the first fetch gets all it has.
+/// How many days back the app fetches by itself, when a page opens or polling does, see fetch. GloBird keeps far more,
+/// which the Days page and a bill's window fetch when asked, see fetch_days.
 pub const FETCH_DAYS: i64 = 40;
+/// The most days asked for in one request, as many as the latest days' fetch, so that it is one request, and a longer
+/// range, e.g. a year, is asked for a few weeks at a time.
+const REQUEST_DAYS: i64 = FETCH_DAYS + 1;
 /// How many of the latest days are fetched again, even if cached, as their readings may still arrive or change.
 pub const REFETCH_DAYS: i64 = 7;
 
@@ -498,29 +502,83 @@ fn save_rows(
     Ok(days.len())
 }
 
-/// The first day from today - FETCH_DAYS which needs fetching: one which is not cached, or one of the last
-/// REFETCH_DAYS days. None if none does.
-fn first_day_to_fetch(store: &Store, hk: &str, today: Date) -> Option<Date> {
-    (0..=FETCH_DAYS)
-        .rev()
-        .map(|days_ago| today - Duration::days(days_ago))
-        .find(|date| {
-            let (from, to) = (
-                date.to_string(),
-                date.next_day().map(|next| next.to_string()).unwrap_or_default(),
-            );
-            *date > today - Duration::days(REFETCH_DAYS)
-                || store
-                    .query_all(hk, from.as_str()..to.as_str())
-                    .map_or(true, |rows| rows.is_empty())
-        })
+/// Whether a day needs fetching: it is not cached, or it is one of the last REFETCH_DAYS days, whose readings may still
+/// arrive or change.
+fn needs_fetching(store: &Store, hk: &str, date: Date, today: Date) -> bool {
+    let (from, to) = (
+        date.to_string(),
+        date.next_day().map(|next| next.to_string()).unwrap_or_default(),
+    );
+    date > today - Duration::days(REFETCH_DAYS)
+        || store
+            .query_all(hk, from.as_str()..to.as_str())
+            .map_or(true, |rows| rows.is_empty())
 }
 
-/// Fetches the account, its power services' meters, and the usage and costs of every day which needs it, see
-/// first_day_to_fetch, saying what it did with progress.
+/// The ranges of days from from to to which have a day needing fetching, see needs_fetching, each from its first such
+/// day to its end, and at most REQUEST_DAYS long, latest first.
+fn ranges_to_fetch(store: &Store, hk: &str, from: Date, to: Date, today: Date) -> Vec<(Date, Date)> {
+    let mut ranges = Vec::new();
+    let mut end = to;
+    while end >= from {
+        let start = (end - Duration::days(REQUEST_DAYS - 1)).max(from);
+        let mut day = start;
+        while day <= end && !needs_fetching(store, hk, day, today) {
+            day += Duration::days(1);
+        }
+        if day <= end {
+            ranges.push((day, end));
+        }
+        end = start - Duration::days(1);
+    }
+    ranges
+}
+
+/// Fetches the latest days, the last FETCH_DAYS, see fetch_since.
 pub async fn fetch(
     client: &GlobirdClient,
     cache_config: &CacheConfig,
+    progress: &mut dyn FnMut(String),
+) -> anyhow::Result<()> {
+    fetch_since(client, cache_config, nem_today() - Duration::days(FETCH_DAYS), progress).await
+}
+
+/// Fetches every day from from, or FETCH_DAYS ago if that is later, to today which needs it, see fetch_days, and records
+/// that it has, see fetched_at, as it has fetched the latest days, which polling fetches once a day.
+pub async fn fetch_since(
+    client: &GlobirdClient,
+    cache_config: &CacheConfig,
+    from: Date,
+    progress: &mut dyn FnMut(String),
+) -> anyhow::Result<()> {
+    let today = nem_today();
+    fetch_days(
+        client,
+        cache_config,
+        from.min(today - Duration::days(FETCH_DAYS)),
+        today,
+        progress,
+    )
+    .await?;
+    let store = cache_config.store()?;
+    store.put(&Item::new(
+        &store.hash_key(ACCOUNT_KIND, &[])?,
+        FETCHED_KEY,
+        crate::store::version_now(),
+        serde_json::json!({}),
+    ))?;
+    Ok(())
+}
+
+/// Fetches the account, its power services' meters, and the usage and costs of every day from from to to which needs
+/// it, see needs_fetching, as far back as the user asks, e.g. a bill's period, as GloBird keeps more than the latest
+/// days the app fetches by itself. Asks for REQUEST_DAYS at most at a time, one request after another, and says what
+/// it did with progress.
+pub async fn fetch_days(
+    client: &GlobirdClient,
+    cache_config: &CacheConfig,
+    from: Date,
+    to: Date,
     progress: &mut dyn FnMut(String),
 ) -> anyhow::Result<()> {
     if cache_config.offline {
@@ -535,6 +593,7 @@ pub async fn fetch(
         progress("The account has no open power service".to_string());
     }
     let today = nem_today();
+    let to = to.min(today);
     for service in &services {
         let meters = client.read_meters(service.account_service_id).await?;
         let meters_key = store.hash_key(
@@ -557,32 +616,25 @@ pub async fn fetch(
             continue;
         };
         let usage_key = rows_key(store, USAGE_KIND, &service.nmi)?;
-        if let Some(from) = first_day_to_fetch(store, &usage_key, today) {
-            progress(format!("Fetching the readings from {from} to {today}"));
+        for (first, last) in ranges_to_fetch(store, &usage_key, from, to, today) {
+            progress(format!("Fetching the readings from {first} to {last}"));
             let usage = client
-                .usage(service.account_service_id, &service.nmi, &serial, from, today)
+                .usage(service.account_service_id, &service.nmi, &serial, first, last)
                 .await?;
             let days = save_rows(store, &usage_key, &usage, "readDate", &["suffix", "chargeType"])?;
-            progress(format!("Saved the readings of {days} day(s)"));
+            progress(format!("Saved the readings of {days} day(s) from {first} to {last}"));
         }
         let cost_key = rows_key(store, COST_KIND, &service.nmi)?;
-        if let Some(from) = first_day_to_fetch(store, &cost_key, today) {
-            progress(format!("Fetching the costs from {from} to {today}"));
+        for (first, last) in ranges_to_fetch(store, &cost_key, from, to, today) {
+            progress(format!("Fetching the costs from {first} to {last}"));
             let cost = client
-                .cost(service.account_service_id, &service.nmi, from, today)
+                .cost(service.account_service_id, &service.nmi, first, last)
                 .await?;
             let days = save_rows(store, &cost_key, &cost, "date", &["chargeCategory", "chargeType"])?;
-            progress(format!("Saved the costs of {days} day(s)"));
+            progress(format!("Saved the costs of {days} day(s) from {first} to {last}"));
         }
     }
     progress(format!("Fetched {} power service(s)", services.len()));
-    // When it was fetched, for polling, which fetches once a day, see fetched_at.
-    store.put(&Item::new(
-        &store.hash_key(ACCOUNT_KIND, &[])?,
-        FETCHED_KEY,
-        crate::store::version_now(),
-        serde_json::json!({}),
-    ))?;
     Ok(())
 }
 
@@ -669,6 +721,42 @@ mod tests {
 
     fn cost() -> Vec<CostRow> {
         serde_json::from_value(data(include_str!("../../testdata/globird/cost.json"))).unwrap()
+    }
+
+    #[test]
+    fn only_ranges_with_days_to_fetch_are_asked_for_a_few_weeks_at_a_time_latest_first() {
+        let dir = std::env::temp_dir().join(format!("bruce-smart-home-globird-ranges-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let site = Id::of(&serde_json::json!({"site": "globird ranges test"})).unwrap();
+        let store = Store::open(&format!("file://{}", dir.display()), &site).unwrap();
+        let hk = rows_key(&store, USAGE_KIND, "NMI").unwrap();
+        let today = time::macros::date!(2026 - 11 - 19);
+        let days_ago = |days: i64| today - Duration::days(days);
+        // Cached: every day from 100 days ago to 20 days ago, but for 60 days ago.
+        for days in 20..=100 {
+            if days != 60 {
+                let row = serde_json::json!({"readDate": days_ago(days).to_string()});
+                save_rows(&store, &hk, &serde_json::json!([row]), "readDate", &[]).unwrap();
+            }
+        }
+        assert_eq!(
+            ranges_to_fetch(&store, &hk, days_ago(130), today, today),
+            vec![
+                // The latest, uncached days 19 to 0, in the range from 40 days ago.
+                (days_ago(19), today),
+                // From 60 days ago, the first uncached day of its range, to the range's end.
+                (days_ago(60), days_ago(41)),
+                // From the first uncached day, before 100 days ago, to the range's end.
+                (days_ago(122), days_ago(82)),
+                (days_ago(130), days_ago(123)),
+            ]
+        );
+        // The latest days alone, as fetch asks for them, are one request, of the days which need fetching.
+        assert_eq!(
+            ranges_to_fetch(&store, &hk, days_ago(FETCH_DAYS), today, today),
+            vec![(days_ago(19), today)]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

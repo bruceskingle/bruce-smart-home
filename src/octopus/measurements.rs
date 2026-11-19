@@ -82,6 +82,9 @@ pub struct MeasurementsDataSet {
 
 impl MeasurementsDataSet {
     /// The readings of the meter point mpan.
+    ///
+    /// Its arguments are more than clippy's limit, as each is needed and its callers give them separately.
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         account_number: &String,
         mpan: &String,
@@ -132,8 +135,8 @@ impl MeasurementsDataSet {
         if period != StackedBarPeriod::Raw {
             return self.aggregated_table(start, end, tz, period);
         }
-        let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
-        let time_format = time::format_description::parse("[hour]:[minute]").unwrap();
+        let date_format = time::format_description::parse_borrowed::<1>("[year]-[month]-[day]").unwrap();
+        let time_format = time::format_description::parse_borrowed::<1>("[hour]:[minute]").unwrap();
 
         let rows: Vec<_> = self
             .data
@@ -343,6 +346,9 @@ impl MeasurementsDataSet {
 
     /// on_drill is called with the start and end of a bar when it is double clicked, and on_zoom with the start and end
     /// of the bars dragged across.
+    ///
+    /// Its arguments are more than clippy's limit, as each is needed and its callers give them separately.
+    #[allow(clippy::too_many_arguments)]
     pub fn display_graph(
         &self,
         start: &DateTime,
@@ -415,6 +421,9 @@ impl MeasurementsDataSet {
     /// A line graph over one year, with a line for each category (or the total) in each year from start to end.
     /// smoothing other than None is worked out from daily totals, so period is then not used. The page does not offer
     /// Power here, as a cumulative or average of averages would mean little.
+    ///
+    /// Its arguments are more than clippy's limit, as each is needed and its callers give them separately.
+    #[allow(clippy::too_many_arguments)]
     pub fn display_trend(
         &self,
         start: &DateTime,
@@ -549,10 +558,10 @@ impl MeasurementsDataSet {
         tz: &'static Tz,
         period: StackedBarPeriod,
     ) -> (Vec<String>, Vec<AggregatedPoint>) {
-        let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
-        let day_format = time::format_description::parse("[day] [month repr:short]").unwrap();
-        let time_format = time::format_description::parse("[hour]:[minute]").unwrap();
-        let month_format = time::format_description::parse("[month repr:short] [year]").unwrap();
+        let date_format = time::format_description::parse_borrowed::<1>("[year]-[month]-[day]").unwrap();
+        let day_format = time::format_description::parse_borrowed::<1>("[day] [month repr:short]").unwrap();
+        let time_format = time::format_description::parse_borrowed::<1>("[hour]:[minute]").unwrap();
+        let month_format = time::format_description::parse_borrowed::<1>("[month repr:short] [year]").unwrap();
 
         let values: Vec<_> = self
             .data
@@ -1291,7 +1300,7 @@ impl SlotSource for MeasurementsConsumptionSource {
     }
 
     fn initial_query(&mut self, start: &DateTime, end: &DateTime) -> anyhow::Result<Self::Query> {
-        Ok(self.query_builder(end)?.with_start_at(start.clone()).build()?)
+        Ok(self.query_builder(end)?.with_start_at(*start).build()?)
     }
 
     fn continuation_query(
@@ -1326,7 +1335,7 @@ impl SlotSource for MeasurementsConsumptionSource {
             {
                 Some(
                     self.query_builder(end)?
-                        .with_start_at(start.clone())
+                        .with_start_at(*start)
                         .with_cursor(end_cursor)
                         .build()?,
                 )
@@ -1355,7 +1364,7 @@ impl SlotSource for MeasurementsConsumptionSource {
             .map(move |edge| {
                 Ok(StoredMeasurement::Given {
                     node: edge.node,
-                    fetched: fetched.clone(),
+                    fetched,
                 })
             }))
     }
@@ -1375,11 +1384,7 @@ impl SlotSource for MeasurementsConsumptionSource {
 
     fn index(&self, value: &Self::Value) -> anyhow::Result<(DateTime, DateTime, bool)> {
         // Readings cached as final before readings without statistics were treated as not final are fetched again.
-        Ok((
-            value.start.clone(),
-            value.end.clone(),
-            value.is_final && !value.is_partial(),
-        ))
+        Ok((value.start, value.end, value.is_final && !value.is_partial()))
     }
 
     /// Octopus gives a day's readings some time the day after, and may revise those of the last few days, so a month

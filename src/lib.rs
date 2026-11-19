@@ -50,8 +50,8 @@ use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
 use crate::profile::ActiveProfile;
 
-const NONE: &'static str = "None";
-const NULL: &'static str = "Null";
+const NONE: &str = "None";
+const NULL: &str = "Null";
 
 /*
  * It is important that the names of all args here do not contain hyphens or underscores
@@ -136,19 +136,15 @@ impl Args {
         let arg0 = it.next().unwrap_or_else(|| "bruce-smart-home".to_string());
         main_only_args.push(arg0.clone());
         for arg in it {
-            if arg.starts_with("-") {
-                if let Some(module) = Args::extract_module(&arg) {
-                    module_id = Some(module.to_string());
-                }
+            if arg.starts_with("-")
+                && let Some(module) = Args::extract_module(&arg)
+            {
+                module_id = Some(module.to_string());
             }
             if let Some(module) = &module_id {
                 module_args
                     .entry(module.clone())
-                    .or_insert_with(|| {
-                        let mut v = Vec::new();
-                        v.push(arg0.clone());
-                        v
-                    })
+                    .or_insert_with(|| vec![arg0.clone()])
                     .push(arg);
             } else {
                 main_only_args.push(arg);
@@ -402,7 +398,7 @@ pub trait ModuleFactory: Send {
 }
 
 pub type ModuleFactoryConstructor =
-    dyn Fn(Arc<AppContext>, Option<serde_json::Value>) -> anyhow::Result<Arc<dyn ModuleFactory>>;
+    dyn Fn(Arc<AppContext>, Option<serde_json::Value>) -> anyhow::Result<Arc<dyn ModuleFactory>> + Send + Sync;
 
 pub struct ModuleRegistration {
     pub module_id: String,
@@ -433,10 +429,10 @@ impl PartialEq for ModuleRegistrations {
         let mut it = o.into_iter();
 
         for k in s {
-            if let Some(other_key) = it.next() {
-                if k != other_key {
-                    return false;
-                }
+            if let Some(other_key) = it.next()
+                && k != other_key
+            {
+                return false;
             }
         }
 
@@ -470,11 +466,7 @@ impl ModuleRegistrations {
     ) -> anyhow::Result<Arc<dyn ModuleFactory + Send>> {
         if let Some(module_registration) = self.0.get(module_id) {
             let constructor = module_registration.constructor.as_ref();
-            let profile = if let Some(value) = context.profile.active_profile.modules.get(module_id) {
-                Some(value.clone())
-            } else {
-                None
-            };
+            let profile = context.profile.active_profile.modules.get(module_id).cloned();
 
             if context.args.app_args.verbose {
                 let mut redacted_profile = profile.clone();
@@ -490,7 +482,7 @@ impl ModuleRegistrations {
 
             Ok(builder)
         } else {
-            return Err(anyhow!(format!("Unknown module \"{}\"", module_id)));
+            Err(anyhow!(format!("Unknown module \"{}\"", module_id)))
         }
     }
 
@@ -511,7 +503,7 @@ impl ModuleRegistrations {
         if verbose {
             println!("Loaded {} modules", module_registrations.len());
 
-            for (k, _v) in &module_registrations {
+            for k in module_registrations.keys() {
                 println!(" Module {}", k);
             }
         }
@@ -639,19 +631,19 @@ impl AppContext {
     where
         T: DeserializeOwned,
     {
-        if let Ok(path) = self.get_cache_file_path(module_id) {
-            if let Ok(reader) = fs::File::open(path) {
-                let result = serde_json::from_reader(reader)
-                    .map_err(anyhow::Error::from)
-                    .and_then(secrets::unseal)
-                    .and_then(|value| Ok(serde_json::from_value(value)?));
-                match result {
-                    Ok(result) => return Some(result),
-                    Err(error) => println!("ERROR reading cached token: {error:#}"),
-                }
+        if let Ok(path) = self.get_cache_file_path(module_id)
+            && let Ok(reader) = fs::File::open(path)
+        {
+            let result = serde_json::from_reader(reader)
+                .map_err(anyhow::Error::from)
+                .and_then(secrets::unseal)
+                .and_then(|value| Ok(serde_json::from_value(value)?));
+            match result {
+                Ok(result) => return Some(result),
+                Err(error) => println!("ERROR reading cached token: {error:#}"),
             }
         }
-        return None;
+        None
     }
 
     /// Removes the module's tokens, e.g. when its source has refused them, see login.rs.

@@ -4,6 +4,7 @@
 //! the last CHECK_DAYS days' measurements, which also say how the channels relate, whatever the topology, see
 //! power::check.
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::anyhow;
@@ -371,7 +372,7 @@ pub fn SitePage() -> Element {
         async move {
             let found =
                 super::electricity::find(context.ok_or_else(|| anyhow!("There is no profile"))?, registrations).await?;
-            anyhow::Ok(Arc::new(found))
+            anyhow::Ok(Rc::new(found))
         }
     });
     let checked = use_signal(|| None::<Result<SharedProp<Measured>, String>>);
@@ -551,7 +552,7 @@ pub struct Measured {
 
 /// The channels' net import each half hour of the last CHECK_DAYS days: the grid readings', from the sources, put
 /// together as on the Electricity page, as the supplier's channels', and each of the measurements'.
-async fn measure(found: Arc<Found>, mut progress: Signal<String>) -> anyhow::Result<Measured> {
+async fn measure(found: Rc<Found>, mut progress: Signal<String>) -> anyhow::Result<Measured> {
     let tz = found
         .sources
         .first()
@@ -791,15 +792,19 @@ fn CategoryEditor(edited: Signal<Option<Circuit>>) -> Element {
     let colours = category_colours(&settings.read());
     let used = edited().map(|topology| topology.categories()).unwrap_or_default();
     // Saves a change to the categories, and shows them as saved.
-    let mut change_categories = move |profile_name: String, change: Box<dyn FnOnce(&mut Vec<String>)>| {
-        match crate::profile::update_settings_with(&profile_name, |saved| change(&mut saved.categories)) {
+    /// A change to the profile's categories.
+    type CategoriesChange = Box<dyn FnOnce(&mut Vec<String>)>;
+    let mut change_categories =
+        move |profile_name: String, change: CategoriesChange| match crate::profile::update_settings_with(
+            &profile_name,
+            |saved| change(&mut saved.categories),
+        ) {
             Ok(saved) => {
                 settings.write().categories = saved.categories;
                 error.set(None);
             }
             Err(failed) => error.set(Some(format!("Unable to save the categories, {failed:#}"))),
-        }
-    };
+        };
     let add = {
         let (profile_name, all) = (profile_name.clone(), all.clone());
         move || {
@@ -880,7 +885,7 @@ fn CategoryEditor(edited: Signal<Option<Circuit>>) -> Element {
 
 /// Loads and checks the last CHECK_DAYS days' measurements, see measure, into checked, with checking set meanwhile.
 fn start_check(
-    found: Arc<Found>,
+    found: Rc<Found>,
     mut checked: Signal<Option<Result<SharedProp<Measured>, String>>>,
     mut checking: Signal<bool>,
     progress: Signal<String>,

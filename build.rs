@@ -10,7 +10,7 @@ use std::{env, error::Error, fs::File, path::Path, process};
 //     }
 // }
 fn main() {
-    if let Err(_) = build() {
+    if build().is_err() {
         process::exit(1);
         // panic!("Build failed {}", error);
     }
@@ -18,7 +18,8 @@ fn main() {
 
 fn build() -> Result<(), Box<dyn Error>> {
     if let Some(dir) = env::var_os("OUT_DIR") {
-        let format = time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
+        let format =
+            time::format_description::parse_borrowed::<1>("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
         let now = time::OffsetDateTime::now_utc();
 
         let dest_path = Path::new(&dir).join("crate_info.rs");
@@ -31,10 +32,10 @@ fn build() -> Result<(), Box<dyn Error>> {
             r#"
 mod create_info {{
     #![allow(dead_code)]
-    pub const PACKAGE_NAME: &'static str = "{}";
-    pub const PACKAGE_VERSION: &'static str = "{}";
-    pub const USER_AGENT: &'static str = "{}-{}";
-    pub const BUILD_TIMESTAMP: &'static str = "{}";
+    pub const PACKAGE_NAME: &str = "{}";
+    pub const PACKAGE_VERSION: &str = "{}";
+    pub const USER_AGENT: &str = "{}-{}";
+    pub const BUILD_TIMESTAMP: &str = "{}";
 "#,
             env!("CARGO_PKG_NAME"),
             env!("CARGO_PKG_VERSION"),
@@ -146,18 +147,14 @@ fn git_status(file: &mut File) -> Result<(), std::io::Error> {
 
     writeln!(file, "\tpub const GIT_REPOSITORY : bool = {};", is_git)?;
     if is_git {
-        // pub const USER_AGENT: &'static str = "{}-{};";
-        writeln!(file, "\tpub const GIT_BRANCH : &'static str = \"{}\";", branch_name)?;
-        writeln!(file, "\tpub const GIT_TAG : &'static str = \"{}\";", tag_name)?;
+        // pub const USER_AGENT: &str = "{}-{};";
+        writeln!(file, "\tpub const GIT_BRANCH : &str = \"{}\";", branch_name)?;
+        writeln!(file, "\tpub const GIT_TAG : &str = \"{}\";", tag_name)?;
     }
     writeln!(file, "\tpub const GIT_DIRTY : bool = {};", is_dirty)?;
     writeln!(file, "\tpub const GIT_STAGED : bool = {};", is_staged)?;
-    if upstream.is_some() {
-        writeln!(
-            file,
-            "\tpub const GIT_UPSTREAM : &'static str = \"{}\";",
-            upstream.unwrap()
-        )?;
+    if let Some(upstream) = upstream {
+        writeln!(file, "\tpub const GIT_UPSTREAM : &str = \"{}\";", upstream)?;
     }
     writeln!(file, "\tpub const GIT_STASH : bool = {};", has_stash)
 }

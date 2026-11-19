@@ -363,7 +363,10 @@ pub fn smart_device_network_table(properties: &[&meter::account_properties_meter
     let device_type = |device: &meter::account_properties_meters::SmartMeterDeviceType| {
         device.type_.to_string().trim_matches('"').to_string()
     };
-    let devices: Vec<(String, usize, String, String, &'static str, Option<String>)> = properties
+    /// A smart device's row: its property's address, its network's number, from 1, its ID, its type and the type's
+    /// description, and, for a consumer access device, the ID of the meter whose readings it gives.
+    type DeviceRow = (String, usize, String, String, &'static str, Option<String>);
+    let devices: Vec<DeviceRow> = properties
         .iter()
         .flat_map(|property| {
             property

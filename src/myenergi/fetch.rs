@@ -15,8 +15,8 @@ use super::client::{Device, MyenergiClient};
 
 /// How many days are fetched, including today.
 pub const DAYS: i64 = 3;
-/// How many days back the days not fetched yet are fetched, once each, see backfill: as many as a supplier which keeps
-/// only a few weeks of readings has, e.g. GloBird's 40, so that its readings can all be split by use.
+/// How many days back the days not fetched yet are fetched, once each, see backfill: as many as a supplier's module
+/// fetches by itself, e.g. GloBird's 40, so that its readings can all be split by use, as far as myenergi has records.
 pub const BACKFILL_DAYS: i64 = 40;
 
 const STATUS_KIND: &str = crate::device_kinds::MYENERGI_STATUS;
@@ -335,7 +335,8 @@ async fn fetch_recent(
 fn recent_parts(now: time::OffsetDateTime) -> Vec<(time::OffsetDateTime, i64)> {
     let start = now - Duration::minutes(RECENT_MINUTES);
     let minute_of_day = |time: time::OffsetDateTime| time.hour() as i64 * 60 + time.minute() as i64;
-    let parts = if start.date() == now.date() {
+
+    if start.date() == now.date() {
         vec![(start, minute_of_day(now) - minute_of_day(start) + 1)]
     } else {
         let midnight = now.replace_time(time::Time::MIDNIGHT);
@@ -343,8 +344,7 @@ fn recent_parts(now: time::OffsetDateTime) -> Vec<(time::OffsetDateTime, i64)> {
             (start, 24 * 60 - minute_of_day(start)),
             (midnight, minute_of_day(now) + 1),
         ]
-    };
-    parts
+    }
 }
 
 /// Fetches the status for the slot, see Module::poll, and the records of the last few minutes. On the first poll, see

@@ -206,6 +206,9 @@ fn session_times(session: &charging_sessions::DeviceChargingSession) -> (DateTim
 /// The charging sessions of the charge point or vehicle device_id which start from start up to end, in time order. They
 /// are cached a month at a time, see MonthlyDataSet. The months which reload covers are fetched again whatever is
 /// cached, in case it is wrong. If cancel is set the months not yet loaded are left out.
+///
+/// Its arguments are more than clippy's limit, as each is needed and its callers give them separately.
+#[allow(clippy::too_many_arguments)]
 pub async fn fetch(
     account_number: &str,
     device_id: &str,
@@ -239,7 +242,7 @@ pub async fn fetch(
 
     let mut sessions = Vec::new();
     let mut month = start.to_timezone(tz).to_date();
-    let month_format = time::format_description::parse("[month repr:long] [year]").unwrap();
+    let month_format = time::format_description::parse_borrowed::<1>("[month repr:long] [year]").unwrap();
     while month.at_midnight(tz) < *end {
         if cancel.is_cancelled() {
             break;
@@ -405,13 +408,14 @@ pub fn graph_points(
     period: StackedBarPeriod,
     tz: &'static Tz,
 ) -> (Vec<StackedBarSeries>, Vec<StackedBarPoint>) {
-    let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
-    let day_format = time::format_description::parse("[day] [month repr:short]").unwrap();
-    let time_format = time::format_description::parse("[hour]:[minute]").unwrap();
-    let month_format = time::format_description::parse("[month repr:short] [year]").unwrap();
-    let long_month_format = time::format_description::parse("[month repr:long] [year]").unwrap();
+    let date_format = time::format_description::parse_borrowed::<1>("[year]-[month]-[day]").unwrap();
+    let day_format = time::format_description::parse_borrowed::<1>("[day] [month repr:short]").unwrap();
+    let time_format = time::format_description::parse_borrowed::<1>("[hour]:[minute]").unwrap();
+    let month_format = time::format_description::parse_borrowed::<1>("[month repr:short] [year]").unwrap();
+    let long_month_format = time::format_description::parse_borrowed::<1>("[month repr:long] [year]").unwrap();
     let session_format =
-        time::format_description::parse("[weekday repr:short] [day] [month repr:short] [hour]:[minute]").unwrap();
+        time::format_description::parse_borrowed::<1>("[weekday repr:short] [day] [month repr:short] [hour]:[minute]")
+            .unwrap();
 
     let series: Vec<StackedBarSeries> = sessions
         .iter()

@@ -45,7 +45,7 @@ pub fn HelpPanel(topic: String, on_close: EventHandler<()>) -> Element {
         }
     }));
 
-    let shown = followed.read().last().cloned().unwrap_or_else(|| screen_topic());
+    let shown = followed.read().last().cloned().unwrap_or_else(|| screen_topic.cloned());
 
     use_effect(move || {
         spawn(async move {

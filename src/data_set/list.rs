@@ -21,6 +21,8 @@ where
     K: Eq + std::hash::Hash + Ord + Clone + Send + Sync,
     V: DeserializeOwned + Serialize,
 {
+    /// Its arguments are more than clippy's limit, as each is needed and its callers give them separately.
+    #[allow(clippy::too_many_arguments)]
     pub async fn new<R, Q, IQP, CQP, RI, IN, I>(
         hash_key: &str,
         refresh_after: Option<Duration>,
@@ -73,7 +75,7 @@ where
             }
         }
 
-        if data.len() == 0 {
+        if data.is_empty() {
             refresh = true;
         }
 

@@ -1,10 +1,17 @@
-# Builds the macOS and Windows installers for a tag, tests them, and keeps them on the run's page under Artifacts.
-# The tag is e.g. release0.4.4. The libraries the app uses, e.g. bruce-graphql, come from crates.io.
+# Made by bruce-method-release's setup from its release-dioxus.yml template. Change the template, or this repository's
+# hooks, not this file: setup replaces it, and the release checks fail while it differs.
+#
+# Builds the installers of a Dioxus desktop app for a tag, tests them, and keeps them on the run's page under
+# Artifacts, one artifact for each platform. The tag is testX.Y.Z, for bruce-method-release's try, or releaseX.Y.Z, for
+# its release. The libraries the app uses come from crates.io, unless try gives the libraries it links, which are
+# checked out beside it, as on a developer's computer.
 #
 # With attach, the installers are also attached to the draft GitHub release for the tag, ready to be tried before the
-# release is published. A published release is never changed.
+# release is published. A published release is never changed, and a release never takes linked libraries.
 #
-# scripts/release.sh runs it, see docs/Release.md. It can also be run from the Actions tab (Release > Run workflow).
+# The repository's own steps, if it has them, are its hooks, local actions which it owns: .github/actions/before-bundle,
+# run before the installers are built, e.g. to build programs they include. It can also be run from the Actions tab
+# (Release > Run workflow).
 name: Release
 
 on:
@@ -17,10 +24,20 @@ on:
         description: "Attach the installers to the draft release for the tag"
         type: boolean
         default: false
+      libraries:
+        description: "Linked libraries to check out beside the app, each repository@branch, separated by spaces"
+        required: false
+        default: ""
+      patch:
+        description: "The [patch.crates-io] table which builds the app with the linked libraries"
+        required: false
+        default: ""
 
 env:
   TAG: ${{ inputs.tag }}
-  # Must match the dioxus version in Cargo.lock.
+  LIBRARIES: ${{ inputs.libraries }}
+  PATCH: ${{ inputs.patch }}
+  # The dioxus version in Cargo.lock.
   DX_VERSION: "0.7.10"
   CARGO_TERM_COLOR: always
 
@@ -63,6 +80,25 @@ jobs:
           path: bruce-smart-home
           # The build records the tag and branch, so it needs the history.
           fetch-depth: 0
+
+      # The libraries try links, each checked out beside the app, as on the developer's computer, with the same patch,
+      # which the developer's git-ignored .cargo/config.toml has.
+      - name: Check out the linked libraries
+        if: inputs.libraries != ''
+        run: |
+          if [ "${{ inputs.attach }}" = true ]; then
+            echo "A release never takes linked libraries"
+            exit 1
+          fi
+          for library in $LIBRARIES; do
+            name=${library%@*}
+            branch=${library#*@}
+            echo "Checking out $name's $branch"
+            git clone --quiet --branch "$branch" "https://github.com/${{ github.repository_owner }}/$name" "../$name"
+          done
+          mkdir -p .cargo
+          printf '%s\n' "$PATCH" > .cargo/config.toml
+          cat .cargo/config.toml
 
       # The Windows ARM runner may not have Rust installed.
       - name: Install rustup
@@ -109,8 +145,8 @@ jobs:
 
       # The Developer ID certificate and App Store Connect API key, from the repository's secrets, for dx bundle, which
       # signs the app and the .dmg with the certificate and notarizes and staples both with the key, see docs/Release.md.
-      # Without the secrets, e.g. on a fork, the app is built unsigned, as before. They go to the later steps through
-      # GITHUB_ENV, which GitHub keeps masked in the logs, and the key to a file, as notarytool needs it.
+      # Without the secrets, e.g. on a fork, the app is built unsigned. They go to the later steps through GITHUB_ENV,
+      # which GitHub keeps masked in the logs, and the key to a file, as notarytool needs it.
       - name: Set up signing and notarizing
         if: runner.os == 'macOS'
         env:
@@ -142,15 +178,13 @@ jobs:
             echo "NOTARIZED=true"
           } >> "$GITHUB_ENV"
 
-      # The virtual capture device, which the installers include, see Dioxus.toml's external_bin.
-      - name: Build the virtual capture device
-        run: capture/build-sim.sh
+      # The repository's own steps before the installers are built, if it has any, e.g. building programs they include.
+      - name: Before bundling
+        if: hashFiles('bruce-smart-home/.github/actions/before-bundle/action.yml') != ''
+        uses: ./bruce-smart-home/.github/actions/before-bundle
 
       # The defaults: a .dmg on macOS and an NSIS setup.exe on Windows.
       - name: Build the installers
-        # Where the Windows installer's hooks take the virtual capture device from, see windows/installer-hooks.nsh.
-        env:
-          SIM_BIN: ${{ github.workspace }}\bruce-smart-home\capture\target-sim\bin
         # On macOS, tried once more if it fails, as its last steps ask Apple's servers to notarize the app and staple
         # the ticket, which the runners' network sometimes drops, e.g. a notary request which timed out, or stapler's
         # exit code 68, once Apple had accepted the app. The second try builds nothing again, only bundles.
@@ -204,7 +238,8 @@ jobs:
           fi
           hdiutil detach "$mount" > /dev/null
 
-      # Installs the app as a user would, silently, and checks that it starts and is still running 30 seconds later.
+      # Installs the app as a user would, silently, checks that the programs Dioxus.toml's external_bin lists are beside
+      # it, and that it starts and is still running 30 seconds later.
       - name: Check the installed app starts
         if: runner.os == 'Windows'
         shell: pwsh
@@ -219,20 +254,19 @@ jobs:
           }
 
           # Installed for the current user in LOCALAPPDATA, or for everyone in Program Files. The uninstaller is in the
-          # same directory, so is left out.
+          # same directory, as are the programs installed beside the app, so they are left out.
+          $beside = @('bruce-smart-home-capture-sim.exe', 'bruce-smart-home-capture-rlcd42.exe', 'bruce-smart-home-capture-guitron.exe')
           $exe = Get-ChildItem "$env:LOCALAPPDATA", "$env:LOCALAPPDATA\Programs", "$env:ProgramFiles" -Recurse -Depth 1 -Filter *.exe -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like '*smart*home*' -and $_.Name -notlike '*uninstall*' -and $_.Name -notlike '*capture*' } |
+            Where-Object { $_.Name -like '*bruce*smart*home*' -and $_.Name -notlike '*uninstall*' -and $beside -notcontains $_.Name } |
             Select-Object -First 1
           if (-not $exe) {
             throw "The installed app was not found"
           }
-          # The virtual capture device, which windows/installer-hooks.nsh puts beside it.
-          foreach ($program in "bruce-smart-home-capture-sim.exe", "bruce-smart-home-capture-rlcd42.exe", "bruce-smart-home-capture-guitron.exe") {
+          foreach ($program in $beside) {
             if (-not (Test-Path (Join-Path $exe.DirectoryName $program))) {
-              throw "The virtual capture device's $program was not installed beside the app"
+              throw "$program, from Dioxus.toml's external_bin, was not installed beside the app"
             }
           }
-          Write-Host "The virtual capture device is installed"
           Write-Host "Starting $($exe.FullName)"
 
           # Its output is kept, and a panic shows where it happened, to see why if it does not start.
@@ -268,7 +302,7 @@ jobs:
     permissions:
       # To attach the files to the release.
       contents: write
-      # To record where the files were built, see https://github.com/bruceskingle/bruce-smart-home/attestations
+      # To record where the files were built, see the repository's Attestations.
       id-token: write
       attestations: write
 

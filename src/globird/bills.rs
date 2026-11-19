@@ -415,15 +415,21 @@ fn patterns() -> &'static Patterns {
     })
 }
 
-/// What a bill's text says. Its charges are listed twice, first alone, e.g. Peak Usage, then with the plan's name,
-/// e.g. Peak Usage BOOST; the first list's are kept, as their descriptions are the usage's charge types, and the plan
-/// is what the second list adds to them.
+/// What a bill's text says of electricity. Its charges are listed twice, first alone, e.g. Peak Usage, then with the
+/// plan's name, e.g. Peak Usage BOOST; the first list's are kept, as their descriptions are the usage's charge types,
+/// and the plan is what the second list adds to them. A bill of gas too has a section of each fuel in both lists, gas
+/// first, each with its own billing period and total; the gas sections are left out, see in_gas_section.
 pub fn parse_bill(text: &str) -> Bill {
     let patterns = patterns();
     let mut bill = Bill::default();
     let mut first_list_done = false;
+    let mut gas = false;
     for line in text.lines() {
         let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+        gas = in_gas_section(&line, gas);
+        if gas {
+            continue;
+        }
         let first = |pattern: &Regex| {
             pattern
                 .captures(&line)
@@ -481,6 +487,21 @@ pub fn parse_bill(text: &str) -> Bill {
     bill
 }
 
+/// Whether a bill's line is in a section of gas charges, given whether the line before it was: a section starts with
+/// its billing period, e.g. "Billing Period: … ,Total Usage: 2358.16 MJ", or, in the list with the plan's name, its
+/// heading, e.g. "Gas Charges for Period …" or "Electricity Charges for Period …".
+fn in_gas_section(line: &str, gas: bool) -> bool {
+    if line.starts_with("Billing Period:") {
+        line.contains(" MJ")
+    } else if line.starts_with("Gas Charges for Period") {
+        true
+    } else if line.starts_with("Electricity Charges for Period") {
+        false
+    } else {
+        gas
+    }
+}
+
 /// The text of a PDF. pdf-extract panics on some PDFs it cannot read, so that is caught and is an error too.
 pub fn pdf_text(bytes: &[u8]) -> anyhow::Result<String> {
     match std::panic::catch_unwind(|| pdf_extract::extract_text_from_mem(bytes)) {
@@ -492,7 +513,11 @@ pub fn pdf_text(bytes: &[u8]) -> anyhow::Result<String> {
 
 /// A bill, read from its PDF, see parse_bill, or why it could not be.
 pub fn read_bill(pdf: &[u8]) -> anyhow::Result<Bill> {
-    let bill = parse_bill(&pdf_text(pdf)?);
+    let text = pdf_text(pdf)?;
+    let bill = parse_bill(&text);
+    if (bill.lines.is_empty() || bill.total.is_none()) && text.contains("Gas Charges for Period") {
+        return Err(anyhow!("It is a bill of gas alone, and the app reads only electricity"));
+    }
     if bill.lines.is_empty() || bill.total.is_none() {
         return Err(anyhow!(
             "No charges or total were found in the bill's text, which may be in a form not known yet"
@@ -687,6 +712,42 @@ TOTAL (including $8.41 GST) $92.50
             }
         );
         assert!(bill.lines[0].is_daily() && !bill.lines[1].is_daily());
+    }
+
+    /// The text of a made-up bill of gas and electricity, laid out as pdf-extract gives a GloBird bill's: each list
+    /// has the gas section first.
+    const GAS_AND_ELECTRICITY: &str = "Invoice number 1000002
+Billing Period: 01-Jan-2027 to 28-Jan-2027 (28 days) ,Total Usage: 1000.00 MJ
+Gas Daily Charge 01-Jan - 28-Jan 28 Days x $0.50000 $14.00
+Gas Usage Summer - Step 1 01-Jan - 28-Jan 1000.00 MJ x $0.03000 $30.00
+TOTAL (including $4.00 GST) $44.00
+Billing Period: 01-Jan-2027 to 31-Jan-2027 (31 days) ,Total Usage: 310.00 kWh ,Total Solar Generation: 50.00 kWh
+Daily Charge 01-Jan - 31-Jan 31 Days x  $1.00000 $31.00
+Peak Usage 01-Jan - 31-Jan 10.00 kWh x  $0.40000 $4.00
+Offpeak Usage 01-Jan - 31-Jan 300.00 kWh x  $0.20000 $60.00
+Standard Solar Feed in 01-Jan - 31-Jan 50.00 kWh x -$0.05000 -$2.50
+TOTAL (including $8.41 GST) $92.50
+Gas Charges for Period 01-Jan-2027 to 28-Jan-2027
+Gas Usage Summer - Step 1 SAVER 01-Jan - 28-Jan 1000.00 MJ x $0.03000 $30.00
+Gas Daily Charge SAVER 01-Jan - 28-Jan 28 Days x $0.50000 $14.00
+TOTAL (including $4.00 GST) $44.00
+Electricity Charges for Period 01-Jan-2027 to 31-Jan-2027
+Peak Usage SAVER 01-Jan - 31-Jan 10.00 kWh x  $0.40000 $4.00
+Offpeak Usage SAVER 01-Jan - 31-Jan 300.00 kWh x  $0.20000 $60.00
+Standard Solar Feed in SAVER 01-Jan - 31-Jan 50.00 kWh x -$0.05000 -$2.50
+Daily Charge SAVER 01-Jan - 31-Jan 31 Days x  $1.00000 $31.00
+TOTAL (including $8.41 GST) $92.50
+";
+
+    #[test]
+    fn a_bill_of_gas_too_is_read_for_its_electricity_alone() {
+        let bill = parse_bill(GAS_AND_ELECTRICITY);
+        let gas_left_out = parse_bill(TEXT);
+        assert_eq!(bill.lines, gas_left_out.lines);
+        assert_eq!(bill.period, gas_left_out.period);
+        assert_eq!(bill.total, Some(92.5));
+        assert_eq!(bill.gst, Some(8.41));
+        assert_eq!(bill.plan.as_deref(), Some("SAVER"));
     }
 
     #[test]

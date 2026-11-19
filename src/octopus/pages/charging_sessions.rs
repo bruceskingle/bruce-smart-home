@@ -508,8 +508,8 @@ fn implied_battery_size(sessions: &[&ChargingSession]) -> Option<Decimal> {
 }
 
 fn sessions_table(sessions: &[&ChargingSession], battery_size: Option<Decimal>, tz: &'static Tz) -> Element {
-    let date_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
-    let time_only = time::format_description::parse("[hour]:[minute]").unwrap();
+    let date_format = time::format_description::parse_borrowed::<1>("[year]-[month]-[day]").unwrap();
+    let time_only = time::format_description::parse_borrowed::<1>("[hour]:[minute]").unwrap();
     let local = |time: &bruce_graphql::types::DateTime| time.to_timezone(tz);
     let minutes = |session: &ChargingSession| (*session.end - *session.start).whole_minutes();
     let duration = |minutes: i64| format!("{}:{:02}", minutes / 60, minutes % 60);

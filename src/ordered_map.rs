@@ -5,6 +5,12 @@ pub struct OrderedMap<K, O, V> {
     order: BTreeSet<(O, K)>,
 }
 
+impl<K, O, V> Default for OrderedMap<K, O, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<K, O, V> OrderedMap<K, O, V> {
     pub fn new() -> Self {
         OrderedMap {
@@ -20,6 +26,10 @@ impl<K, O, V> OrderedMap<K, O, V> {
 
     pub fn len(&self) -> usize {
         self.values.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
     }
 }
 

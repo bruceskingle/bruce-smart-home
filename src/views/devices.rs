@@ -15,9 +15,13 @@ use crate::profile::Settings as ProfileSettings;
 /// A setting changed on the page but not yet saved, by feature and setting name.
 type Edits = BTreeMap<(String, String), Value>;
 
+/// A module whose profile fills in a feature's settings: the feature, the module, and the pairs of the setting and
+/// the profile's field it is filled in from, see FROM_PROFILE.
+type FromProfile = (&'static str, &'static str, &'static [(&'static str, &'static str)]);
+
 /// The settings of a device's features which the profile's modules know, as (feature, module, [(setting, the module
 /// profile's field)]), see FeatureSettings' Fill In.
-const FROM_PROFILE: &[(&str, &str, &[(&str, &str)])] = &[
+const FROM_PROFILE: &[FromProfile] = &[
     (
         "TeslaCapture",
         "tesla",

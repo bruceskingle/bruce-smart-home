@@ -36,6 +36,15 @@ pub fn as_decimal(value: i32, decimals: usize) -> String {
     // println!("as_decimal({}, {}) = {}", value, decimals, s);
     s
 }
+/// The date and time in the computer's time zone, or UTC if it can not be found, e.g. 2026-10-28 14:32:50
+pub fn local_date_time(time: time::OffsetDateTime) -> String {
+    use time_tz::OffsetDateTimeExt;
+    let format = time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
+    match time_tz::system::get_timezone() {
+        Ok(tz) => time.to_timezone(tz).format(&format).unwrap_or_default(),
+        Err(_) => time.format(&format).unwrap_or_default(),
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -46,14 +55,5 @@ mod tests {
         assert_eq!(as_decimal(37364, 2), "373.64");
         assert_eq!(as_decimal(36, 2), "0.36");
         assert_eq!(as_decimal(-36, 2), "-0.36");
-    }
-}
-/// The date and time in the computer's time zone, or UTC if it can not be found, e.g. 2026-10-28 14:32:50
-pub fn local_date_time(time: time::OffsetDateTime) -> String {
-    use time_tz::OffsetDateTimeExt;
-    let format = time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
-    match time_tz::system::get_timezone() {
-        Ok(tz) => time.to_timezone(tz).format(&format).unwrap_or_default(),
-        Err(_) => time.format(&format).unwrap_or_default(),
     }
 }

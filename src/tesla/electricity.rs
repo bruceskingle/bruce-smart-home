@@ -87,7 +87,7 @@ impl MeasurementSource for TeslaMeasurements {
         NAME
     }
 
-    fn load(&self, start: i64, end: i64) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn Measurements>>>>> {
+    fn load(&self, start: i64, end: i64) -> crate::power::measured::LoadingMeasurements {
         let store = self.store.clone();
         Box::pin(async move {
             let measurements: Arc<dyn Measurements> = Arc::new(RegisterMeasurements {
