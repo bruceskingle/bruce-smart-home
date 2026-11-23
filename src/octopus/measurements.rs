@@ -110,6 +110,7 @@ impl MeasurementsDataSet {
             hash_key,
             tz,
             export,
+            frequency: ReadingFrequencyType::RawInterval,
             // device,
         };
 
@@ -1202,6 +1203,7 @@ impl MeasurementsReading {
     }
 }
 
+#[derive(Clone)]
 pub struct MeasurementsConsumptionSource {
     pub account_number: String,
     pub tz: &'static Tz,
@@ -1209,6 +1211,9 @@ pub struct MeasurementsConsumptionSource {
     pub hash_key: String,
     /// Whether the meter point is an export meter point, whose readings are generation rather than consumption.
     pub export: bool,
+    /// The readings' frequency asked for: RAW_INTERVAL, the meter's own half hours, as fetched; others only to compare,
+    /// see pages::print_day.
+    pub frequency: ReadingFrequencyType,
     // /// The device whose readings are fetched instead of the meter point's.
     // pub device: Option<MeasurementsDevice>,
 }
@@ -1219,7 +1224,7 @@ impl MeasurementsConsumptionSource {
         let mut utility_filters = Vec::new();
 
         let electricity_filters = ElectricityFiltersInput::builder()
-            .with_reading_frequency_type(ReadingFrequencyType::RawInterval)
+            .with_reading_frequency_type(self.frequency.clone())
             .with_reading_direction(if self.export {
                 super::graphql::ReadingDirectionType::Generation
             } else {

@@ -10,6 +10,8 @@ Where your electricity went, putting together the meters' half hourly readings, 
 
 The meters' readings arrive a few days later. Until they do, the rate is estimated from your tariff's cheap times and when the car was charging, and the Home Mini's readings are used.
 
+The page is drawn as it is read from what this profile already has: first the meters' half hourly readings, then split by what was measured, then with the Home Mini's readings. Then Octopus is asked for anything newer, which can take a minute or more. Meanwhile a line above the graph says what is being loaded or fetched, with **Cancel**, and the graph is drawn again at each step. A range shown before is drawn at once from what was last loaded, while it loads again. **Reload** fetches what is shown again, with a dialog over the page until it is done.
+
 On an Intelligent Octopus tariff, charging the car outside the cheap times is at the cheap rate too, and the estimates allow for that.
 
 The times are the site's, as the line under the heading says, e.g. "Times in Australia/Sydney (AEDT)" for GloBird, as the tariff's times are, and each tooltip says the zone, as it changes when the clocks do.

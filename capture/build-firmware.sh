@@ -19,6 +19,12 @@ else
 fi
 dev="$folder/bruce-smart-home/dev"
 
+# The developer's own links to libraries' checkouts, if any, see .cargo/links.toml.
+links=
+if [ -f .cargo/links.toml ]; then
+    links="--config .cargo/links.toml"
+fi
+
 if [ "$1" = --path ]; then
     echo "$dev/bruce-smart-home-capture-$2.elf"
     exit
@@ -28,6 +34,7 @@ mkdir -p "$dev"
 # Each board, its MCU and its target.
 ALL="cyd-esp32-28:esp32:xtensa-esp32-espidf
 wave-esp32c6-touch-147:esp32c6:riscv32imac-esp-espidf
+wave-esp32s3-lcd-147:esp32s3:xtensa-esp32s3-espidf
 wave-esp32s3-rlcd-42:esp32s3:xtensa-esp32s3-espidf
 guition-jc3248w535c:esp32s3:xtensa-esp32s3-espidf"
 
@@ -40,7 +47,7 @@ for entry in $ALL; do
         continue
     fi
     echo "Building the capture firmware for $board"
-    MCU=$mcu cargo build --release --target "$target" --no-default-features --features "espidf,$board"
+    MCU=$mcu cargo build $links --release --target "$target" --no-default-features --features "espidf,$board"
     cp "target/$target/release/bruce-smart-home-capture" "$dev/bruce-smart-home-capture-$board.elf"
 done
 ls -l "$dev"

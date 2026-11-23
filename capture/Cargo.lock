@@ -246,9 +246,7 @@ dependencies = [
 
 [[package]]
 name = "bruce-db"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c31d99b08ebcb9c21767a2532434015279980a641a26a060ca05484a2734f6b7"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -270,9 +268,7 @@ checksum = "c5880821c9abff5fc57482b0a702e8b472af04c7eef60ff9bdbdbeb809f48858"
 
 [[package]]
 name = "bruce-embedded-sim"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b2009249f8dadf4c366f781895610423dc7c5e69da8f9356dbd3fb37af26c68"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "bruce-embedded-std",
@@ -291,9 +287,7 @@ dependencies = [
 
 [[package]]
 name = "bruce-embedded-std"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80fa07843ddf73435e951d5034b681a2df06bfd71577020b2d3313587cd6ba40"
+version = "0.3.0"
 dependencies = [
  "ahrs",
  "anyhow",
@@ -313,9 +307,7 @@ dependencies = [
 
 [[package]]
 name = "bruce-embedded-std-derive"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "510948fb48644a6bf9bdb3ffac1ce14ef873cd6a915bfa748166c5e1099127d9"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -324,9 +316,7 @@ dependencies = [
 
 [[package]]
 name = "bruce-esp-idf"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65b4ccad8b99c2f8be924d2e52c186465e41f1ac130f9d25c0be8106b274bd89"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "bruce-embedded-firmware-record",

@@ -1,7 +1,7 @@
 # Capture Devices
 
-Capture devices are small always-on ESP32 boards with a screen, such as a CYD, which fetch data while this computer
-sleeps, e.g. the Powerwall's and the zappi's every 5 minutes, and show the latest on their screens. The app reads what they fetched when
+Capture devices are small always-on ESP32 boards with a screen, such as a Waveshare ESP32-S3-LCD-1.47B, see [Capture
+Device Hardware](../CaptureHardware.md) for which boards and SD cards, which fetch data while this computer sleeps, e.g. the Powerwall's and the zappi's every 5 minutes, and show the latest on their screens. The app reads what they fetched when
 it next runs. **Devices** in Home's page list shows them.
 
 A capture device needs a **micro SD card**, formatted FAT32, which is where it keeps what it fetches, a file a day,

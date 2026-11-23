@@ -3,18 +3,13 @@
 Firmware for an ESP32 which polls what Bruce's Smart Home needs while the computer it runs on sleeps, built on
 [bruce-esp-idf](../../bruce-esp-idf), which must be checked out next to this repo, with
 [bruce-embedded-std](../../bruce-embedded-std) and bruce-embedded-firmware-record. It polls the Tesla
-gateway, myenergi's zappi and Octopus's smart charging, and keeps what it gets on an SD card. It runs on:
-
-- a CYD (ESP32-2432S028R), whose screen, on its side, shows a graph of the gateway's power, as the Waveshare's does, the
-  default. It has too little memory for the internet polls, Octopus and myenergi, alongside the app's requests, so
-  turn those off for it in the app's Devices > Settings, and it is mostly a display;
-- a Waveshare ESP32-C6-Touch-LCD-1.47, an ESP32-C6, whose small screen shows only the numbers, with the
-  `wave-esp32c6-touch-147` feature. Its SD card slot shares the display's SPI bus.
-- a Waveshare ESP32-S3-RLCD-4.2, an ESP32-S3 with 8 MB of PSRAM, whose black and white reflective screen shows the
-  clock with the latest numbers below, and the status for a while when its KEY button is pressed, and plays `sounds/Startup.wav` as it starts, with
-  the `wave-esp32s3-rlcd-42` feature. Its **Temperature and Humidity Log** feature (`climate.rs`) logs its own sensor every 10
-  seconds, as periods of each value, at `/api/capture/climate/records`, which the app's Temp & Humidity page shows. Below it the screen shows its 18650 battery's voltage and roughly how full it
-  is (`battery.rs`), read every 10 seconds and in the log every minute. `sdkconfig.defaults.esp32s3` adds its flash and PSRAM to `sdkconfig.defaults`.
+gateway, myenergi's zappi and Octopus's smart charging, and keeps what it gets on an SD card. The boards it runs on, and what a board needs, an ESP32-S3 with PSRAM and an SD card, are in the user guide's
+[Capture Device Hardware](../docs/CaptureHardware.md), and the SD cards which have been tried in the platform's
+[Hardware](../../bruce-esp-idf/docs/Hardware.md#sd-cards) page. What each board's screen shows is in `src/main.rs`'s
+`board` and `src/screen.rs`. The Waveshare ESP32-S3-RLCD-4.2's **Temperature and Humidity Log** feature (`climate.rs`)
+logs its own sensor every 10 seconds, as periods of each value, at `/api/capture/climate/records`, which the app's
+Temp & Humidity page shows, and its screen shows its 18650 battery's voltage and roughly how full it is (`battery.rs`).
+`sdkconfig.defaults.esp32s3` adds the ESP32-S3 boards' flash and PSRAM to `sdkconfig.defaults`.
 
 ## Building and flashing
 
@@ -76,10 +71,9 @@ then in the TeslaCapture section:
 - **tesla_email** and **tesla_password**: the gateway's customer login, as in the app. A password the gateway
   rejects is removed, so it is not tried again. Repeated failures lock out the customer login, for Home Assistant
   too.
-- **tesla_schedule**: optional, when to poll, a cron spec with seconds first, `0 */5 * * * *` (every 5 minutes) if
-  empty.
-- **tesla_capacity**: optional, how many samples to keep in RAM, 48 (4 hours at 5 minutes) if empty. The SD card
-  keeps the rest. The log shows the free heap after each poll.
+- **tesla_schedule**: optional, when to poll, a cron spec with seconds first, `*/10 * * * * *` (every 10 seconds) if
+  empty. The gateway is on the local network, so polling it often costs nothing outside the house. The log shows the
+  free heap after each poll.
 
 The config page never shows the password, and it is not written to the log: leave it empty to keep the saved one.
 The page has no login though, so anyone on the network can change the settings, including tesla_host, which would

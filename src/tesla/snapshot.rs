@@ -159,21 +159,27 @@ pub async fn take(
     Ok(())
 }
 
-/// The last record of the DataSet hk, looking first at the last two days, as a snapshot is usually recent, then at
-/// them all.
+/// The last record of the DataSet hk, looking first at the last 15 minutes, then the last two days, as a snapshot is
+/// usually recent, then at them all.
 fn last(store: &Store, hk: &str) -> Option<serde_json::Value> {
-    let recent = sort_key(crate::clock::now_utc() - time::Duration::days(2));
-    let mut found = None;
-    let _ = store.query(hk, recent.as_str()..bruce_db::ALL.end, &mut |item| {
-        found = item.attributes;
-        Ok(Flow::Continue)
-    });
-    if found.is_none() {
-        let _ = store.query(hk, bruce_db::ALL, &mut |item| {
+    // The last few minutes first, as snapshots are taken every 10 seconds, so that the poller, which asks before each
+    // poll, on the UI's thread, reads a few, not two days of them, which took 0.3 s on 23 November 2026.
+    for back in [time::Duration::minutes(15), time::Duration::days(2)] {
+        let recent = sort_key(crate::clock::now_utc() - back);
+        let mut found = None;
+        let _ = store.query(hk, recent.as_str()..bruce_db::ALL.end, &mut |item| {
             found = item.attributes;
             Ok(Flow::Continue)
         });
+        if found.is_some() {
+            return found;
+        }
     }
+    let mut found = None;
+    let _ = store.query(hk, bruce_db::ALL, &mut |item| {
+        found = item.attributes;
+        Ok(Flow::Continue)
+    });
     found
 }
 

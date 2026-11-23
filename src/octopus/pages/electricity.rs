@@ -226,6 +226,9 @@ impl Account {
 /// The account's electricity: its meters and Home Mini, see power::combine, for Home's Electricity page.
 pub struct OctopusElectricity {
     pub context: Arc<OctopusContext>,
+    /// Whether the Home Mini's readings are loaded, which a week of, every 10 seconds, takes most of a load's time,
+    /// left out of the quick load the page draws first, see ElectricitySource::quick.
+    pub home_mini: bool,
 }
 
 /// The readings for the range shown, and why the Home Mini's could not be fetched, if they could not, as the meters'
@@ -287,6 +290,20 @@ impl ElectricitySource for OctopusElectricity {
         String::from("Fetch the readings shown from Octopus again")
     }
 
+    fn stored(&self) -> Option<Arc<dyn ElectricitySource>> {
+        Some(Arc::new(OctopusElectricity {
+            context: self.context.stored_only(),
+            home_mini: true,
+        }))
+    }
+
+    fn quick(&self) -> Option<Arc<dyn ElectricitySource>> {
+        Some(Arc::new(OctopusElectricity {
+            context: self.context.stored_only(),
+            home_mini: false,
+        }))
+    }
+
     fn load(
         &self,
         start: DateTime,
@@ -298,8 +315,10 @@ impl ElectricitySource for OctopusElectricity {
         let context = self.context.clone();
         let account_id = context.account_id.clone();
         let tz = self.timezone();
+        let home_mini = self.home_mini;
         Box::pin(async move {
             progress.set(String::from("Loading the meter points"));
+            let started = std::time::Instant::now();
             let Account {
                 import_mpan,
                 export_mpan,
@@ -307,6 +326,7 @@ impl ElectricitySource for OctopusElectricity {
                 estimate,
                 rates,
             } = Account::load(&context).await?;
+            crate::logging::log_if_slow("Octopus's account", started);
             // The progress of each fetch, with what it is fetching.
             let monitor = |what: &'static str| {
                 move |message: String| {
@@ -355,7 +375,7 @@ impl ElectricitySource for OctopusElectricity {
             let mut home_mini_progress = progress;
             home_mini_progress.set(String::from("Home Mini: Loading cached data"));
             let started = std::time::Instant::now();
-            let (home_mini, home_mini_error) = match &esme_id {
+            let (home_mini, home_mini_error) = match esme_id.as_ref().filter(|_| home_mini) {
                 Some(esme_id) => match telemetry::fetch(
                     &account_id,
                     esme_id,
@@ -454,6 +474,126 @@ impl ElectricitySource for OctopusElectricity {
             }
         }
     }
+}
+
+/// For developers, see AppArgs::octopusday: asks Octopus for each meter's half hours of day, with the query the app
+/// fetches them with, and prints how many came back, their times, and which are final or partial, without storing
+/// them, e.g. to see whether a day the store is missing is there to fetch; then the import meter's from Octopus's REST
+/// API, with the profile's API key, api_key, which is not shown, as it sometimes has what GraphQL does not.
+pub async fn print_day(context: &OctopusContext, day: time::Date, api_key: Option<&str>) -> anyhow::Result<()> {
+    use crate::data_set::SlotSource;
+    let account = Account::load(context).await?;
+    let tz = context.billing_timezone;
+    let day = DateTime::from_unix_timestamp(day.midnight().assume_utc().unix_timestamp())?
+        .to_timezone(tz)
+        .to_date();
+    let (start, end) = (day.at_midnight(tz), day.next_day().at_midnight(tz));
+    use crate::octopus::graphql::ReadingFrequencyType;
+    // Each meter as the app fetches it, and the import also at fixed half hours, to compare.
+    let meters = [
+        (account.import_mpan.clone(), false, ReadingFrequencyType::RawInterval),
+        (
+            account.import_mpan.clone(),
+            false,
+            ReadingFrequencyType::ThirtyMinInterval,
+        ),
+    ]
+    .into_iter()
+    .chain(
+        account
+            .export_mpan
+            .clone()
+            .map(|mpan| (mpan, true, ReadingFrequencyType::RawInterval)),
+    );
+    for (mpan, export, frequency) in meters {
+        let label = format!("{frequency:?}");
+        let mut source = crate::octopus::measurements::MeasurementsConsumptionSource {
+            account_number: context.account_id.clone(),
+            tz,
+            mpan: mpan.clone(),
+            hash_key: String::new(),
+            export,
+            frequency,
+        };
+        let mut query = Some(source.initial_query(&start, &end)?);
+        let mut half_hours = Vec::new();
+        while let Some(this) = query.take() {
+            let response: <crate::octopus::measurements::MeasurementsConsumptionSource as SlotSource>::Response =
+                bruce_graphql::GraphQLCaller::call(&*context.request_manager, &this).await?;
+            query = source.continuation_query(&start, &end, &response)?;
+            for stored in source.items(response)? {
+                let value = source.value(&stored?)?;
+                let (from, _, is_final) = source.index(&value)?;
+                half_hours.push((from, is_final, source.is_partial(&value)));
+            }
+        }
+        let meter = if export { "Export" } else { "Import" };
+        println!(
+            "{meter} meter ending {}, {label}: {} readings",
+            &mpan[mpan.len().saturating_sub(4)..],
+            half_hours.len()
+        );
+        for (from, is_final, partial) in half_hours {
+            println!(
+                "  {}{}{}",
+                from.to_timezone(tz),
+                if is_final { "" } else { ", not final" },
+                if partial { ", partial" } else { "" }
+            );
+        }
+    }
+    // The import meter's from the REST API, by each of its meters' serial numbers, which the properties give.
+    let Some(api_key) = api_key else {
+        println!("REST: the profile has no API key");
+        return Ok(());
+    };
+    let properties =
+        PropertyDataSet::new(&context.account_id, &context.cache_config, &*context.request_manager).await?;
+    let serials: Vec<String> = properties
+        .property_map
+        .values()
+        .flat_map(|property| property.electricity_meter_points_.iter())
+        .filter(|point| point.mpan_ == account.import_mpan)
+        .flat_map(|point| point.meters_.iter().map(|meter| meter.serial_number_.clone()))
+        .collect();
+    let rfc3339 = |time: &DateTime| -> anyhow::Result<String> {
+        Ok(time::OffsetDateTime::from_unix_timestamp(time.unix_timestamp())?
+            .format(&time::format_description::well_known::Rfc3339)?)
+    };
+    let client = reqwest::Client::new();
+    for serial in serials {
+        let url = format!(
+            "https://api.octopus.energy/v1/electricity-meter-points/{}/meters/{serial}/consumption/",
+            account.import_mpan
+        );
+        let response = client
+            .get(&url)
+            .basic_auth(api_key, Some(""))
+            .query(&[
+                ("period_from", rfc3339(&start)?),
+                ("period_to", rfc3339(&end)?),
+                ("page_size", String::from("100")),
+                ("order_by", String::from("period")),
+            ])
+            .send()
+            .await?;
+        let status = response.status();
+        let json: serde_json::Value = response.json().await.unwrap_or_default();
+        let results = json["results"].as_array().cloned().unwrap_or_default();
+        let shown = &serial[serial.len().saturating_sub(4)..];
+        println!(
+            "REST, import meter serial ending {shown}: HTTP {status}, {} readings",
+            results.len()
+        );
+        for result in results {
+            println!(
+                "  {} {} kWh",
+                result["interval_start"].as_str().unwrap_or("?"),
+                result["consumption"]
+            );
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

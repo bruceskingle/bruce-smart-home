@@ -129,6 +129,17 @@ fn modified(records: &crate::data_set::Records, day: &bruce_graphql::types::Date
     })
 }
 
+/// The readings from start up to end, read on a thread of their own, as a day of them, every 10 seconds, takes long
+/// enough to read and parse to stop the page, which runs on the UI's thread, see load.
+async fn load_elsewhere(
+    records: &crate::data_set::Records,
+    start: i64,
+    end: i64,
+) -> anyhow::Result<BTreeMap<i64, TelemetryReading>> {
+    let records = records.clone();
+    tokio::task::spawn_blocking(move || load(&records, start, end)).await?
+}
+
 /// The readings from start up to end, as unix timestamps, made from those kept, which cannot be read are left out.
 fn load(records: &crate::data_set::Records, start: i64, end: i64) -> anyhow::Result<BTreeMap<i64, TelemetryReading>> {
     let key = |time: i64| bruce_db::Micros(time * 1_000_000).to_text();
@@ -257,7 +268,7 @@ pub async fn fetch(
             break;
         }
         // With the readings just before and after it, see BOUNDARY_SECONDS.
-        let readings = load(&records, day_start - BOUNDARY_SECONDS, day_end + BOUNDARY_SECONDS)?;
+        let readings = load_elsewhere(&records, day_start - BOUNDARY_SECONDS, day_end + BOUNDARY_SECONDS).await?;
         let (mut hours, mut missing) = (Vec::new(), Vec::new());
         if day_end > now - SERVER_HISTORY_SECONDS {
             let day = day_hours(&readings, day_start, day_end, modified(&records, &day)?, now);

@@ -20,7 +20,8 @@ use crate::CacheConfig;
 const KEY: &str = "#key";
 const FETCHED: &str = "#fetched";
 
-/// The records of a DataSet, see the module documentation.
+/// The records of a DataSet, see the module documentation; cloned to be read on a thread of its own, off the page's.
+#[derive(Clone)]
 pub struct Records {
     store: Arc<Store>,
     hk: String,

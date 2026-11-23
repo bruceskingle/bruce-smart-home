@@ -17,6 +17,20 @@ pub struct OctopusContext {
     pub store: Arc<bruce_db::Store>,
 }
 
+impl OctopusContext {
+    /// The same, reading only what is stored, nothing fetched, see CacheConfig::stored_only, for a page to draw at once
+    /// from what the profile has, while it fetches what is missing.
+    pub fn stored_only(&self) -> Arc<OctopusContext> {
+        Arc::new(OctopusContext {
+            account_id: self.account_id.clone(),
+            billing_timezone: self.billing_timezone,
+            cache_config: Arc::new(self.cache_config.stored_only()),
+            request_manager: self.request_manager.clone(),
+            store: self.store.clone(),
+        })
+    }
+}
+
 #[derive(Props, Clone)]
 pub struct OctopusRootProps {
     context: Arc<OctopusContext>,

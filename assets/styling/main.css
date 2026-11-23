@@ -587,6 +587,15 @@ h6 {
     min-height: 0;
 }
 
+/* What is being fetched, above a graph drawn from what is stored meanwhile, see ElectricityExplorer. */
+.fetching-bar {
+    display: flex;
+    align-items: center;
+    gap: 1em;
+    margin: 0.3em 0;
+    color: var(--muted);
+}
+
 .reload-overlay {
     position: absolute;
     inset: 0;

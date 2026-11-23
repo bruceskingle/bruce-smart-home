@@ -21,7 +21,8 @@ pub fn write() {
 }
 
 fn try_write() -> anyhow::Result<()> {
-    let profiles = crate::profile::read_profile_file_if_any()?.unwrap_or_default();
+    // Without their secrets, which the guide does not give, see installation.
+    let profiles = crate::profile::read_profile_file_without_secrets()?.unwrap_or_default();
     let contents = format!("{GUIDE}\n{}", installation(&profiles));
     let path = crate::data_home::data_dir()?.join(FILE_NAME);
     if std::fs::read_to_string(&path).ok().as_deref() == Some(contents.as_str()) {

@@ -191,6 +191,20 @@ pub trait ElectricitySource {
     /// What the Reload button's tooltip says it does.
     fn reload_title(&self) -> String;
 
+    /// The same source, reading only what is stored, nothing fetched, which the page draws at once, while load fetches
+    /// what is missing, e.g. from Octopus, which took over a minute on 22 November 2026, see ElectricityExplorer. None
+    /// for a source whose load fetches nothing anyway.
+    fn stored(&self) -> Option<std::sync::Arc<dyn ElectricitySource>> {
+        None
+    }
+
+    /// The same source, reading only the quickest of what is stored, e.g. Octopus's meters' half hours without the
+    /// Home Mini's readings every 10 seconds, which the page draws first, before the rest of what is stored, see
+    /// ElectricityExplorer. None for a source whose stored load is as quick.
+    fn quick(&self) -> Option<std::sync::Arc<dyn ElectricitySource>> {
+        None
+    }
+
     /// What is shown if load failed.
     fn error(&self, error: &anyhow::Error) -> Element {
         rsx! { div { class: "error", ErrorText { error: format!("{error:#}"), message: "Failed to load the readings" } } }

@@ -48,19 +48,17 @@ const FIRST_COMPACTION: Duration = Duration::from_secs(60);
 /// nothing to compact, it only lists the journal's files.
 const COMPACTION_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
-/// Compacts the store's journal on a thread of its own, see FIRST_COMPACTION and COMPACTION_INTERVAL: its days before
-/// yesterday are folded into the DataSets' files, leaving a day for late records, see bruce-db's design, so that the
-/// journal, which is kept in memory and read whenever the store is opened, stays small. How long it takes is in the
-/// profile's log, from bruce-db.
+/// Compacts the store's journal on a thread of its own, see FIRST_COMPACTION and COMPACTION_INTERVAL: its hours which
+/// have ended are folded into the DataSets' files, see bruce-db's journal by the hour, so that the journal, which is
+/// kept in memory and read whenever the store is opened, stays an hour or two. A late record goes in a later hour, and
+/// is merged when that hour is, as the newest version wins. How long it takes is in the profile's log, from bruce-db.
 fn compact_in_background(profile_name: &str, store: Arc<Store>) {
     let spawned = std::thread::Builder::new()
         .name(format!("compact {profile_name}"))
         .spawn(move || {
             std::thread::sleep(FIRST_COMPACTION);
             loop {
-                if let Some(before) = Micros::now().date().ok().and_then(|today| today.previous_day())
-                    && let Err(error) = store.compact(before)
-                {
+                if let Err(error) = store.compact_through(Micros::now()) {
                     crate::log_warning!("Unable to compact the store, {error:#}");
                 }
                 std::thread::sleep(COMPACTION_INTERVAL);
@@ -112,7 +110,12 @@ pub fn origin() -> String {
     if cfg!(test) {
         return String::from("app-000000000000");
     }
-    format!("app-{}", node().unwrap_or_else(|_| String::from("000000000000")))
+    // Read once, as it never changes, and every put asks for it: reading the file each time was 0.18 s of a start's
+    // puts, on the window's thread, on 23 November 2026.
+    static ORIGIN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ORIGIN
+        .get_or_init(|| format!("app-{}", node().unwrap_or_else(|_| String::from("000000000000"))))
+        .clone()
 }
 
 /// A version of now, written by the app.

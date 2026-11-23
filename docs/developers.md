@@ -15,3 +15,23 @@ The documentation for developers is kept with the source code, rather than in th
 - [Chrome Browser Inspector HowTo](https://github.com/bruceskingle/bruce-smart-home/blob/main/docs/howto/ChromeInspector.md), watching the API calls a web page makes.
 
 This book is built from the `docs` directory with [mdBook](https://rust-lang.github.io/mdBook/), see `book.toml`, and published to GitHub Pages whenever `main` changes.
+
+## Signing debug builds on macOS
+
+The app keeps the key to its saved secrets in the Keychain, which lets a program read an item by its code signature.
+Cargo's builds are signed ad hoc, a signature which is new with every build, so macOS asks to allow each new build to
+read the key the first time it runs, and the window waits for the answer. To stop it, sign debug builds with a code
+signing identity of your own, e.g. an Apple Development certificate from Xcode, in a git-ignored `.cargo/config.toml`:
+
+```toml
+[target.aarch64-apple-darwin]
+linker = "scripts/link-and-sign.sh"
+
+[env]
+DEBUG_SIGNING_IDENTITY = "Apple Development: Your Name (TEAMID)"
+```
+
+`security find-identity -v -p codesigning` lists the identities you have. `scripts/link-and-sign.sh` links as usual,
+then signs each executable with the identity, with its name, without cargo's hash, as its identifier, so that every
+build has the same signature. Choose **Always Allow** when macOS asks the first time. Without the file, builds are
+signed ad hoc, as before, and nothing else changes.

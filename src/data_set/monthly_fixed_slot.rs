@@ -275,8 +275,9 @@ pub async fn call_unless_cancelled<Q: GraphQLQuery<R>, R: GraphQLResponse>(
     }
 }
 
-pub trait SlotSource {
-    type Value: DeserializeOwned + Serialize + Clone;
+/// Cloned and sent to a thread of its own to read what is stored, off the page's, see MonthlyFixedSlotDataSet::fetch.
+pub trait SlotSource: Clone + Send + 'static {
+    type Value: DeserializeOwned + Serialize + Clone + Send;
     /// What is kept of a sample, as the server gave it, from which its Value is made, see value, so that the store
     /// holds only what the server sent, see AGENTS.md.
     type Stored: DeserializeOwned + Serialize + Clone;
@@ -338,10 +339,7 @@ pub struct MonthlyFixedSlotDataSet<S: SlotSource>
     pub is_complete: bool,
 }
 
-impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
-// where
-//     V: DeserializeOwned + Serialize + Clone,
-{
+impl<S: SlotSource> MonthlyFixedSlotDataSet<S> {
     fn new(
         start_date: Date,
         next_date: Date,
@@ -473,8 +471,15 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S>
 
             // end is exclusive so a bucket starting at end is not needed
             while start_date.at_midnight(tz) < *end {
-                let open_data_set: OpenMonthlyFixedSlotDataSet<S> =
-                    OpenMonthlyFixedSlotDataSet::new(&source, config, source.hash_key(), &start_date, tz)?;
+                // Read on a thread of its own, as a month of half hours takes long enough to read and parse to stop the
+                // page, which runs on the UI's thread: 0.29 s on 23 November 2026.
+                let open_data_set: OpenMonthlyFixedSlotDataSet<S> = {
+                    let (source, config) = (source.clone(), config.clone());
+                    tokio::task::spawn_blocking(move || {
+                        OpenMonthlyFixedSlotDataSet::new(&source, &config, source.hash_key(), &start_date, tz)
+                    })
+                    .await??
+                };
 
                 let key = Self::key_for(&start_date);
                 result_keys.push(key);

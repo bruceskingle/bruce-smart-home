@@ -170,15 +170,25 @@ fn save_records(store: &Store, device: &Device, date: Option<Date>, json: &serde
         );
     }
     let records = records.as_array().cloned().unwrap_or_default();
-    // A record of a minute given twice in a response, the last is kept, as a newer version.
-    for record in &records {
-        store.put(&Item::new(
-            &hk,
-            &minute_key(record),
-            crate::store::version_now(),
-            record.clone(),
-        ))?;
-    }
+    // A record of a minute given twice in a response, the last is kept, as a newer version. The day's records are
+    // synced to the disk together, once, as each sync on macOS is a full flush, about 4 ms, which for a day's 1,440
+    // records froze the window for 6 s on 23 November 2026, see store::write_batch for the same, off the window's
+    // thread, which this should move to.
+    store.set_sync(false);
+    let put = records.iter().try_for_each(|record| {
+        store
+            .put(&Item::new(
+                &hk,
+                &minute_key(record),
+                crate::store::version_now(),
+                record.clone(),
+            ))
+            .map(|_| ())
+    });
+    store.set_sync(true);
+    let synced = store.sync();
+    put?;
+    synced?;
     if let Some(date) = date {
         let ended = date < crate::clock::now_utc().date();
         store.put(&Item::new(

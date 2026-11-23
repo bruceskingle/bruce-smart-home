@@ -695,6 +695,9 @@ fn MeasurementsDetail(props: MeasurementsDetailProps) -> Element {
     // A period to fetch again from the server, however up to date the cache is, set from the bar menu.
     let mut reload = use_signal(|| None::<(DateTime, DateTime)>);
 
+    // What is stored, shown at once while the first load fetches what is missing, see OctopusContext::stored_only.
+    let mut stored = use_signal(|| None::<Arc<MeasurementsDataSet>>);
+
     // Fetch the data, and again whenever a period is reloaded.
     let transactions_resource = use_resource({
         let props = props.clone();
@@ -710,6 +713,24 @@ fn MeasurementsDetail(props: MeasurementsDetailProps) -> Element {
                     let mut progress = progress;
                     progress.set(message)
                 };
+                if reload.is_none() {
+                    let stored_only = context.stored_only();
+                    let found = MeasurementsDataSet::new(
+                        &props.account_id,
+                        &props.mpan,
+                        props.export,
+                        &props.start,
+                        &props.end,
+                        None,
+                        props.billing_timezone,
+                        &|_| {},
+                        &cancel,
+                        &stored_only.cache_config,
+                        &*stored_only.request_manager,
+                    )
+                    .await;
+                    stored.set(found.ok().map(Arc::new));
+                }
                 MeasurementsDataSet::new(
                     &props.account_id,
                     &props.mpan,
@@ -807,7 +828,34 @@ fn MeasurementsDetail(props: MeasurementsDetailProps) -> Element {
         exportable.set(loaded);
     });
 
-    match &*transactions_resource.read() {
+    // Until the first load is done, what is stored is shown, if there is any, with a line saying what is fetched.
+    let fetching_first = transactions_resource.read().is_none();
+    let early = stored.read().clone().filter(|_| fetching_first);
+    // The error is not taken out of the resource, as its GraphQL causes are explained below.
+    let shown = match (&*transactions_resource.read(), early) {
+        (None, Some(stored)) => Some(Ok(stored)),
+        (None, None) => None,
+        (Some(Ok(data)), _) => Some(Ok(data.clone())),
+        (Some(Err(_)), _) => Some(Err(())),
+    };
+    let fetching_bar = fetching_first.then(|| {
+        rsx! {
+            div { class: "fetching-bar",
+                span { "Fetching: {progress}" }
+                button {
+                    r#type: "button",
+                    disabled: cancelling(),
+                    onclick: move |_| {
+                        cancel.peek().cancel();
+                        cancelling.set(true);
+                    },
+                    if cancelling() { "Cancelling…" } else { "Cancel" }
+                }
+            }
+        }
+    });
+
+    match &shown {
         None => rsx! {
             div {
                 {format!("Loading measurements for meter {}...", props.mpan)}
@@ -826,7 +874,12 @@ fn MeasurementsDetail(props: MeasurementsDetailProps) -> Element {
         },
         // Errors from Octopus, e.g. that the account may not read a device, are explained here, others go to the
         // error page.
-        Some(Err(error)) => match graphql_error_descriptions(error) {
+        Some(Err(())) => match transactions_resource
+            .read()
+            .as_ref()
+            .and_then(|result| result.as_ref().err())
+            .and_then(graphql_error_descriptions)
+        {
             Some(descriptions) => rsx! {
                 div { class: "error",
                     "Octopus did not provide the measurements for {props.mpan}:"
@@ -837,10 +890,13 @@ fn MeasurementsDetail(props: MeasurementsDetailProps) -> Element {
                     }
                 }
             },
-            None => Err(anyhow!(
-                "Failed to load measurements for meter {}: {error:#}",
-                props.mpan
-            ))?,
+            None => {
+                let error = match &*transactions_resource.read() {
+                    Some(Err(error)) => format!("{error:#}"),
+                    _ => String::new(),
+                };
+                Err(anyhow!("Failed to load measurements for meter {}: {error}", props.mpan))?
+            }
         },
         Some(Ok(consumption)) => {
             let content = match props.view {
@@ -869,8 +925,10 @@ fn MeasurementsDetail(props: MeasurementsDetailProps) -> Element {
                 ),
             };
             // While a reload is fetched the data loaded before it is shown, with a dialog over it.
-            let reloading = matches!(*transactions_resource.state().read(), UseResourceState::Pending);
+            let reloading =
+                !fetching_first && matches!(*transactions_resource.state().read(), UseResourceState::Pending);
             rsx! {
+                {fetching_bar}
                 div { class: "reloadable",
                     {content}
                     if reloading {

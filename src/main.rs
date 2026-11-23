@@ -48,6 +48,14 @@ fn main() {
         }
         std::process::exit(0);
     }
+    // With --octopusday what Octopus gives of a day's half hours is printed, then the app exits.
+    if args.octopus_day().is_some() {
+        std::process::exit(if bruce_smart_home::print_octopus_day(args) {
+            0
+        } else {
+            1
+        });
+    }
     if args.fetch() {
         std::process::exit(if bruce_smart_home::fetch_latest_data(args) {
             0

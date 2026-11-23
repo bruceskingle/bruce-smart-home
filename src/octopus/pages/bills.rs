@@ -36,24 +36,43 @@ pub fn BillsPage(props: BillsPageProps) -> Element {
 
     // Fetch the list of all bills, this runs once when the component is mounted.
     // The bills are shared with the bill windows, so they are held in an Arc.
+    // The bills stored, shown at once while the first load asks Octopus for any newer, see
+    // OctopusContext::stored_only.
+    let mut stored = use_signal(|| None::<Arc<BillDataSet>>);
     let bills_resource = use_resource({
         let context = context.clone();
         move || {
             let context = context.clone();
             async move {
+                let stored_only = context.stored_only();
+                let found = BillDataSet::new(
+                    &stored_only.account_id,
+                    &stored_only.cache_config,
+                    &*stored_only.request_manager,
+                )
+                .await;
+                stored.set(found.ok().map(Arc::new));
                 BillDataSet::new(&context.account_id, &context.cache_config, &*context.request_manager)
                     .await
                     .map(Arc::new)
             }
         }
     });
+    // What is shown: what was fetched, or until then what is stored.
+    let shown = move || -> Option<Arc<BillDataSet>> {
+        match &*bills_resource.peek() {
+            Some(Ok(bills)) => Some(bills.clone()),
+            _ => stored.peek().clone(),
+        }
+    };
 
     let open_bill = use_callback({
         let context = context.clone();
         move |bill_id: String| {
-            let Some(Ok(bills)) = &*bills_resource.peek() else {
+            let Some(bills) = shown() else {
                 return;
             };
+            let bills = &bills;
             let title = match find_bill(&bill_id, bills) {
                 Some(bill) => {
                     let bill = bill.as_bill_interface();
@@ -82,13 +101,23 @@ pub fn BillsPage(props: BillsPageProps) -> Element {
         }
     });
 
-    match &*bills_resource.read() {
+    let fetching = bills_resource.read().is_none();
+    if let Some(Err(error)) = &*bills_resource.read() {
+        Err(anyhow!("Failed to load bills: {error:#}"))?
+    }
+    let listed = match &*bills_resource.read() {
+        Some(Ok(bills)) => Some(bills.clone()),
+        _ => stored.read().clone(),
+    };
+    match listed {
         None => rsx! {
             div { "Loading Bills for account {context.account_id}..." }
         },
-        Some(Err(error)) => Err(anyhow!("Failed to load bills: {error:#}"))?,
-        Some(Ok(bills)) => {
+        Some(bills) => {
             rsx! {
+                if fetching {
+                    div { class: "fetching-bar", "Asking Octopus for newer bills…" }
+                }
                 table {
                     {AbstractBill::gui_summary_header()?}
                     // The most recent first.

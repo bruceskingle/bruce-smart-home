@@ -35,17 +35,17 @@ rgb = "0.8.53"
 md-5 = "0.10"
 
 # The store the device keeps its records in, as the app does, see ../docs/Store.md, "Capture devices on the store".
-bruce-db = "0.2.0"
+bruce-db = "0.3.0"
 
 # The platform, and the board simulator the virtual capture device is built on, see bruce-embedded-std's
 # docs/Simulator.md. Without bruce-esp-idf's default, espidf, so that the sim feature can choose the simulator in its
 # place.
-bruce-embedded-std = "0.2.0"
-bruce-esp-idf = { version = "0.2.0", default-features = false, features = ["sd-card"] }
+bruce-embedded-std = "0.3.0"
+bruce-esp-idf = { version = "0.3.0", default-features = false, features = ["sd-card"] }
 
 embedded-svc = "0.29.0"
 # The launcher's window to choose a board, with the sim feature, see src/sim_launcher.rs.
-bruce-embedded-sim = { version = "0.2.0", optional = true }
+bruce-embedded-sim = { version = "0.3.0", optional = true }
 # Where the virtual devices keep their data, which the launcher looks in to start one by its ID, see --device.
 dirs = { version = "6", optional = true }
 
@@ -66,12 +66,24 @@ sim = ["bruce-esp-idf/sim", "dep:bruce-embedded-sim", "dep:dirs"]
 cyd-esp32-28 = ["bruce-esp-idf/board-cyd-esp32-28"]
 # The platform needs its IMU support, ahrs, for the board's motion sensor.
 wave-esp32c6-touch-147 = ["bruce-esp-idf/board-wave-esp32c6-touch-147", "bruce-esp-idf/ahrs", "touch"]
+# A Waveshare ESP32-S3-LCD-1.47B, the C6 board's screen on an ESP32-S3, without touch, whose BOOT button, or a tip of
+# the board, shows the status. The platform needs its IMU support, ahrs, for the board's motion sensor, and tilt for
+# the tip.
+wave-esp32s3-lcd-147 = [
+    "bruce-esp-idf/board-wave-esp32s3-lcd-147",
+    "bruce-esp-idf/ahrs",
+    "bruce-esp-idf/tilt",
+    "bruce-esp-idf/boot-button",
+    "tip",
+]
 # A Waveshare ESP32-S3-RLCD-4.2, whose KEY button shows the status.
 wave-esp32s3-rlcd-42 = ["bruce-esp-idf/board-wave-esp32s3-rlcd-42", "bruce-esp-idf/key-button"]
 # A Guition JC3248W535C, whose BOOT button shows the status.
 guition-jc3248w535c = ["bruce-esp-idf/board-guition-jc3248w535c", "bruce-esp-idf/boot-button", "touch"]
 # A board with a touch screen, a swipe of which shows the status, see screen.rs.
 touch = []
+# A board with a motion sensor and no touch screen, a tip of which shows the status, see screen.rs.
+tip = []
 
 [build-dependencies]
 embuild = "0.33"

@@ -16,7 +16,7 @@ mod telemetry;
 
 pub use account::AccountRow;
 pub use bills::BillsPage;
-pub use electricity::OctopusElectricity;
+pub use electricity::{OctopusElectricity, print_day};
 pub use ev_charging::EvChargingPage;
 pub use measurements::MeasurementsPage;
 pub use properties::PropertiesPage;

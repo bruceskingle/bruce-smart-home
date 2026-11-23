@@ -9,4 +9,4 @@ pack.temp.dmg
 /capture/target-sim
 /capture/.embuild
 /.cargo/config.toml
-
+/capture/.cargo/links.toml

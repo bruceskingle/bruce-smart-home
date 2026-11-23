@@ -48,6 +48,17 @@ pub fn read_profile_file_if_any() -> anyhow::Result<Option<ProfileFile>> {
     Ok(Some(read_profile_file_at(&path)?))
 }
 
+/// The profiles in the profile file, if there is one, with their secrets left encrypted, for what needs none of them,
+/// e.g. agents_guide, so that the Keychain is not asked for the secrets' key, which macOS asks the user to allow for
+/// each new build, and the window waits for, as it did for 6 s on 23 November 2026.
+pub fn read_profile_file_without_secrets() -> anyhow::Result<Option<ProfileFile>> {
+    let path = AppContext::get_file_path()?;
+    let Ok(file) = fs::File::open(&path) else {
+        return Ok(None);
+    };
+    Ok(Some(serde_json::from_reader(file)?))
+}
+
 /// The profiles in the profile file at path, e.g. another data home's, with their secrets decrypted, see secrets.rs.
 /// A secret which cannot be decrypted is left out, see read_profile_file_reporting.
 pub fn read_profile_file_at(path: &Path) -> anyhow::Result<ProfileFile> {

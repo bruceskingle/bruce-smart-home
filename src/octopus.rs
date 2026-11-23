@@ -227,6 +227,22 @@ impl OctopusModule {
         Ok(Arc::new(builder.build()?))
     }
 
+    /// For developers, see AppArgs::octopusday: prints what Octopus gives of each meter's half hours of day, see
+    /// pages::print_day, with the profile's login.
+    pub async fn print_day(context: Arc<AppContext>, day: time::Date) -> anyhow::Result<()> {
+        let json_profile = context.profile.active_profile.modules.get(MODULE_ID).cloned();
+        // The profile's API key, for the REST API, which is not shown.
+        let api_key = json_profile
+            .as_ref()
+            .and_then(|profile| profile["apiKey"].as_str())
+            .map(str::to_string);
+        let module = OctopusModule::builder(context, json_profile)?
+            .build()?
+            .do_build()
+            .await?;
+        pages::print_day(&module.context, day, api_key.as_deref()).await
+    }
+
     pub fn builder(
         context: Arc<AppContext>,
         json_profile: Option<serde_json::Value>,
@@ -277,6 +293,7 @@ impl Module for OctopusModule {
     /// Its meters and Home Mini put together, see pages/electricity.rs.
     fn electricity_source(&self) -> Option<Arc<dyn crate::power::ElectricitySource>> {
         Some(Arc::new(pages::OctopusElectricity {
+            home_mini: true,
             context: self.context.clone(),
         }))
     }

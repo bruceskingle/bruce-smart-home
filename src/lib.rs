@@ -100,6 +100,11 @@ pub struct AppArgs {
     /// does, e.g. --devicepost f85b1b909f50 config '{"features":{"Store":{"enabled":true}}}'. No hyphen, see redact.
     #[arg(long, num_args = 3, value_names = ["DEVICE", "PATH", "JSON"])]
     devicepost: Vec<String>,
+    /// For developers: ask Octopus for each of the profile's meters' half hours of a day, e.g. 2026-11-10, with the
+    /// query the app fetches them with, print how many came back and their times, without storing them, then exit.
+    /// No hyphen, see redact.
+    #[arg(long, value_name = "DATE")]
+    octopusday: Option<String>,
     /// Upgrade a profile to the current version, as the Home page does when asked, e.g. converting what one made before
     /// the store kept in the cache directory into its store, leaving the cache as it was, see profile::upgrade_profile,
     /// then exit. No hyphen, see redact.
@@ -183,6 +188,11 @@ impl Args {
         }
     }
 
+    /// The day given with --octopusday, see AppArgs.
+    pub fn octopus_day(&self) -> Option<&str> {
+        self.app_args.octopusday.as_deref()
+    }
+
     /// The device, the path and the body to POST, with --devicepost, see AppArgs.
     pub fn capture_post(&self) -> Option<(&str, &str, &str)> {
         match self.app_args.devicepost.as_slice() {
@@ -227,6 +237,28 @@ impl Args {
 /// Fetches the latest data of each module of the profile, see Module::fetch_latest_data, without a window, for --fetch.
 /// A module which is not logged in, or whose fetch fails, is reported and the others are still fetched. Returns whether
 /// they all succeeded, for the exit status.
+/// For developers, --octopusday: prints what Octopus gives of each meter's half hours of the day, see
+/// octopus::OctopusModule::print_day, returning whether it could.
+pub fn print_octopus_day(args: Args) -> bool {
+    let result = (|| {
+        let day = args.octopus_day().unwrap_or_default();
+        let day = time::Date::parse(day, &time::macros::format_description!("[year]-[month]-[day]"))
+            .map_err(|_| anyhow!("{day} is not a date like 2026-11-10"))?;
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+        runtime.block_on(async move {
+            let context = AppContext::new(args)?;
+            octopus::OctopusModule::print_day(context, day).await
+        })
+    })();
+    match result {
+        Ok(()) => true,
+        Err(error) => {
+            eprintln!("Unable to ask Octopus for the day: {error:#}");
+            false
+        }
+    }
+}
+
 pub fn fetch_latest_data(args: Args) -> bool {
     let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(runtime) => runtime,

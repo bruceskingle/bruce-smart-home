@@ -18,6 +18,11 @@ case "$host" in
     *) exe= ;;
 esac
 mkdir -p target-sim/bin
+# The developer's own links to libraries' checkouts, if any, see .cargo/links.toml.
+links=
+if [ -f .cargo/links.toml ]; then
+    links="--config .cargo/links.toml"
+fi
 # Copies a program as a new file, removing any before it, as macOS kills a program copied over another, which keeps the
 # old file's identity, with the new file's code signature.
 copy() {
@@ -28,7 +33,7 @@ for pair in wave-esp32s3-rlcd-42:rlcd42 guition-jc3248w535c:guitron; do
     feature=${pair%%:*}
     name=${pair##*:}
     echo "Building the virtual $name"
-    CARGO_TARGET_DIR="target-sim/$name" cargo +stable build $flag --no-default-features --features "sim,$feature" \
+    CARGO_TARGET_DIR="target-sim/$name" cargo +stable build $links $flag --no-default-features --features "sim,$feature" \
         --target "$host"
     copy "target-sim/$name/$host/$profile/bruce-smart-home-capture$exe" "target-sim/bin/bruce-smart-home-capture-$name$exe"
 done

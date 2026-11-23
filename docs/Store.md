@@ -159,26 +159,23 @@ flowchart LR
 
 ## Compaction
 
-bruce-db leaves compaction to its caller, and holds the store while it runs. Until bruce-db's hourly journal, which
-compacts a little and often, each node compacts the journal's days before yesterday:
+bruce-db leaves compaction to its caller, and holds the store while it runs. Since bruce-db 0.3.0 the journal is a file
+an hour, and each node compacts the hours which have ended, every hour, with `Store::compact_through(now)`, so that
+the journal, which opening the store reads, stays an hour or two. The hours compacted are kept for three days, in
+`journal/kept/`, which a peer behind, e.g. the app reading a device, catches up from, a page in milliseconds, rather
+than from the DataSets' files, see bruce-db's journal by the hour. Before, each node compacted only the days before
+yesterday, which left one to two days in the journal: 8.6 s to open on the ESP32-S3-LCD-1.47B on 23 November 2026, 47
+s on the Guitron, and a peer behind what was compacted waited 4 to 7½ minutes for each page.
 
 - **The app** compacts on a thread of its own, a minute after it opens a profile's store and then hourly, see
-  `store::compact_in_background`, so that the first page is drawn first. Before 13 November 2026 it compacted once, as
-  the store was opened, which the first page waited for.
-- **A capture device** compacts once a night at a time worked out from its ID, between 01:01 and 04:58, away from
-  Octopus's poll minutes, so that two devices do not compact at once, e.g. the RLCD at 04:20, the Guitron at 02:17, and
-  once 10 to 20 minutes after it starts, see `capture/src/db.rs`. A guard file, `/sd/store/compacting`, written for the
-  build that compacts, stops a build which crashed compacting from compacting again, which `/api/store/info` reports.
-  The schedule is a stopgap until devices agree among themselves who does what when. On 12 and 13 November both S3
-  devices ran out of memory compacting at 03:07, the same time on both, before compaction streamed; after bruce-db
-  0.2.0 their four-day journals took 21 and 12 minutes to compact, once, and their start then took about a minute
-  instead of 10 to 14.
+  `store::compact_in_background`, so that the first page is drawn first. A copy of Bruce's store, with a two-day
+  journal of 80 MB, took 1.9 s to compact the first time, on 23 November 2026, then opened in 0.1 ms.
+- **A capture device** compacts every hour, at a minute worked out from its ID, away from Octopus's poll minutes, so
+  that two devices do not compact at once, and once 10 to 20 minutes after it starts, see `capture/src/db.rs`. A guard
+  file, `/sd/store/compacting`, written for the build that compacts, stops a build which crashed compacting from
+  compacting again, which `/api/store/info` reports.
 - **Timings**: bruce-db logs how long opening and compacting took, which the app puts into the profile's log, see
-  `logging::forward_libraries`, and the firmware into its serial log. On 13 November 2026 the app opened Bruce's
-  store, a two-day journal of 86 MB, 108,315 lines, in 0.42 s, so the slow starts before were the compaction it then
-  ran as the store opened. The Guitron, reflashed the same day, opened its two-day journal, 15 MB of 12,734 lines,
-  in 47 s, and polled again 6 s later, so on a device opening is most of a start, which bruce-db's head-only parse and
-  hourly journal are to cut. A compaction with nothing to fold, only yesterday and today in the journal, logs nothing.
+  `logging::forward_libraries`, and the firmware into its serial log.
 
 ## Order of work
 

@@ -95,6 +95,46 @@ mod board {
     }
 }
 
+#[cfg(feature = "wave-esp32s3-lcd-147")]
+mod board {
+    use std::sync::Arc;
+
+    use bruce_embedded_std::DisplayOrientation;
+    use bruce_esp_idf::Esp32PlatformBuilder;
+
+    use crate::screen::Panel;
+
+    /// The C6 Touch-LCD-1.47's screen, 320 by 172, on an ESP32-S3 without touch: the graph of the gateway's power, with
+    /// a small digital clock, see screen.rs, which ticks every second, or until there is a graph, 8 lines of numbers.
+    pub const ORIENTATION: DisplayOrientation = DisplayOrientation::Rotate270;
+    pub const CLOCK_HEIGHT: u32 = 0;
+    pub const GRAPH: bool = true;
+    pub const SCREEN_SCHEDULE: &str = "* * * * * *";
+
+    /// The screen's orientation, and BOOT, which shows the status, as a swipe does on the C6 board, having no touch, as
+    /// does tipping the board, see screen.rs's Tip.
+    pub fn configure(
+        builder: Esp32PlatformBuilder,
+        panel: &Arc<Panel>,
+        _db: &Arc<crate::db::Db>,
+    ) -> anyhow::Result<Esp32PlatformBuilder> {
+        let panel = panel.clone();
+        Ok(builder
+            .with_display_orientation(ORIENTATION)?
+            .with_boot_button(move |_platform| {
+                Ok(Box::new(move || {
+                    panel.show_status();
+                    Ok(())
+                }))
+            }))
+    }
+
+    /// Nothing, as the board has no speaker.
+    pub fn started(_runner: &bruce_esp_idf::Esp32PlatformRunner) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
 #[cfg(feature = "guition-jc3248w535c")]
 mod board {
     use std::sync::Arc;

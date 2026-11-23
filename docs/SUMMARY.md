@@ -24,6 +24,7 @@
     - [Profile](help/profile-size.md)
     - [Settings](help/settings.md)
     - [Capture Devices](help/devices.md)
+        - [Capture Device Hardware](CaptureHardware.md)
     - [Temperature and Humidity](help/climate.md)
     - [The Log](help/log.md)
     - [Choosing Dates](help/date-range.md)

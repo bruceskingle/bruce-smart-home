@@ -53,21 +53,19 @@ const COMPACT_AFTER_START: std::time::Duration = std::time::Duration::from_secs(
 /// the firmware, see CompactGuard.
 const COMPACTING_FILE: &str = "compacting";
 
-/// When this device compacts the journal's finished days, as a schedule, at night, when little is polled, at a time
-/// from its ID, between 01:01 and 04:58, so that two devices capturing the same sources are unlikely to compact at
-/// once: on 12 and 13 November 2026 both ran out of memory compacting at 03:07, the same time, and each lost the
-/// minutes it took to start again. A stopgap until the devices agree among themselves who does what when.
+/// When this device compacts the journal's finished hours, as a schedule, every hour, at a minute from its ID, between
+/// :01 and :58, so that two devices capturing the same sources are unlikely to compact at once. An hour's journal is
+/// small, a few hundred records, so each compaction is short, and the journal, which opening the store reads, stays
+/// an hour or two; compacting only the days before yesterday, once a night, left two days in it, which took the
+/// ESP32-S3-LCD-1.47B 8.6 s to open on 23 November 2026, and the Guitron 47 s.
 fn compact_schedule(device: &str) -> String {
-    let hash = device_hash(device);
     let minutes = COMPACT_MINUTES.end() - COMPACT_MINUTES.start() + 1;
-    let slot = hash % (4 * minutes);
-    let hour = 1 + slot / minutes;
-    let mut minute = COMPACT_MINUTES.start() + slot % minutes;
+    let mut minute = COMPACT_MINUTES.start() + device_hash(device) % minutes;
     // Past :28, step over :29 and :30.
     if minute >= 29 {
         minute += 2;
     }
-    format!("0 {minute} {hour} * * *")
+    format!("0 {minute} * * * *")
 }
 
 /// A number from the device's ID, the same each time, to spread devices' work over time, see compact_schedule.
@@ -179,7 +177,16 @@ impl Db {
         let mount_point = match mount_point {
             Ok(mount_point) => PathBuf::from(mount_point),
             Err(problem) => {
-                state.problem = Some(format!("No SD card, {problem}"));
+                // Some cards do not answer after a restart which did not cut the power, e.g. after flashing or the
+                // reset button, see the platform's sd_card.rs, which only unplugging the device puts right.
+                state.problem = Some(if bruce_esp_idf::reset_reason() == "PowerOn" {
+                    format!("No SD card, {problem}")
+                } else {
+                    format!(
+                        "No SD card, or it did not answer after a restart which did not cut the power: unplug the \
+                         device and plug it in again, {problem}"
+                    )
+                });
                 return;
             }
         };
@@ -330,6 +337,15 @@ impl Feature for StoreFeature {
         let device = platform.device_id().unwrap_or_default();
         self.db
             .open(device.clone(), platform.sd_card(), config.store_site.as_deref());
+        // On the screen too, as the records are not kept without a card, and the graph has no history after a restart.
+        if platform.sd_card().is_err() {
+            self.panel
+                .set_warning(Some(if bruce_esp_idf::reset_reason() == "PowerOn" {
+                    "SD card missing".to_string()
+                } else {
+                    "SD card missing: unplug, plug in".to_string()
+                }));
+        }
         let name = crate::device::captured_by(platform);
         self.db.put(|store, writer| {
             Ok(Some(device_kinds::device_info(
@@ -416,12 +432,13 @@ impl CompactTask {
         std::thread::Builder::new()
             .stack_size(bruce_embedded_std::thread_stack(16 * 1024))
             .spawn(move || {
-                if let Some(before) = Micros::now().date().ok().and_then(|today| today.previous_day()) {
+                {
                     let problem = match guard.begin() {
                         Err(problem) => Some(problem),
                         Ok(()) => {
-                            info!("Compacting the store's journal before {before}");
-                            let result = store.compact(before);
+                            // The hours which have ended, the current one being still written.
+                            info!("Compacting the store's journal");
+                            let result = store.compact_through(Micros::now());
                             guard.end();
                             match result {
                                 Ok(()) => {

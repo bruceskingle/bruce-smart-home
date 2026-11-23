@@ -156,6 +156,69 @@ struct Loaded {
     measurements: Vec<Arc<dyn Measurements>>,
 }
 
+/// Each source's electricity from what is stored, nothing fetched, the quickest of it if quick, see
+/// ElectricitySource::quick and stored, for the page to draw while the rest is loaded. None if a source can not read
+/// its store alone, which is left to the fetch.
+async fn load_stored(
+    sources: &[SharedProp<dyn ElectricitySource>],
+    quick: bool,
+    start: DateTime,
+    end: DateTime,
+    progress: Signal<String>,
+    token: &CancelToken,
+) -> Option<Vec<Arc<dyn LoadedElectricity>>> {
+    let started = std::time::Instant::now();
+    let mut electricity = Vec::new();
+    for source in sources {
+        let chosen = if quick {
+            source.0.quick().or_else(|| source.0.stored())
+        } else {
+            source.0.stored()
+        };
+        let chosen = chosen.unwrap_or_else(|| source.0.clone());
+        electricity.push(chosen.load(start, end, None, progress, token.clone()).await.ok()?);
+    }
+    let what = if quick {
+        "The quickest of what is stored"
+    } else {
+        "What is stored"
+    };
+    crate::logging::log_if_slow(&format!("{what} of the electricity"), started);
+    Some(electricity)
+}
+
+/// How many ranges' loads are kept, see LOADED.
+const KEPT_LOADS: usize = 8;
+
+thread_local! {
+    /// The latest load of each range shown, by profile, page and range, while the app runs, the latest last, so that
+    /// going back to a page draws it at once, while it loads again, rather than after the store has been read, which
+    /// took over 2 s for a week, with Tesla's measurements, on 23 November 2026. The pages run on the UI's thread.
+    static LOADED: RefCell<Vec<(String, Rc<Loaded>)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The latest load kept of key, see LOADED.
+fn kept_load(key: &str) -> Option<Rc<Loaded>> {
+    LOADED.with(|loaded| {
+        loaded
+            .borrow()
+            .iter()
+            .find(|(kept, _)| kept == key)
+            .map(|(_, loaded)| loaded.clone())
+    })
+}
+
+/// Keeps a load of key, see LOADED.
+fn keep_load(key: String, load: Rc<Loaded>) {
+    LOADED.with(|loaded| {
+        let mut loaded = loaded.borrow_mut();
+        loaded.retain(|(kept, _)| *kept != key);
+        loaded.push((key, load));
+        let excess = loaded.len().saturating_sub(KEPT_LOADS);
+        loaded.drain(..excess);
+    });
+}
+
 /// The electricity of sources, put together, see power::electricity, the first of which, e.g. a supplier's, gives the
 /// timezone, the periods and the like, split by use by measurements if there are any, placed by the site's topology,
 /// see power::topology, under the heading title, with a range picker, the period, a table or a graph of energy or
@@ -167,6 +230,11 @@ pub fn ElectricityExplorer(
     measurements: Vec<SharedProp<dyn MeasurementSource>>,
 ) -> Element {
     let settings = use_context::<Signal<ProfileSettings>>();
+    let profile_name = use_context::<Signal<Option<Arc<AppContext>>>>()
+        .read()
+        .as_ref()
+        .map(|context| context.profile.active_profile.name.clone())
+        .unwrap_or_default();
     let topology = settings.read().topology.clone();
     let source = sources[0].clone();
     let tz = source.0.timezone();
@@ -201,33 +269,47 @@ pub fn ElectricityExplorer(
     let progress = use_signal(String::new);
     let cancel = use_hook(|| Rc::new(RefCell::new(CancelToken::new())));
     let mut cancelling = use_signal(|| false);
+    // What is stored already, drawn at once, while the sources fetch what is missing, see ElectricitySource::stored, so
+    // that the graph does not wait for them, e.g. over a minute for Octopus's.
+    let mut stored = use_signal(|| None::<Rc<Loaded>>);
 
     let mut readings_resource = use_resource({
         let sources = sources.clone();
         let measurements = measurements.clone();
         let cancel = cancel.clone();
+        let title = title.clone();
+        let profile_name = profile_name.clone();
         move || {
             let sources = sources.clone();
             let measurements = measurements.clone();
             let dates = range().to_date_times(tz);
+            let key = format!("{profile_name} {title} {:?}", dates.as_ref().ok());
             let reload_period = *reload.peek();
             let token = CancelToken::new();
             *cancel.borrow_mut() = token.clone();
             async move {
                 cancelling.set(false);
+                // What was last loaded of the range, if it has been shown before, is drawn at once.
+                stored.set(kept_load(&key).filter(|_| reload_period.is_none()));
                 let (start, end) = dates.map_err(|error| anyhow!(error))?;
-                let mut electricity = Vec::new();
-                for source in &sources {
-                    let started = std::time::Instant::now();
-                    electricity.push(
-                        source
-                            .0
-                            .load(start, end, reload_period, progress, token.clone())
-                            .await?,
-                    );
-                    crate::logging::log_if_slow(&format!("{}'s electricity", source.0.name()), started);
+                // Drawn in stages, each as soon as it is loaded, unless what was last loaded is shown already: the
+                // quickest of what is stored, e.g. Octopus's meters' half hours, then split by what was measured, then
+                // all that is stored, e.g. with the Home Mini's readings, then what was fetched. A reload fetches again
+                // what is shown, so it waits for the fetch.
+                let kept = stored.peek().is_some();
+                let staged = reload_period.is_none() && sources.iter().any(|source| source.0.stored().is_some());
+                let quick = if staged && !kept && sources.iter().any(|source| source.0.quick().is_some()) {
+                    load_stored(&sources, true, start, end, progress, &token).await
+                } else {
+                    None
+                };
+                if let Some(electricity) = &quick {
+                    stored.set(Some(Rc::new(Loaded {
+                        electricity: electricity.clone(),
+                        measurements: Vec::new(),
+                    })));
                 }
-                // The half hours either side too, as a split may need them.
+                // What was measured, the half hours either side too, as a split may need them, from the store.
                 let mut loaded = Vec::new();
                 for measurements in &measurements {
                     let name = measurements.0.name().to_string();
@@ -243,13 +325,38 @@ pub fn ElectricityExplorer(
                     crate::logging::log_if_slow(&format!("{name}'s measurements"), started);
                 }
                 let measurements = loaded;
+                if let Some(electricity) = quick {
+                    stored.set(Some(Rc::new(Loaded {
+                        electricity,
+                        measurements: measurements.clone(),
+                    })));
+                }
+                if staged && let Some(electricity) = load_stored(&sources, false, start, end, progress, &token).await {
+                    stored.set(Some(Rc::new(Loaded {
+                        electricity,
+                        measurements: measurements.clone(),
+                    })));
+                }
+                let mut electricity = Vec::new();
+                for source in &sources {
+                    let started = std::time::Instant::now();
+                    electricity.push(
+                        source
+                            .0
+                            .load(start, end, reload_period, progress, token.clone())
+                            .await?,
+                    );
+                    crate::logging::log_if_slow(&format!("{}'s electricity", source.0.name()), started);
+                }
                 if reload_period.is_some() {
                     reload.set(None);
                 }
-                anyhow::Ok(Rc::new(Loaded {
+                let loaded = Rc::new(Loaded {
                     electricity,
                     measurements,
-                }))
+                });
+                keep_load(key, loaded.clone());
+                anyhow::Ok(loaded)
             }
         }
     });
@@ -278,9 +385,11 @@ pub fn ElectricityExplorer(
         .copied()
         .find(|option| *option >= period() && fits(*option))
         .unwrap_or(Period::Month);
+    // What is stored is shown while the rest is fetched, see stored.
+    let early = stored.read().clone().filter(|_| fetching);
     let readings: Option<Rc<Loaded>> = match &*readings_resource.read() {
         Some(Ok(readings)) => Some(readings.clone()),
-        _ => None,
+        _ => early.clone(),
     };
     let electricity = readings.as_ref().map(|readings| {
         let loaded: Vec<&dyn LoadedElectricity> = readings.electricity.iter().map(|loaded| loaded.as_ref()).collect();
@@ -449,13 +558,21 @@ pub fn ElectricityExplorer(
         .iter()
         .flat_map(|readings| readings.electricity.iter().filter_map(|loaded| loaded.warning()))
         .collect();
-    let content = match (&*readings_resource.read(), &electricity) {
-        (None, _) => rsx! {},
-        (Some(Err(error)), _) => source.0.error(error),
-        (Some(Ok(_)), Some(electricity)) if electricity.points.is_empty() => {
-            rsx! { p { "No readings in this period" } }
+    let failed = match &*readings_resource.read() {
+        Some(Err(error)) if !fetching => Some(source.0.error(error)),
+        _ => None,
+    };
+    let content = match (failed, &electricity) {
+        (Some(error), _) => error,
+        (None, None) => rsx! {},
+        (None, Some(electricity)) if electricity.points.is_empty() => {
+            if fetching {
+                rsx! {}
+            } else {
+                rsx! { p { "No readings in this period" } }
+            }
         }
-        (Some(Ok(_)), Some(electricity)) => rsx! {
+        (None, Some(electricity)) => rsx! {
             match view() {
                 ElectricityView::Table => electricity_table(electricity, compares_ev, derived, tz),
                 ElectricityView::Graph => electricity_graph(electricity, cost_values.clone(), &start, &end, shown_period, shorter.is_some(), shown_mode, &filter.read(), tz, on_drill, on_zoom, menu),
@@ -473,7 +590,6 @@ pub fn ElectricityExplorer(
                 }
             }
         },
-        (Some(Ok(_)), None) => rsx! {},
     };
 
     // The site's time zone, which the times are in, see ElectricitySource::timezone, e.g. Sydney's for GloBird's.
@@ -559,9 +675,28 @@ pub fn ElectricityExplorer(
                 table: export_table,
             }
         }
+        // While it loads, a line says what is being loaded or fetched, and the page can still be used, as what is stored
+        // is drawn as soon as it is read; a reload, which fetches again what is shown, has a dialog over the page.
+        if fetching && reload.peek().is_none() {
+            div { class: "fetching-bar",
+                span { "{fetching_title}: {progress}" }
+                button {
+                    r#type: "button",
+                    disabled: cancelling(),
+                    onclick: {
+                        let cancel = cancel.clone();
+                        move |_| {
+                            cancel.borrow().cancel();
+                            cancelling.set(true);
+                        }
+                    },
+                    if cancelling() { "Cancelling…" } else { "Cancel" }
+                }
+            }
+        }
         div { class: "reloadable telemetry-content",
             {content}
-            if fetching {
+            if fetching && reload.peek().is_some() {
                 div { class: "reload-overlay",
                     div { class: "modal",
                         h3 { "{fetching_title}" }
@@ -982,12 +1117,18 @@ pub(crate) async fn find(context: Arc<AppContext>, registrations: ModuleRegistra
         _modules: Vec::new(),
     };
     for module_id in context.profile.active_profile.modules.keys() {
+        // Each step is logged if it is slow, as the page waits for all of them before it loads anything.
+        let started = std::time::Instant::now();
         let factory = registrations.module_factory(module_id, &context).await?;
-        if !crate::login::is_ready(&context, module_id, &factory).await? {
+        let ready = crate::login::is_ready(&context, module_id, &factory).await?;
+        crate::logging::log_if_slow(&format!("Whether {module_id} is logged in"), started);
+        if !ready {
             found.not_ready.push(module_id.clone());
             continue;
         }
+        let started = std::time::Instant::now();
         let module = factory.build().await?;
+        crate::logging::log_if_slow(&format!("Starting {module_id}"), started);
         found.sources.extend(module.electricity_source());
         found.measurements.extend(module.measurement_source());
         found.channels.extend(module.channels());

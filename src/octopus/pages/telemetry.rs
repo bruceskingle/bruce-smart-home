@@ -148,6 +148,8 @@ pub fn Telemetry(account_id: String, esme_id: String, cad_id: String, billing_ti
     // Set when the Cancel button is clicked, until the next fetch starts.
     let mut cancelling = use_signal(|| false);
 
+    // The readings stored, shown at once while the load asks Octopus for any missing, see OctopusContext::stored_only.
+    let mut stored = use_signal(|| None::<Arc<Vec<TelemetryReading>>>);
     let mut readings_resource = use_resource({
         let context = context.clone();
         let account_id = account_id.clone();
@@ -168,6 +170,24 @@ pub fn Telemetry(account_id: String, esme_id: String, cad_id: String, billing_ti
                     let mut progress = progress;
                     progress.set(message)
                 };
+                stored.set(None);
+                if reload_period.is_none() {
+                    let stored_only = context.stored_only();
+                    let found = telemetry::fetch(
+                        &account_id,
+                        &esme_id,
+                        &start,
+                        &end,
+                        None,
+                        tz,
+                        &stored_only.cache_config,
+                        &*stored_only.request_manager,
+                        &|_: String| {},
+                        &token,
+                    )
+                    .await;
+                    stored.set(found.ok().map(Arc::new));
+                }
                 let readings = telemetry::fetch(
                     &account_id,
                     &esme_id,
@@ -212,9 +232,11 @@ pub fn Telemetry(account_id: String, esme_id: String, cad_id: String, billing_ti
         .into_iter()
         .find(|option| *option >= period() && fits(*option))
         .unwrap_or(Period::Month);
+    // What is stored is shown while the rest is fetched, see stored.
+    let early = stored.read().clone().filter(|_| fetching);
     let readings: Option<Arc<Vec<TelemetryReading>>> = match &*readings_resource.read() {
         Some(Ok(readings)) => Some(readings.clone()),
-        _ => None,
+        _ => early.clone(),
     };
     let points = readings
         .as_ref()
@@ -308,10 +330,10 @@ pub fn Telemetry(account_id: String, esme_id: String, cad_id: String, billing_ti
     let export_table = move |_: ()| Some(telemetry::points_export(&export_points, tz));
     let export_name = export_file_name("telemetry", &esme_id, &start, &end, &shown_period.to_string());
 
-    let content = match &*readings_resource.read() {
+    let content = match (&*readings_resource.read(), &early) {
         // The loading dialog is over the page.
-        None => rsx! {},
-        Some(Err(error)) => match graphql_error_descriptions(error) {
+        (None, None) => rsx! {},
+        (Some(Err(error)), _) if !fetching => match graphql_error_descriptions(error) {
             Some(descriptions) => rsx! {
                 div { class: "error",
                     "Octopus did not provide the readings:"
@@ -326,10 +348,11 @@ pub fn Telemetry(account_id: String, esme_id: String, cad_id: String, billing_ti
                 rsx! { div { class: "error", ErrorText { error: format!("{error:#}"), message: "Failed to load the readings" } } }
             }
         },
-        Some(Ok(readings)) if readings.is_empty() => rsx! {
+        _ if readings.as_ref().is_none_or(|readings| readings.is_empty()) && fetching => rsx! {},
+        _ if readings.as_ref().is_none_or(|readings| readings.is_empty()) => rsx! {
             p { "No readings in this period, Octopus only has the last 30 days and older ones are only shown if they were saved." }
         },
-        Some(Ok(_)) => match view() {
+        _ => match view() {
             TelemetryView::Table => readings_table(&points, tz),
             TelemetryView::Graph => {
                 readings_graph(&points, &start, &end, shown_period, mode(), tz, on_drill, on_zoom, menu)
@@ -423,9 +446,27 @@ pub fn Telemetry(account_id: String, esme_id: String, cad_id: String, billing_ti
                 table: export_table,
             }
         }
+        // While what is stored is shown, a line says what is being fetched, and the page can still be used.
+        if early.is_some() {
+            div { class: "fetching-bar",
+                span { "{fetching_title}: {progress}" }
+                button {
+                    r#type: "button",
+                    disabled: cancelling(),
+                    onclick: {
+                        let cancel = cancel.clone();
+                        move |_| {
+                            cancel.borrow().cancel();
+                            cancelling.set(true);
+                        }
+                    },
+                    if cancelling() { "Cancelling…" } else { "Cancel" }
+                }
+            }
+        }
         div { class: "reloadable telemetry-content",
             {content}
-            if fetching {
+            if fetching && early.is_none() {
                 div { class: "reload-overlay",
                     div { class: "modal",
                         h3 { "{fetching_title}" }

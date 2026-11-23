@@ -13,3 +13,5 @@ Show them as a **Table**, **Graph** or **Trend**, see [using the graphs](../grap
 For an export meter the readings are what you sent to the grid, and the cost is what you were paid.
 
 Right click a bar for **Reload this bar** or **Reload this month**, which download it again in case Octopus has corrected it.
+
+The readings this profile already has are shown at once, while Octopus is asked for any newer, with a line above the graph saying what is being fetched, and **Cancel**; the graph is drawn again when they arrive.

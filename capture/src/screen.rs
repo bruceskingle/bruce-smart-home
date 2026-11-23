@@ -4,7 +4,7 @@
 //!
 //! On a board with a graph, see main.rs's board, it shows instead the graph of the gateway's power, see graph.rs, under
 //! the latest power of each meter and a small clock, and, for a while after a swipe of the screen, the device's status,
-//! e.g. its address, see Swipe.
+//! e.g. its address, see Swipe, or, on a board with a motion sensor and no touch screen, after it is tipped, see Tip.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -51,6 +51,8 @@ pub type Line = (String, bool);
 /// the samples for the graph.
 pub struct Panel {
     sections: Mutex<BTreeMap<u8, Vec<Line>>>,
+    /// A problem which every screen shows, in yellow, e.g. that there is no SD card, see Panel::set_warning.
+    warning: Mutex<Option<String>>,
     history: Mutex<History>,
     /// When the status, shown after a swipe, is to go, see Swipe.
     status_until: Mutex<Option<Instant>>,
@@ -63,6 +65,7 @@ impl Panel {
     pub fn new() -> Arc<Panel> {
         Arc::new(Panel {
             sections: Mutex::new(BTreeMap::new()),
+            warning: Mutex::new(None),
             history: Mutex::new(History::default()),
             status_until: Mutex::new(None),
             generation: AtomicU32::new(0),
@@ -78,6 +81,13 @@ impl Panel {
             }
         }
         self.sections.lock().unwrap().insert(order, lines);
+        self.generation.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Sets the problem which every screen shows, in yellow, along the bottom of the graph, or first among the lines,
+    /// e.g. that there is no SD card, so that it is seen without the status being asked for.
+    pub fn set_warning(&self, warning: Option<String>) {
+        *self.warning.lock().unwrap() = warning;
         self.generation.fetch_add(1, Ordering::SeqCst);
     }
 
@@ -103,6 +113,8 @@ impl Panel {
                 status_overlay: false,
                 #[cfg(feature = "touch")]
                 swipe: None,
+                #[cfg(feature = "tip")]
+                tip: None,
             };
             initializer.add_task(Box::new(screen), crate::board::SCREEN_SCHEDULE)?;
             // The RLCD's battery, below the temperature and humidity.
@@ -135,6 +147,9 @@ struct Screen {
     /// Kept, as the touch driver only keeps a weak reference to it, see Swipe.
     #[cfg(feature = "touch")]
     swipe: Option<Arc<dyn bruce_embedded_std::listener::Listener<bruce_esp_idf::touch::TouchPoint>>>,
+    /// Whether the board has been tipped, on a board with a motion sensor, None until the sensor has been started.
+    #[cfg(feature = "tip")]
+    tip: Option<Tip>,
 }
 
 impl Screen {
@@ -186,7 +201,7 @@ impl Screen {
 
     /// Listens for swipes, on a board with a touch screen, once the platform is running.
     #[cfg(feature = "touch")]
-    fn listen(&mut self, platform: &Esp32Platform) {
+    fn listen(&mut self, platform: &mut Esp32Platform) {
         if self.swipe.is_none() {
             let swipe: Arc<dyn bruce_embedded_std::listener::Listener<_>> = Arc::new(Swipe::new(self.panel.clone()));
             platform.touch_driver.add_listener(&swipe);
@@ -194,8 +209,98 @@ impl Screen {
         }
     }
 
-    #[cfg(not(feature = "touch"))]
-    fn listen(&mut self, _platform: &Esp32Platform) {}
+    /// Watches for the board being tipped, on a board with a motion sensor and no touch screen: starts the sensor the
+    /// first time, which calibrates it in the background for a few seconds, then, once it has, reads it each time the
+    /// screen is drawn, once a second. Its readings before then are zero, which would be taken as where it rests.
+    #[cfg(feature = "tip")]
+    fn listen(&mut self, platform: &mut Esp32Platform) {
+        match self.tip.as_mut() {
+            None => match platform.imu_manager.start(Duration::from_millis(50)) {
+                Ok(()) => self.tip = Some(Tip::default()),
+                Err(error) => {
+                    log::error!("Unable to start the motion sensor, so tipping the board does nothing: {error:#}");
+                    self.tip = Some(Tip::broken());
+                }
+            },
+            Some(_) if !platform.imu_manager.is_calibrated() => {}
+            Some(tip) => {
+                let reading = platform.imu_manager.read_tilt();
+                if tip.tipped(reading.roll, reading.pitch, Instant::now()) {
+                    log::info!("Tipped, showing the status");
+                    self.panel.show_status();
+                }
+            }
+        }
+    }
+
+    #[cfg(not(any(feature = "touch", feature = "tip")))]
+    fn listen(&mut self, _platform: &mut Esp32Platform) {}
+}
+
+/// A tip of the board, on one with a motion sensor and no touch screen, which shows the status as a swipe does: tipped
+/// more than ANGLE degrees, either way, from how it rests, which is wherever it has been still for SETTLE, as it may
+/// stand on its side or lie flat. Edge triggered, so that leaving it tipped shows the status once.
+#[cfg(any(feature = "tip", test))]
+#[derive(Default)]
+struct Tip {
+    /// The roll and pitch it rests at, None until the first reading, or if the sensor would not start.
+    rest: Option<(f32, f32)>,
+    /// Whether it is tipped, and since when it has been, to take a position held for SETTLE as its new rest.
+    tipped_since: Option<Instant>,
+    /// Whether the sensor would not start, so that it is not read.
+    broken: bool,
+}
+
+#[cfg(any(feature = "tip", test))]
+impl Tip {
+    /// How far it must be tipped from its rest, in degrees.
+    const ANGLE: f32 = 30.0;
+    /// How long it must be held in a new position for that to become its rest.
+    const SETTLE: Duration = Duration::from_secs(30);
+
+    #[cfg(feature = "tip")]
+    fn broken() -> Tip {
+        Tip {
+            broken: true,
+            ..Tip::default()
+        }
+    }
+
+    /// Takes a reading, roll and pitch in degrees, and says whether the board has just been tipped.
+    fn tipped(&mut self, roll: f32, pitch: f32, now: Instant) -> bool {
+        if self.broken {
+            return false;
+        }
+        let Some((rest_roll, rest_pitch)) = self.rest else {
+            self.rest = Some((roll, pitch));
+            return false;
+        };
+        let away = angle_between(roll, rest_roll).max(angle_between(pitch, rest_pitch));
+        if away <= Self::ANGLE {
+            self.tipped_since = None;
+            return false;
+        }
+        match self.tipped_since {
+            None => {
+                self.tipped_since = Some(now);
+                true
+            }
+            Some(since) => {
+                if now.duration_since(since) >= Self::SETTLE {
+                    self.rest = Some((roll, pitch));
+                    self.tipped_since = None;
+                }
+                false
+            }
+        }
+    }
+}
+
+/// The difference between two angles in degrees, from 0 to 180, so that -179 and 179 are 2 apart.
+#[cfg(any(feature = "tip", test))]
+fn angle_between(a: f32, b: f32) -> f32 {
+    let difference = (a - b).rem_euclid(360.0);
+    difference.min(360.0 - difference)
 }
 
 /// The device's address on the Wi-Fi, for the screen, as an app is given it, with its port on the simulator.
@@ -260,6 +365,22 @@ fn draw_numbers<DM: DisplayManager>(manager: &mut DM, area: Rectangle, latest: O
     Ok(())
 }
 
+/// Draws a warning, in yellow on black, at the bottom left of area, the graph's, see Panel::set_warning.
+fn draw_warning<DM: DisplayManager>(manager: &mut DM, area: Rectangle, warning: &str) -> anyhow::Result<()> {
+    let console = manager.console();
+    let style = MonoTextStyleBuilder::new()
+        .font(console.font)
+        .text_color(manager.map_color(&Color::Yellow))
+        .background_color(manager.map_color(&Color::Black))
+        .build();
+    let bottom = area.top_left.y + area.size.height as i32;
+    let position = Point::new(area.top_left.x + CLOCK_LEFT, bottom - console.line_height() as i32);
+    Text::with_baseline(warning, position, style, Baseline::Top)
+        .draw(manager.display())
+        .anyhow()?;
+    Ok(())
+}
+
 /// Draws the time, at the top left of area.
 fn draw_clock<DM: DisplayManager>(manager: &mut DM, area: Rectangle, time: &str) -> anyhow::Result<()> {
     let console = manager.console();
@@ -292,7 +413,8 @@ impl ScheduledTask<Esp32Platform> for Screen {
             (false, true) => Mode::Graph,
             (false, false) => Mode::Lines,
         };
-        let lines = match mode {
+        let warning = self.panel.warning.lock().unwrap().clone();
+        let mut lines = match mode {
             Mode::Status => self.status(platform),
             _ => {
                 let lines: Vec<Line> = self
@@ -311,6 +433,9 @@ impl ScheduledTask<Esp32Platform> for Screen {
                 }
             }
         };
+        if let Some(warning) = &warning {
+            lines.insert(0, (warning.clone(), true));
+        }
 
         let display_manager = platform.display_manager.clone();
         let mut manager = display_manager.lock().unwrap();
@@ -378,6 +503,9 @@ impl ScheduledTask<Esp32Platform> for Screen {
                     );
                     let font = manager.console().font;
                     graph::draw(manager.display(), &palette, &history, area, font)?;
+                    if let Some(warning) = &warning {
+                        draw_warning(&mut *manager, area, warning)?;
+                    }
                 }
                 let time = Local::now().format("%H:%M:%S").to_string();
                 if self.clock_shown.as_ref() != Some(&time) {
@@ -436,5 +564,52 @@ impl bruce_embedded_std::listener::Listener<bruce_esp_idf::touch::TouchPoint> fo
             }
             _ => *touch = Some((x, y, now, false)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A Tip resting on its side, as the board stands, at roll 0 and pitch 90.
+    fn standing(now: Instant) -> Tip {
+        let mut tip = Tip::default();
+        assert!(!tip.tipped(0.0, 90.0, now));
+        tip
+    }
+
+    #[test]
+    fn its_rest_is_where_it_starts_not_level() {
+        let now = Instant::now();
+        let mut tip = standing(now);
+        assert!(!tip.tipped(5.0, 85.0, now + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn a_tip_shows_the_status_once() {
+        let now = Instant::now();
+        let mut tip = standing(now);
+        assert!(tip.tipped(40.0, 90.0, now + Duration::from_secs(1)));
+        assert!(!tip.tipped(45.0, 90.0, now + Duration::from_secs(2)));
+        // Back at rest, then tipped again, the other way.
+        assert!(!tip.tipped(0.0, 90.0, now + Duration::from_secs(3)));
+        assert!(tip.tipped(0.0, 50.0, now + Duration::from_secs(4)));
+    }
+
+    #[test]
+    fn a_position_held_becomes_its_rest() {
+        let now = Instant::now();
+        let mut tip = standing(now);
+        assert!(tip.tipped(0.0, 0.0, now + Duration::from_secs(1)));
+        assert!(!tip.tipped(0.0, 0.0, now + Duration::from_secs(31)));
+        // Now resting flat, so lying flat is not a tip, and standing up again is.
+        assert!(!tip.tipped(0.0, 0.0, now + Duration::from_secs(32)));
+        assert!(tip.tipped(0.0, 90.0, now + Duration::from_secs(33)));
+    }
+
+    #[test]
+    fn angles_wrap_around() {
+        assert_eq!(angle_between(-179.0, 179.0), 2.0);
+        assert_eq!(angle_between(10.0, -20.0), 30.0);
     }
 }
