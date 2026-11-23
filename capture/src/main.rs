@@ -1,10 +1,11 @@
-//! A Capture Device: an ESP32 which polls what Bruce's Smart Home needs while the computer it runs on sleeps, keeps it, and
-//! gives it to the app, which reads it from the device's store, see db.rs: the Tesla gateway, see tesla.rs,
-//! myenergi's zappi, see myenergi.rs, and Octopus's smart charging, see octopus.rs, on a CYD, whose screen shows a graph
-//! of the gateway's power, as it has too little memory for the internet polls, a Waveshare ESP32-C6-Touch-LCD-1.47, whose small screen shows a graph of
-//! the gateway's power, and the device's status when it is swiped, or a Waveshare ESP32-S3-RLCD-4.2, whose black and
-//! white screen shows the clock and numbers, and the status when KEY is pressed, or a Guition JC3248W535C, whose 3.5"
-//! screen shows a graph of the gateway's power, and the status when BOOT is pressed, see board and screen.rs.
+//! A Capture Device: an ESP32-S3 with PSRAM and an SD card, which polls what Bruce's Smart Home needs while the computer
+//! it runs on sleeps, keeps it, and gives it to the app, which reads it from the device's store, see db.rs: the Tesla
+//! gateway, see tesla.rs, myenergi's zappi, see myenergi.rs, and Octopus's smart charging, see octopus.rs, on a
+//! Waveshare ESP32-S3-LCD-1.47B, whose small screen shows a graph of the gateway's power, and the device's status when
+//! BOOT is pressed or it is tipped, a Waveshare ESP32-S3-RLCD-4.2, whose black and white screen shows the clock and
+//! numbers, and the status when KEY is pressed, or a Guition JC3248W535C, whose 3.5" screen shows a graph of the
+//! gateway's power, and the status when BOOT is pressed, see board and screen.rs. Boards without PSRAM, e.g. the CYD
+//! and the ESP32-C6 boards, have too little memory for the store and HTTPS, and are not capture devices.
 
 #[cfg(feature = "wave-esp32s3-rlcd-42")]
 mod battery;
@@ -31,70 +32,6 @@ use bruce_esp_idf::Esp32Platform;
 
 /// What differs between the boards: the screen's orientation, and how much of the top of it the clock takes, the
 /// numbers having the rest, see screen.rs.
-#[cfg(feature = "cyd-esp32-28")]
-mod board {
-    use std::sync::Arc;
-
-    use bruce_embedded_std::DisplayOrientation;
-    use bruce_esp_idf::Esp32PlatformBuilder;
-
-    use crate::screen::Panel;
-
-    /// 320 by 240, on its side, the way up it stands, with its USB port on the right (Rotate90 has it on the left): the
-    /// graph of the gateway's power, with a small digital clock, as the Waveshare's, see screen.rs, which ticks every
-    /// second, or until there is a graph, the lines of numbers. Without its internet polls, which it has too little
-    /// memory for alongside the app's HTTPS requests, it is mostly a display of the graph.
-    pub const ORIENTATION: DisplayOrientation = DisplayOrientation::Rotate270;
-    pub const CLOCK_HEIGHT: u32 = 0;
-    pub const GRAPH: bool = true;
-    pub const SCREEN_SCHEDULE: &str = "* * * * * *";
-
-    /// The screen's orientation.
-    pub fn configure(
-        builder: Esp32PlatformBuilder,
-        _panel: &Arc<Panel>,
-        _db: &Arc<crate::db::Db>,
-    ) -> anyhow::Result<Esp32PlatformBuilder> {
-        builder.with_display_orientation(ORIENTATION)
-    }
-
-    /// Nothing, as the board has no speaker.
-    pub fn started(_runner: &bruce_esp_idf::Esp32PlatformRunner) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-#[cfg(feature = "wave-esp32c6-touch-147")]
-mod board {
-    use std::sync::Arc;
-
-    use bruce_embedded_std::DisplayOrientation;
-    use bruce_esp_idf::Esp32PlatformBuilder;
-
-    use crate::screen::Panel;
-
-    /// 320 by 172, too small for the analog clock too, so the graph of the gateway's power, with a small digital
-    /// clock, see screen.rs, which ticks every second, or until there is a graph, 8 lines of numbers.
-    pub const ORIENTATION: DisplayOrientation = DisplayOrientation::Rotate270;
-    pub const CLOCK_HEIGHT: u32 = 0;
-    pub const GRAPH: bool = true;
-    pub const SCREEN_SCHEDULE: &str = "* * * * * *";
-
-    /// The screen's orientation; swipes show the status, see screen.rs.
-    pub fn configure(
-        builder: Esp32PlatformBuilder,
-        _panel: &Arc<Panel>,
-        _db: &Arc<crate::db::Db>,
-    ) -> anyhow::Result<Esp32PlatformBuilder> {
-        builder.with_display_orientation(ORIENTATION)
-    }
-
-    /// Nothing, as the board has no speaker.
-    pub fn started(_runner: &bruce_esp_idf::Esp32PlatformRunner) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
 #[cfg(feature = "wave-esp32s3-lcd-147")]
 mod board {
     use std::sync::Arc;

@@ -142,5 +142,6 @@ Later: a device serves the app's pages, as plain HTML, CSS and JavaScript, from 
 - [ ] The leader election: how devices agree, without a server, which polls each source with history, and how one
   takes over, e.g. by records in the store which replicate, with a lease that expires.
 - [ ] Whether the RLCD, with its black and white screen, stays a capture device once others have replaced it.
-- The Waveshare ESP32-C6-Touch-LCD-1.47, below the minimum, crashes, probably for want of memory, and is disconnected
-  for now (23 Nov).
+- Boards below the minimum, the CYD and the Waveshare ESP32-C6-Touch-LCD-1.47, are no longer capture devices (23 Nov):
+  the capture firmware is built only for ESP32-S3 boards. They are to be display-only devices later, with firmware of
+  their own which reads a capture device and keeps no store.

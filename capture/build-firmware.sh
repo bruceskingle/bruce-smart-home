@@ -32,9 +32,7 @@ fi
 mkdir -p "$dev"
 
 # Each board, its MCU and its target.
-ALL="cyd-esp32-28:esp32:xtensa-esp32-espidf
-wave-esp32c6-touch-147:esp32c6:riscv32imac-esp-espidf
-wave-esp32s3-lcd-147:esp32s3:xtensa-esp32s3-espidf
+ALL="wave-esp32s3-lcd-147:esp32s3:xtensa-esp32s3-espidf
 wave-esp32s3-rlcd-42:esp32s3:xtensa-esp32s3-espidf
 guition-jc3248w535c:esp32s3:xtensa-esp32s3-espidf"
 

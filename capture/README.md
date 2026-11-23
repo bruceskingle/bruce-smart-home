@@ -19,17 +19,21 @@ another, and asking which board it is if the firmware on it does not say (see it
 `cargo install --path ../../bruce-embedded-flash/bruce-embedded-flash`). Flash with it, never with espflash
 directly:
 
-- `cargo build --release` for a CYD, and `cargo run --release` flashes the CYD plugged in by USB, and shows its log.
-- For the Waveshare, which is RISC-V: `MCU=esp32c6 cargo build --release --target riscv32imac-esp-espidf
-  --no-default-features --features espidf,wave-esp32c6-touch-147`, then `bruce-embedded-flash flash --port
-  /dev/cu.usbmodem... target/riscv32imac-esp-espidf/release/bruce-smart-home-capture`.
-- For the RLCD: `MCU=esp32s3 cargo build --release --target xtensa-esp32s3-espidf --no-default-features --features
-  espidf,wave-esp32s3-rlcd-42`, then `bruce-embedded-flash flash --port /dev/cu.usbmodem...
-  target/xtensa-esp32s3-espidf/release/bruce-smart-home-capture`.
-- For the Guition JC3248W535C, the same with `--features espidf,guition-jc3248w535c`. Each board build needs `espidf` as well as its board, as `--no-default-features` turns it off.
+- `cargo build --release` for the Waveshare ESP32-S3-LCD-1.47B, the default board, and `cargo run --release` flashes
+  the one plugged in by USB, and shows its log.
+- For another board: `cargo build --release --no-default-features --features espidf,<board>`, with `<board>` one of
+  `wave-esp32s3-rlcd-42`, the Waveshare ESP32-S3-RLCD-4.2, `wave-esp32s3-lcd-147`, the Waveshare ESP32-S3-LCD-1.47B,
+  or `guition-jc3248w535c`, then `bruce-embedded-flash flash --port /dev/cu.usbmodem...
+  target/xtensa-esp32s3-espidf/release/bruce-smart-home-capture`. Each board build needs `espidf` as well as its
+  board, as `--no-default-features` turns it off.
 - `python3 log.py [port]` shows a device's log without restarting it (needs pyserial). Not `espflash monitor`, which
-  restarts it, or with `--no-reset` leaves it stopped in its bootloader. The CYD's port is `/dev/cu.usbserial-*`, its
-  USB chip's, the Waveshare's `/dev/cu.usbmodem*`, the chip's own USB.
+  restarts it, or with `--no-reset` leaves it stopped in its bootloader. Each board's port is `/dev/cu.usbmodem*`,
+  the chip's own USB.
+
+Only ESP32-S3 boards with PSRAM and an SD card are capture devices, as each holds a replica of the store, see
+[Capture Device Hardware](../docs/CaptureHardware.md). The small, cheap boards without them, e.g. the CYD (ESP32) and
+the Waveshare ESP32-C6-Touch-LCD-1.47, were capture devices until 23 November 2026; they are to be display-only
+devices, which show what a capture device has, with firmware of their own, not yet written.
 
 `./build-firmware.sh` builds every board's firmware, or `./build-firmware.sh <board>...` those named, and copies each,
 as soon as it is built, as boards with the same chip build to the same path in `target/`, to the shared firmware
@@ -38,9 +42,8 @@ folder, as `bruce-smart-home/dev/bruce-smart-home-capture-<board>.elf`, see bruc
 the app's Devices page and bruce-embedded-flash's window find it. `./build-firmware.sh --path <board>` prints where a
 board's goes.
 
-In VS Code, Terminal > Run Task has **Device: Flash CYD**, **Device: Flash Waveshare**, **Device: Flash RLCD**,
-**Device: Flash Guitron**, **Device: Log CYD** and **Device: Log Waveshare**, which find the port. Each flash task
-builds its board's firmware with `build-firmware.sh`, then flashes its own file.
+In VS Code, Terminal > Run Task has **Device: Flash RLCD** and **Device: Flash Guitron**, which find the port. Each
+flash task builds its board's firmware with `build-firmware.sh`, then flashes its own file.
 
 ## A virtual capture device
 

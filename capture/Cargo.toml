@@ -5,9 +5,10 @@ edition = "2024"
 resolver = "2"
 description = "Firmware for an ESP32 Capture Device, which polls what Bruce's Smart Home needs while the computer sleeps"
 
-# Firmware for a CYD (ESP32-2432S028R), with the wave-esp32c6-touch-147 feature a Waveshare ESP32-C6-Touch-LCD-1.47, or with
-# the wave-esp32s3-rlcd-42 feature a Waveshare ESP32-S3-RLCD-4.2, built on ../../bruce-esp-idf, see README.md. It is its own Cargo project, not part of bruce-smart-home's build:
-# cd capture && cargo build --release, see README.md for the Waveshare.
+# Firmware for a capture device, an ESP32-S3 with PSRAM and an SD card: a Guition JC3248W535C by default, or, with its
+# feature, a Waveshare ESP32-S3-LCD-1.47B or ESP32-S3-RLCD-4.2, built on bruce-esp-idf, see README.md. It is its own
+# Cargo project, not part of bruce-smart-home's build: ./build-firmware.sh builds each board's. Boards without PSRAM,
+# e.g. the CYD and the ESP32-C6 boards, are not capture devices since 23 November 2026, see docs/CaptureHardware.md.
 
 [[bin]]
 name = "bruce-smart-home-capture"
@@ -56,16 +57,13 @@ esp-idf-svc = { version = "0.52.1", features = ["critical-section", "embassy-tim
 embassy-time = { version = "0.5", features = ["generic-queue-8"] }
 esp-idf-sys = { version = "0.37.2", features = ["binstart"] }
 
-# The board, exactly one: the CYD by default, with espidf, the ESP32's platform, or, in its place, sim.
+# The board, exactly one: the Guitron by default, with espidf, the ESP32's platform, or, in its place, sim.
 [features]
-default = ["espidf", "cyd-esp32-28"]
+default = ["espidf", "wave-esp32s3-lcd-147"]
 espidf = ["bruce-esp-idf/espidf"]
 # The firmware on a desktop computer, in the board simulator, for a board it can simulate, wave-esp32s3-rlcd-42 or
 # guition-jc3248w535c: a virtual capture device. See README.md.
 sim = ["bruce-esp-idf/sim", "dep:bruce-embedded-sim", "dep:dirs"]
-cyd-esp32-28 = ["bruce-esp-idf/board-cyd-esp32-28"]
-# The platform needs its IMU support, ahrs, for the board's motion sensor.
-wave-esp32c6-touch-147 = ["bruce-esp-idf/board-wave-esp32c6-touch-147", "bruce-esp-idf/ahrs", "touch"]
 # A Waveshare ESP32-S3-LCD-1.47B, the C6 board's screen on an ESP32-S3, without touch, whose BOOT button, or a tip of
 # the board, shows the status. The platform needs its IMU support, ahrs, for the board's motion sensor, and tilt for
 # the tip.

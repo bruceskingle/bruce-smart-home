@@ -247,6 +247,8 @@ dependencies = [
 [[package]]
 name = "bruce-db"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddb01d99b34f868b60081aedcc026dde2a16116f34f6183a3648341dd0d1bd6b"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -269,6 +271,8 @@ checksum = "c5880821c9abff5fc57482b0a702e8b472af04c7eef60ff9bdbdbeb809f48858"
 [[package]]
 name = "bruce-embedded-sim"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f0bba0ee9694a64fb5456b26b6d2b51c475274a29b43191abf38f67440e9682"
 dependencies = [
  "anyhow",
  "bruce-embedded-std",
@@ -288,6 +292,8 @@ dependencies = [
 [[package]]
 name = "bruce-embedded-std"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75ea6c11ca8d2decd20d2076d9592e62c00d0fef88d3fdc15093fea94ef85d69"
 dependencies = [
  "ahrs",
  "anyhow",
@@ -308,6 +314,8 @@ dependencies = [
 [[package]]
 name = "bruce-embedded-std-derive"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6018cbb8d73d17a5e293a8d29ee99dbfc23a979c43f3499f8de01a2d6c5c872f"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -317,6 +325,8 @@ dependencies = [
 [[package]]
 name = "bruce-esp-idf"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacf44422b67246961a88bcaae0152e498482f1052c380c519924eaf1dacb42c"
 dependencies = [
  "anyhow",
  "bruce-embedded-firmware-record",
@@ -3607,6 +3617,7 @@ checksum = "a90a0ca3ee6a69f2ad28fd11621a4c3f03b371f366be500b64df260c4ffbafb4"
 dependencies = [
  "as-raw-xcb-connection",
  "ctor",
+ "libloading",
  "pkg-config",
  "tracing",
 ]
@@ -4019,6 +4030,7 @@ checksum = "d8eab23fefc9e41f8e841df4a9c707e8a8c4ed26e944ef69297184de2785e3be"
 dependencies = [
  "dlib",
  "log",
+ "once_cell",
  "pkg-config",
 ]
 
@@ -4572,3 +4584,19 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
+
+[[patch.unused]]
+name = "bruce-embedded-firmware"
+version = "0.2.0"
+
+[[patch.unused]]
+name = "bruce-embedded-firmware-record"
+version = "0.2.0"
+
+[[patch.unused]]
+name = "bruce-embedded-flash"
+version = "0.2.0"
+
+[[patch.unused]]
+name = "bruce-embedded-flash-ui"
+version = "0.2.0"
