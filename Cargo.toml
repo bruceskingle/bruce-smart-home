@@ -45,8 +45,10 @@ bruce-graphql = "0.6.0"
 bruce-db = "0.3.0"
 # The log records of Bruce's libraries, e.g. bruce-db's timings, which logging.rs puts into the profile's log.
 log = "0.4"
-# Flashing the capture firmware to boards on USB, from bruce-embedded-flash.
-bruce-embedded-flash-ui = "0.1.0"
+# Flashing the capture firmware to boards on USB, from bruce-embedded-flash, and finding boards on the network by mDNS,
+# see discovery.rs; a git-ignored .cargo/config.toml may patch in a checkout next to this one, to work on both.
+bruce-embedded-flash-ui = "0.2.0"
+bruce-embedded-flash = "0.2.0"
 #serde_with = "3.9.0"
 #reedline-repl-rs = { version = "1.2.1", features = ["async"] }
 futures = "0.3.31"

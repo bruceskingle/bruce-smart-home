@@ -13,7 +13,7 @@ take about 9 MB a day, so an 8 GB card holds over two years.
 A new device has its own settings page in a browser, at its address followed by /config, which is where it is put on
 your Wi-Fi. Once it is on the Wi-Fi, adopt it here:
 
-1. Enter its IP address under **Add a Capture Device**, and click **Find**. The app shows what the device is.
+1. Under **Add a Capture Device**, the capture devices on the network which this profile does not have are listed, found by mDNS, every 15 seconds: click **Find** beside the one to add. Or enter its IP address, and click **Find**, e.g. for a device whose firmware is from before 23 November 2026, which is not found on the network, or one on a network which mDNS does not reach. The app shows what the device is. An adopted device which the router gives another address is followed: the app looks for the profile's devices on the network every 5 minutes, and moves one found at a new address to it.
 2. Click **Show Pairing Code**. The device shows a 6 digit code on its screen for 2 minutes.
 3. Type the code and click **Adopt**. The app turns on the device's **Store**, which keeps what it takes on its SD
    card, for this profile, and restarts it. Once it is back, the app reads what the device has taken that it does not
@@ -80,6 +80,10 @@ and buttons; clicking another's shows its card instead.
 
 The app keeps a key for each device it adopts in the profile, which lets it change the device's settings, so keep the
 profile's files private. A redacted copy of a profile does not include its devices.
+
+## Boards on the network
+
+**Boards on the Network** lists every board found on the network, looked for every 15 seconds, whatever its firmware: capture devices, and other boards on the same platform, e.g. a board's demo. Each says its ID, name, board, firmware and version, and address, and whether this profile has it, another app has adopted it, or it is not adopted; a board whose firmware has no adoption, e.g. a demo, cannot be adopted. A board is found by mDNS, which it advertises with firmware from 23 November 2026 on, so one with older firmware is not listed.
 
 ## Flashing a board
 

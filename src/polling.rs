@@ -140,11 +140,44 @@ async fn build(
 
 /// Polls the modules of the context's profile while it is shown. Renders nothing. It must be given a key which changes
 /// with the context, so that a new profile's modules are polled.
+/// How often the profile's capture devices are looked for on the network, to follow one given another address, see
+/// Poller.
+const FOLLOW_ADDRESSES_EVERY: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
 #[component]
 pub fn Poller(context: crate::util::SharedProp<AppContext>) -> Element {
     let registrations = use_context::<ModuleRegistrations>();
     let mut statuses = use_context::<PollStatuses>();
     let id = use_hook(|| NEXT_POLLER_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+
+    // The profile's capture devices followed to where they are found on the network, now and every
+    // FOLLOW_ADDRESSES_EVERY, see capture_device::follow_addresses, so that one given another address by the router is
+    // still read, whichever page is shown.
+    use_future({
+        let context = context.0.clone();
+        move || {
+            let context = context.clone();
+            async move {
+                if context.profile.active_profile.offline {
+                    return;
+                }
+                let profile_name = context.profile.active_profile.name.clone();
+                loop {
+                    match crate::discovery::browse().await {
+                        Ok(found) => {
+                            if let Err(error) = crate::capture_device::follow_addresses(&profile_name, &found) {
+                                crate::log_warning!("Unable to update the capture devices' addresses, {error:#}");
+                            }
+                        }
+                        Err(error) => {
+                            crate::log_warning!("Unable to look for capture devices on the network, {error:#}")
+                        }
+                    }
+                    tokio::time::sleep(FOLLOW_ADDRESSES_EVERY).await;
+                }
+            }
+        }
+    });
 
     use_future(move || {
         let context = context.0.clone();

@@ -6,6 +6,7 @@ mod cache_browser;
 pub mod capture_device;
 pub mod climate;
 pub mod components;
+pub mod discovery;
 mod globird;
 mod http;
 pub mod login;

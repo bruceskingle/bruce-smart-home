@@ -11,6 +11,7 @@
 //! see sign, so that it is never sent where it could be seen. Changes, e.g. of the config, which has passwords in it,
 //! and adoption, which sends the key, are over HTTPS.
 
+use crate::discovery::CaptureDevice;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -275,6 +276,14 @@ fn sign(key: &str, method: &str, uri: &str, time: i64) -> anyhow::Result<String>
 /// The addresses of the devices which have taken a signed request over plain HTTP, see get_query.
 static SIGNED: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
 
+/// The port of a device's server for slow reads, e.g. its store's change feed, so that a page which takes a while does
+/// not stop its HTTP server answering the rest, e.g. /api/info, see the platform's api.rs, bulkPort.
+const BULK_PORT: u16 = 8080;
+
+/// The addresses of the devices which refused a connection to BULK_PORT, as their firmware is from before it, which
+/// are read on their HTTP port, see bulk_address.
+static NO_BULK: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
+
 /// A connection to one device's API.
 pub struct DeviceClient {
     http: reqwest::Client,
@@ -367,6 +376,15 @@ impl DeviceClient {
         self.send(self.http.get(format!("{}/{path}", self.base))).await
     }
 
+    /// The address of the device's server for slow reads, see BULK_PORT, None if its firmware has none, or its address
+    /// gives a port, e.g. a simulated device's, which serves everything on one.
+    fn bulk_address(&self) -> Option<String> {
+        if self.address.contains(':') || NO_BULK.lock().unwrap().contains(&self.address) {
+            return None;
+        }
+        Some(format!("{}:{BULK_PORT}", self.address))
+    }
+
     /// Reads path, with query, over plain HTTP, signed with the key, see sign, or over HTTPS if there is no key, or
     /// the device does not take signed requests, e.g. its firmware is from before them, or its clock is wrong.
     pub async fn get_query(&self, path: &str, query: &[(&str, String)]) -> anyhow::Result<Value> {
@@ -383,7 +401,13 @@ impl DeviceClient {
         missing_over_https: bool,
     ) -> anyhow::Result<Value> {
         if let Some(key) = &self.key {
-            let mut url = reqwest::Url::parse(&format!("http://{}/api/{path}", self.address))?;
+            // The change feed on the device's server for slow reads, if it has one, see BULK_PORT.
+            let bulk = path.starts_with("store/changes") && self.bulk_address().is_some();
+            let address = match self.bulk_address().filter(|_| bulk) {
+                Some(address) => address,
+                None => self.address.clone(),
+            };
+            let mut url = reqwest::Url::parse(&format!("http://{address}/api/{path}"))?;
             if !query.is_empty() {
                 url.query_pairs_mut().extend_pairs(query);
             }
@@ -407,6 +431,21 @@ impl DeviceClient {
                 });
             let result = Self::receive(request).await;
             drop(_turn);
+            // A device whose firmware has no server for slow reads refuses the connection, at once, so it is read on its
+            // HTTP port, now and from then on.
+            if bulk
+                && let Err(error) = &result
+                && error
+                    .downcast_ref::<reqwest::Error>()
+                    .is_some_and(|error| error.is_connect())
+            {
+                crate::log_info!(
+                    "The capture device at {} has no server for slow reads, so it is read on its HTTP port",
+                    self.address
+                );
+                NO_BULK.lock().unwrap().insert(self.address.clone());
+                return Box::pin(self.get_signed(path, query, missing_over_https)).await;
+            }
             // A 404 from a device which has taken a signed request is a path it does not have, e.g. /api/store/info
             // on firmware from before the store, not firmware from before signed requests, so not asked again over
             // HTTPS, which needs tens of KB of its RAM.
@@ -494,6 +533,39 @@ pub fn adopted_devices(profile_name: &str) -> Vec<DeviceProfile> {
     crate::profile::fetch_active_profile(&Some(profile_name.to_string()))
         .map(|profile| profile.active_profile.settings.capture_devices)
         .unwrap_or_default()
+}
+
+/// Moves each of the profile's capture devices which discovery found at another address than the profile has, e.g. as
+/// the router gave it another, to the one it was found at, by its ID, so that it is not left unreachable, see
+/// discovery.rs, saving the profile only if one moved. Says which moved: their IDs, and where from and to.
+pub fn follow_addresses(
+    profile_name: &str,
+    found: &[crate::discovery::Found],
+) -> anyhow::Result<Vec<(String, String, String)>> {
+    let moves: Vec<(String, String, String)> = adopted_devices(profile_name)
+        .iter()
+        .filter_map(|device| {
+            let found = found
+                .iter()
+                .find(|found| found.id == device.id && found.is_capture_device())?;
+            (found.address != device.address)
+                .then(|| (device.id.clone(), device.address.clone(), found.address.clone()))
+        })
+        .collect();
+    if moves.is_empty() {
+        return Ok(moves);
+    }
+    crate::profile::update_settings_with(profile_name, |settings| {
+        for device in &mut settings.capture_devices {
+            if let Some((_, _, to)) = moves.iter().find(|(id, _, _)| *id == device.id) {
+                device.address = to.clone();
+            }
+        }
+    })?;
+    for (id, from, to) in &moves {
+        crate::log_info!("The capture device {id} has moved from {from} to {to}, found on the network");
+    }
+    Ok(moves)
 }
 
 /// A device found at an address, not yet adopted, with what it says it is and the certificate it presented.

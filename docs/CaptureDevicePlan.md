@@ -17,6 +17,13 @@ store is [Store.md](Store.md).
 - **Discovery:** devices advertise themselves over mDNS as capture devices. The app finds them without an IP address
   being typed in, and they find each other the same way.
 - **What a device keeps:** the whole site's records, without blobs, e.g. bill PDFs.
+- **Devices never take data from the app** (Bruce, 23 November 2026). What the app polls moves onto the devices, which
+  replicate it among themselves; the app reads the devices. So there is no "app's records to the devices" path.
+- **A leader is elected for each source with history,** e.g. Octopus, myenergi, GloBird, so that one device polls it
+  and the rest get its records by replication. Only data with no history, which is lost if not read at the moment,
+  e.g. the Tesla gateway's local API, is polled by every device.
+- **Kept journal hours stay at three days:** a peer further behind still recovers, by the scan of the DataSets' files,
+  slow once, and later the full copy.
 - **The minimum board** is an ESP32-S3 with PSRAM and an SD card, see [Capture Device Hardware](CaptureHardware.md).
 
 ## Stage 1: the known problems
@@ -33,7 +40,7 @@ firmware's git-ignored `.cargo/links.toml`.
 | 1.5 | The 1.47B's store was never compacted, so its journal held two days | It was not failing: a device compacted only the days before yesterday, and this store began on the 22nd. Compacts hourly now | Done |
 | 1.6 | Some SD cards do not answer after a restart which does not cut the power | The firmware's own restarts unmount first; the screen and the app say to unplug | Done, on the 1.47B |
 | 1.8 | Flashing a firmware file from the shared firmware folder with `--keep-as` emptied it, copying it onto itself | bruce-embedded-firmware's `keep_dev` leaves a file which is already the one kept | Done, flasher reinstalled |
-| 1.9 | A device's plain HTTP is one task, so one slow page, e.g. the change feed's scan, blocks everything else on it, `/api/info` too, which the app then reports as unreachable, and new connections are refused (`httpd_accept_conn: error in accept (128)`) | With 1.4 pages are quick; still to decide: the change feed on a thread of its own, or a time limit on a page | Open |
+| 1.9 | A device's plain HTTP is one task, so one slow page, e.g. the change feed's scan, blocks everything else on it, `/api/info` too, which the app then reports as unreachable, and new connections are refused (`httpd_accept_conn: error in accept (128)`) | The change feed on a plain HTTP server of its own, port 8080, `api_get_bulk`, which `/api/info` gives as `bulkPort`; the app reads it there, or on port 80 if the device refuses the connection; `CONFIG_LWIP_MAX_SOCKETS` 24 | Done 23 Nov, on the 1.47B |
 | 1.10 | The Devices page's row for the Guitron stayed "Not reachable" after it recovered, until the page was opened again (23 Nov, after the app had napped) | Watch for it with the app in front; if it happens, the row's heartbeat stopped | Open |
 | 1.7 | The app and the firmware on unreleased libraries | Release bruce-db, then bruce-embedded-std, then bruce-esp-idf, each 0.3.0, then the app and the firmware on them | Bruce, after review |
 
@@ -63,7 +70,10 @@ until the rest have run well, as the fallback.
 ## Stage 3: discovery by mDNS
 
 - **A device** advertises a service of its own, e.g. `_bruce-capture._tcp`, port 80, with TXT records of its ID (the
-  Wi-Fi MAC), its board, whether it is adopted, and its site's ID once it is. The platform's mDNS responder already
+  Wi-Fi MAC), its board, its firmware and version, whether it is adopted, and its site's ID once it is.
+- **The flasher uses it too** (Bruce, 23 November 2026): a board's advertised board type and firmware are another check,
+  beside the record in the image and the one on the board over USB, that the firmware is meant for it, and let it list
+  the boards on the network as well as those on USB. The platform's mDNS responder already
   answers for its host name.
 - **The app's Devices page** lists the capture devices found, adopted or not, and adopts one with a click. A device's
   address is no longer typed in, though it still can be, e.g. for a simulator on another computer.
@@ -73,6 +83,32 @@ until the rest have run well, as the fallback.
   finding peers needs queries sent and answers read on the same socket. The app needs an mDNS browser: a crate, e.g.
   `mdns-sd`, its licence and what it pulls in checked first, or the same `simple_dns` code.
 
+## Before stage 3: the device's plain HTTP
+
+One slow page blocked everything else on it, see 1.9; done: the change feed is on a server of its own, port 8080.
+
+**Done, 23 Nov (uncommitted):**
+- **The device:** bruce-embedded-std's responder advertises `_bruce-device._tcp` and `_http._tcp`, as the house's UniFi
+  router passed only common types between its networks until set to pass all. The TXT facts are `id`, `board`, `chip`,
+  `fw`, `fwv`, `pv` and `adopted`, from the platform, which keeps `adopted` up to date, and `site` and `bulk` from the
+  capture firmware. Replies go to the asker as well as the group, as multicast replies did not cross the networks.
+- **The app:** `discovery.rs` asks for both types from a port of its own, and the Devices page lists the capture
+  devices found which the profile does not have, with Find.
+- **Seen working:** from the Mac, `dns-sd` and the app find the 1.47B; the others need this firmware.
+
+- **Also done, 23 Nov:** the browse is bruce-embedded-flash's `discovery.rs`, shared by the app and the flasher, whose
+  list, in its window and `bruce-embedded-flash list`, describes a board on USB by what it advertises on the network
+  now; the app follows an adopted device to a new address, every 5 minutes; the Devices page lists every board on the
+  network; boards without the API, e.g. the demos, advertise too, by their MAC; the flasher remembers what it flashed,
+  and has `--erase-settings`; the platform's two resets, see bruce-esp-idf's README. The app is linked to the local
+  flasher crates, 0.2.0, until they are released.
+
+- **The flasher's check, 23 Nov:** before opening a board, which takes it off the network, the flasher asks what it
+  says it is there, and refuses firmware for another board unless confirmed; tried on the XIAO with the C6 Touch's
+  demo, refused, and with its own, flashed.
+
+**Next:** devices finding each other, in stage 4.
+
 ## Stage 4: replication between devices
 
 - **The site key:** given to a device by the app when it adopts it, with the site, kept in its settings, and changed
@@ -81,15 +117,16 @@ until the rest have run well, as the fallback.
   peer, as the app does; the peer keeps nothing, see bruce-db's design. Records are passed on, so all devices converge.
 - **Blobs are not replicated** to devices, so that their cards do not fill.
 - **A new device** gets the whole site with a full copy, bruce-db's step 7, then catches up.
-- **The app's own records**, e.g. Octopus bills, go to the devices: open question, below.
+- **The app's own records** do not go to the devices: what the app polls moves to them instead, see stage 5.
 
 ## Stage 5: polling on the devices
 
-- **Each internet source is polled by one device**, e.g. Octopus, myenergi, GloBird, chosen by the app, to spare their
-  rate limits, see [agents/OctopusApi.md](../agents/OctopusApi.md); the others get its records by replication. A
-  local source, e.g. the Tesla gateway, may be polled by several, so that any one keeps going alone.
+- **Each source with history is polled by one device, its leader, elected among the site's devices**, e.g. Octopus,
+  myenergi, GloBird, to spare their rate limits, see [agents/OctopusApi.md](../agents/OctopusApi.md); the others get
+  its records by replication, and another takes over when the leader is gone. Data with no history, e.g. the Tesla
+  gateway's local API, is polled by every device, so that any one keeps going alone.
 - **The app polls a source only as a fallback**, when no device has a fresh record of it, by the source's own
-  interval.
+  interval; it never gives the devices data.
 - Needs each source's polling code on the device, which the Octopus and myenergi captures already are, and the rest,
   e.g. bills, moved there.
 
@@ -99,8 +136,11 @@ Later: a device serves the app's pages, as plain HTML, CSS and JavaScript, from 
 
 ## Open questions
 
-- [ ] How the app's own records reach the devices: the devices pull the app's feed when it is running, found by mDNS
-  too, or the app pushes them?
-- [ ] How long compacted journal hours are kept: three days on a device, a week on a computer?
-- [ ] Which device polls each internet source, and who changes it when that device is down?
+- [x] How the app's own records reach the devices: they do not; the devices poll, see stage 5 (23 Nov).
+- [x] How long compacted journal hours are kept: three days, with the scan, then the full copy, for one further behind
+  (23 Nov).
+- [ ] The leader election: how devices agree, without a server, which polls each source with history, and how one
+  takes over, e.g. by records in the store which replicate, with a lease that expires.
 - [ ] Whether the RLCD, with its black and white screen, stays a capture device once others have replaced it.
+- The Waveshare ESP32-C6-Touch-LCD-1.47, below the minimum, crashes, probably for want of memory, and is disconnected
+  for now (23 Nov).

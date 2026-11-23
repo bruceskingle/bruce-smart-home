@@ -1,6 +1,7 @@
 //! The Capture Devices page: the ESP32s the profile has adopted, see capture_device.rs, with their state, settings,
 //! restart and release, and adopting another.
 
+use crate::discovery::CaptureDevice;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -97,6 +98,9 @@ fn status_line(status: Option<Result<String, String>>) -> Element {
         None => rsx! {},
     }
 }
+
+/// How often the network is searched for capture devices, see AddDevice.
+const DISCOVERY_EVERY: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// How often each device card asks its device what it is, see DeviceCard.
 const HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -254,6 +258,40 @@ pub fn Devices() -> Element {
     // The device whose card is shown, below the table, see DeviceRow.
     let selected = use_signal(|| None::<Selected>);
 
+    // The boards on the network, found by mDNS, see discovery.rs, now and every DISCOVERY_EVERY: the capture devices
+    // which can be added without their addresses being typed in, see AddDevice, and every board, see NetworkBoards.
+    let mut discovered = use_signal(Vec::<crate::discovery::Found>::new);
+    let mut follow_settings = settings;
+    use_future({
+        let profile_name = profile_name.clone();
+        move || {
+            let profile_name = profile_name.clone();
+            async move {
+                loop {
+                    match crate::discovery::browse().await {
+                        Ok(found) => {
+                            // A device of the profile found at another address is moved to it, and its row and card
+                            // with it.
+                            match capture_device::follow_addresses(&profile_name, &found) {
+                                Ok(moves) if !moves.is_empty() => {
+                                    follow_settings.write().capture_devices =
+                                        capture_device::adopted_devices(&profile_name);
+                                }
+                                Ok(_) => {}
+                                Err(error) => {
+                                    crate::log_warning!("Unable to update the capture devices' addresses, {error:#}")
+                                }
+                            }
+                            discovered.set(found)
+                        }
+                        Err(error) => crate::log_warning!("Unable to look for boards on the network, {error:#}"),
+                    }
+                    tokio::time::sleep(DISCOVERY_EVERY).await;
+                }
+            }
+        }
+    });
+
     rsx! {
         div { class: "settings-page",
             h1 { "Capture Devices" }
@@ -290,8 +328,61 @@ pub fn Devices() -> Element {
                     selected,
                 }
             }
-            AddDevice { profile_name: profile_name.clone() }
+            AddDevice { profile_name: profile_name.clone(), discovered }
+            NetworkBoards { discovered }
             FlashBoard {}
+        }
+    }
+}
+
+/// Every board found on the network by mDNS, see discovery.rs, whatever its firmware, e.g. a platform demo, with what
+/// it says it is, and whether this profile, or another app, has adopted it.
+#[component]
+fn NetworkBoards(discovered: Signal<Vec<crate::discovery::Found>>) -> Element {
+    let settings = use_context::<Signal<ProfileSettings>>();
+    let known: Vec<String> = settings
+        .read()
+        .capture_devices
+        .iter()
+        .map(|device| device.id.clone())
+        .collect();
+    let boards = discovered.read().clone();
+    rsx! {
+        h2 { "Boards on the Network" }
+        if boards.is_empty() {
+            p { class: "note", "No boards have been found on the network yet. It is looked at every 15 seconds." }
+        } else {
+            p { class: "note", "Every board found on the network, whatever its firmware, looked for every 15 seconds." }
+            table { class: "display device-list",
+                tr {
+                    th { "Device" }
+                    th { "Name" }
+                    th { "Board" }
+                    th { "Firmware" }
+                    th { "Address" }
+                    th { "State" }
+                }
+                for board in boards {
+                    tr {
+                        td { "{board.id}" }
+                        td { {board.hostname.trim_end_matches(".local").to_string()} }
+                        td { {board.fact("board").unwrap_or_default().to_string()} }
+                        td { {format!("{} {}", board.fact("fw").unwrap_or_default(), board.fact("fwv").unwrap_or_default())} }
+                        td { "{board.address}" }
+                        td {
+                            if known.contains(&board.id) {
+                                "In this profile"
+                            } else if board.is_adopted() {
+                                span { class: "invalid", "Adopted elsewhere" }
+                            } else if board.fact("adopted").is_some() {
+                                "Not adopted"
+                            } else {
+                                "Cannot be adopted"
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -746,7 +837,7 @@ fn DeviceCard(
 
 /// Finds a device by its address and adopts it with the code on its screen.
 #[component]
-fn AddDevice(profile_name: String) -> Element {
+fn AddDevice(profile_name: String, discovered: Signal<Vec<crate::discovery::Found>>) -> Element {
     let mut settings = use_context::<Signal<ProfileSettings>>();
     let poll_statuses = try_use_context::<crate::polling::PollStatuses>();
     let mut address = use_signal(String::new);
@@ -850,6 +941,19 @@ fn AddDevice(profile_name: String) -> Element {
     // Why a virtual capture device could not be started, if it could not, see virtual_device.rs.
     let mut virtual_error = use_signal(|| None::<String>);
 
+    let known: Vec<String> = settings
+        .read()
+        .capture_devices
+        .iter()
+        .map(|device| device.id.clone())
+        .collect();
+    let new_here: Vec<crate::discovery::Found> = discovered
+        .read()
+        .iter()
+        .filter(|found| found.is_capture_device() && !known.contains(&found.id))
+        .cloned()
+        .collect();
+
     rsx! {
         p { class: "note",
             "No ESP32? A virtual capture device runs the same firmware on this computer, in a window. Start one and choose its board, then copy its address from its window, with a right click, and enter it below."
@@ -865,7 +969,39 @@ fn AddDevice(profile_name: String) -> Element {
             }
         }
         h2 { "Add a Capture Device" }
-        p { class: "note", "Enter the device's IP address, shown on its /config page or by your router." }
+        if !new_here.is_empty() {
+            p { class: "note", "Capture devices on the network which this profile does not have:" }
+            table { class: "device-details",
+                for found in new_here {
+                    tr {
+                        td { "{found.id}" }
+                        td { {found.hostname.trim_end_matches(".local").to_string()} }
+                        td { {found.fact("board").unwrap_or_default().to_string()} }
+                        td { "{found.address}" }
+                        td {
+                            if found.is_adopted() {
+                                span { class: "invalid", "Adopted elsewhere" }
+                            }
+                        }
+                        td {
+                            button {
+                                r#type: "button",
+                                disabled: busy(),
+                                onclick: {
+                                    let device_address = found.address.clone();
+                                    move |_| {
+                                        address.set(device_address.clone());
+                                        find();
+                                    }
+                                },
+                                "Find"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        p { class: "note", "Or enter the device's IP address, shown on its /config page or by your router. Devices with firmware from before 23 November 2026 are not found on the network." }
         div { class: "settings-buttons",
             input {
                 r#type: "text",

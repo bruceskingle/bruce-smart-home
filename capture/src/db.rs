@@ -337,6 +337,15 @@ impl Feature for StoreFeature {
         let device = platform.device_id().unwrap_or_default();
         self.db
             .open(device.clone(), platform.sd_card(), config.store_site.as_deref());
+        // The site, in the device's mDNS service's facts, so that the site's other devices and the app find it, and
+        // the port of its change feed, see bruce-esp-idf's api.rs.
+        if let Some(site) = config.store_site.as_deref().map(str::trim).filter(|site| !site.is_empty()) {
+            platform.mdns_txt().set("site", site);
+        }
+        #[cfg(not(feature = "sim"))]
+        platform
+            .mdns_txt()
+            .set("bulk", bruce_esp_idf::api::BULK_PORT.to_string());
         // On the screen too, as the records are not kept without a card, and the graph has no history after a restart.
         if platform.sd_card().is_err() {
             self.panel
@@ -401,7 +410,8 @@ impl Feature for StoreFeature {
             bruce_esp_idf::api::respond(request, 200, &db.info())
         })?;
         let db = self.db.clone();
-        platform.api_get("/api/store/changes", move |request| changes(request, &db))?;
+        // On a server of its own, see api_get_bulk, as a page behind what was compacted can take minutes.
+        platform.api_get_bulk("/api/store/changes", move |request| changes(request, &db))?;
         Ok(())
     }
 }
