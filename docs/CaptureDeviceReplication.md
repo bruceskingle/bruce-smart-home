@@ -1,8 +1,8 @@
 # Design: capture devices replicating between themselves
 
-Stage 4 of [the plan](CaptureDevicePlan.md), with the leader election stage 5 needs, written on 23 November 2026 for
-review before any code. How the store replicates in general is bruce-db's `docs/design.md`, "Replication"; how the app
-and the devices use the store is [Store.md](Store.md).
+Stage 4 of [the plan](CaptureDevicePlan.md), with the leader election stage 5 needs, written on 23 November 2026, and
+agreed the same day, see "Decided". How the store replicates in general is bruce-db's `docs/design.md`, "Replication";
+how the app and the devices use the store is [Store.md](Store.md).
 
 ## What it is for
 
@@ -76,12 +76,39 @@ A feature of the capture firmware, **Replication**, which, every minute, for eac
 
 ## 4. A device further behind: the full copy
 
-A peer's cursor older than the kept journal, e.g. a new device, or one off for more than three days, today reads the
-DataSets' files, which is slow for the first page. That is acceptable at first. Later, bruce-db's step 7, the full copy:
+A peer's cursor older than the kept journal, e.g. a new device, or one off for more than three days, read the
+DataSets' files in 0.3.0, which was slow for the first page. As every device's first pull from a peer is that far
+behind, bruce-db's step 7, the full copy, comes first, and is built in bruce-db 0.4.0:
 
-- **The feed answers "too far behind"** when `since` is older than the journal kept.
-- **The peer then copies** the DataSets' files in their own order, a page at a time, with the node's latest sequence
-  number as a watermark, then catches up from it, see bruce-db's design, "The journal by the hour".
+- **The feed answers "too far behind"** when `since` is older than the journal kept, or the journal kept has a gap
+  after it, e.g. an hour lost from the card.
+- **The peer then copies** the DataSets' files in their own order, a page at a time, with the newest sequence number
+  compacted as a watermark, then catches up from it, see bruce-db's design, "The journal by the hour". A copy which
+  outlasts the journal kept expires, and is started again.
+- **On the devices:** `/api/store/changes` says when the peer is too far behind, and `GET
+  /api/store/copy?token=<token>&limit=<k>&for=<own ID>`, on the bulk port, signed as the feed is, gives a page of the
+  copy and the token for the next, or the cursor to catch up from.
+
+## 4b. Repair
+
+A line damaged on a device's card, e.g. bits flipped, fails its checksum, and the record is missing there, while its
+peers have it. The feed will not send it again, as the device's cursors are past it, so the device asks for it:
+
+- **The store notes where** it found each damaged line, a DataSet's file or a journal hour, in a file of its own,
+  which does not replicate, `Store::damaged`, see bruce-db's design, "Repair".
+- **The Replication feature asks a peer for that place:**
+  - for a DataSet's file, a copy of that file alone, `/api/store/copy?file=<file>`;
+  - for a journal hour, the peer's changes again from the cursor the device had for that peer when the hour began,
+    for which it keeps each peer's cursor at the start of each hour, for the three days the journal is kept.
+  
+  Neither passes `for`, as what the device made itself, and the peer leaves out for it, is what it may have lost.
+- **What comes back is the same version** as the damaged line, which bruce-db 0.4.0 stores in its place, so the next
+  compaction writes the file whole. The place is marked repaired once a peer has answered, and the Devices page shows
+  a device's repairs, as damage is the first sign of a failing card.
+- **A device alone** has no peer to ask; its damaged records stay missing, as today, and the app, which also has them,
+  is the next to try, later.
+- **Damage which is never read,** e.g. in a file no query reaches, is not found this way. A later check could compare
+  each file's keys and versions with a peer's, now and then; not until repair has been used.
 
 ## 5. The app
 
@@ -118,21 +145,23 @@ and is given no site key, but its own key, as now.
 
 ## Order of work
 
-1. **The site key:** made and given at adoption, changed at release, accepted for reading by the devices.
-2. **`for` on the change feed,** on the devices.
-3. **Browsing on the devices,** in bruce-embedded-std's responder.
-4. **The Replication feature,** tried first with simulated devices, several of which can run on one computer, each
-   with its own store, then on the 1.47B and the Guitron, then the RLCD.
-5. **The app reading one device,** and the Devices page showing replication.
-6. **Leader election,** then stage 5, the sources moved onto the devices one at a time, Octopus first.
-7. **The full copy,** in bruce-db, when a device first needs it.
+1. **The full copy,** in bruce-db, 0.4.0, first, as a device's first pull from a peer starts at 0, which is behind the
+   kept journal of any peer older than three days, so every new pairing needs it, see 4.
+2. **The site key:** made and given at adoption, changed at release, accepted for reading by the devices.
+3. **`for` on the change feed,** and the full copy's endpoint, on the devices.
+4. **Browsing on the devices,** in bruce-embedded-std's responder.
+5. **The Replication feature,** with repair, tried first with simulated devices, several of which can run on one
+   computer, each with its own store, then on the 1.47B and the Guitron, then the RLCD.
+6. **The app reading one device,** and the Devices page showing replication.
+7. **Leader election,** then stage 5, the sources moved onto the devices one at a time, Octopus first.
 
-## For you to decide
+## Decided
 
-1. **One site key, changed at release** (recommended), or a key for each pair of devices?
-2. **Pulling every minute** (recommended), or less often, e.g. every 5 minutes, which is less traffic but leaves a
-   device further behind when one goes off?
-3. **The app reading one device** once all replicate (recommended), or all, as now, which costs more but needs no
-   choosing?
-4. **Leases of 15 minutes, renewed every 5** (recommended), or shorter, so that a source is taken over sooner when its
-   leader dies, at more traffic?
+Bruce's choices, 23 November 2026, each as recommended:
+
+1. **One site key,** changed when a device is released, not a key for each pair of devices.
+2. **Pulling every minute.**
+3. **The app reading one device** once all replicate.
+4. **Leases of 15 minutes, renewed every 5.**
+
+Boards below the minimum are not capture devices at all, see "Small boards".
