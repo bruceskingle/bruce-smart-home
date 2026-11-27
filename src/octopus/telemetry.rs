@@ -2,7 +2,7 @@
 //! an Octopus Home Mini.
 //!
 //! The server only has the last 30 days, so older data exists only in the store. Each reading is kept as the server
-//! gave it, in the profile's store, see store.rs and data_set/records.rs, by its time, with a `#fetched/<date>` record
+//! gave it, in the domain's store, see store.rs and data_set/records.rs, by its time, with a `#fetched/<date>` record
 //! of when each day was last fetched, and whether all of its missing hours were. Readings are only ever added, never
 //! removed, so a reload which gets less than before cannot lose data, and a day which is too old to fetch again is
 //! never fetched.
@@ -287,7 +287,7 @@ pub async fn fetch(
             hours.dedup();
             missing = day.missing;
         }
-        // An offline profile only has what is cached.
+        // An offline domain only has what is cached.
         let requests = if config.offline { Vec::new() } else { requests(&hours) };
         days.push(DayFetch {
             day_start,

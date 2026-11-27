@@ -16,7 +16,7 @@ fn escape_html(input: &str) -> String {
         .replace("'", "&#x27;")
 }
 
-/// The path of the page each module of a profile which is not offline has after its own, which shows its login page
+/// The path of the page each module of a domain which is not offline has after its own, which shows its login page
 /// again, see ModuleFactory::init_page, so that a changed password or key can be given once one is saved.
 const LOGIN_PATH: &str = "login";
 
@@ -115,7 +115,7 @@ fn ModulePage(module_id: String) -> Element {
         use_action(move |builder: Arc<dyn ModuleFactory>, _dummy: bool| async move { builder.build().await });
 
     // Why the module's saved login was refused, if it was, when only its login page is shown, see login.rs.
-    let refusal = if context.profile.active_profile.offline {
+    let refusal = if context.domain.active_domain.offline {
         None
     } else {
         crate::login::refusal(context, &module_id)
@@ -168,7 +168,7 @@ fn ModulePage(module_id: String) -> Element {
                     let module_signal = result?;
                     let module = &*module_signal.read();
                     let mut page_list = module.get_page_list();
-                    if !context.profile.active_profile.offline {
+                    if !context.domain.active_domain.offline {
                         page_list.push(PageInfo {
                             label: "Log In",
                             path: LOGIN_PATH,

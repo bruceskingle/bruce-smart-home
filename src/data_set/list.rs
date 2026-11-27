@@ -50,7 +50,7 @@ where
             place += 1;
             records.put(&format!("{:08}", place - 1), value)
         })?;
-        // An offline profile cannot refresh, so it always reads what is cached, however old.
+        // An offline domain cannot refresh, so it always reads what is cached, however old.
         let mut refresh = match refresh_after {
             Some(refresh_after) if !config.offline => records.fetched_age()?.is_none_or(|age| age > refresh_after),
             _ => false,
@@ -79,7 +79,7 @@ where
             refresh = true;
         }
 
-        // An offline profile only has what is cached.
+        // An offline domain only has what is cached.
         if refresh && !config.offline {
             let query = initial_query_provider()?;
             let mut response = request_manager.call(&query).await?;

@@ -207,7 +207,7 @@ interface AccountInterface {
 }
 ```
 
-If you try to add `eligibilityForWarmHomeDiscount` to the list of attributes returned for the accounts it will not work, because that is not an attribute of `AccountInterface`, although it *is* an attribute of `AccountType`. 
+If you try to add `eligibilityForWarmHomeDiscount` to the list of attributes returned for the accounts it will not work, because that is not an attribute of `AccountInterface`, although it *is* an attribute of `AccountType`.
 
 It the case of queries which return an interface, GraphQL servers return the `__typename` of the underlying object rather than the name of the interface. It is also possible to query attributes of the concrete type using GraphQL's `on typename` syntax, which is similar to a programming language type cast. So the query could be rewritten to receive the `getWHDEligibility` attribute for the account like this:
 
@@ -469,7 +469,7 @@ query getAccount($accountNumber: String!, $propertiesActiveFrom: DateTime) {
         id
         mpan
         smartStartDate
-        profileClass
+        domainClass
         meters {
           hasAndAllowsHhReadings
           serialNumber
@@ -639,7 +639,7 @@ query getAccount($accountNumber: String!, $propertiesActiveFrom: DateTime) {
                             "id": "7773674",
                             "mpan": "1111111111111",
                             "smartStartDate": "2021-08-26",
-                            "profileClass": 1,
+                            "domainClass": 1,
                             "meters": [
                                 {
                                     "hasAndAllowsHhReadings": true,
@@ -662,7 +662,7 @@ query getAccount($accountNumber: String!, $propertiesActiveFrom: DateTime) {
                             "id": "9253703",
                             "mpan": "2222222222222",
                             "smartStartDate": "2021-08-26",
-                            "profileClass": 8,
+                            "domainClass": 8,
                             "meters": [
                                 {
                                     "hasAndAllowsHhReadings": true,
@@ -1177,8 +1177,9 @@ query getLedgers($accountNumber: String!) {
     }
 }
 ```
-Fetch the current balance on each individual ledger relating to the account. Again I believe that
-`MAIN` is the regular monthly charge for gas and electricity, `GOODS` relates to supply of physical goods, possibly related to a heat pump install, and `ELECTRIC_JUICE` relates to Electroverse car charging.
+Fetch the current balance on each individual ledger relating to the account. Again I believe that `MAIN` is the regular
+monthly charge for gas and electricity, `GOODS` relates to supply of physical goods, possibly related to a heat pump
+install, and `ELECTRIC_JUICE` relates to Electroverse car charging.
 
 I have  heat pump install pending and the negative GOODS charge is not reflected in my current account balance so something elsewhere must indicate that this payment is not yet due.
 

@@ -27,7 +27,7 @@ impl<R: GraphQLResponse> SingleRecordDataSet<R> {
     {
         let records = super::records::Records::open(config, hash_key)?;
         records.import_legacy(config, hash_key, &mut |records, value| records.put(RECORD, value))?;
-        // An offline profile cannot refresh, so it always reads what is cached, however old.
+        // An offline domain cannot refresh, so it always reads what is cached, however old.
         let mut refresh = !config.offline && records.fetched_age()?.is_none_or(|age| age > refresh_after);
 
         let mut data: Option<R> = None;
@@ -43,7 +43,7 @@ impl<R: GraphQLResponse> SingleRecordDataSet<R> {
             }
         }
 
-        // An offline profile only has what is cached.
+        // An offline domain only has what is cached.
         if refresh && !config.offline {
             let value = request_manager.call(&query_provider()?).await?;
             records.put(RECORD, serde_json::to_value(&value)?)?;
@@ -52,7 +52,7 @@ impl<R: GraphQLResponse> SingleRecordDataSet<R> {
         }
 
         Ok(Self {
-            data: data.ok_or_else(|| anyhow::anyhow!("{hash_key} is not in this offline profile's data"))?,
+            data: data.ok_or_else(|| anyhow::anyhow!("{hash_key} is not in this offline domain's data"))?,
         })
     }
 }

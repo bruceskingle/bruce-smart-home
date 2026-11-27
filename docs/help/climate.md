@@ -18,6 +18,6 @@ The period still going on is read again each time, with its end moved on.
 - The graphs show the temperature, in °C, and the humidity, in %, a line for each device, in the colours of the key
   above them. A line which stops means the device was not measuring, e.g. it was restarting.
 
-A sensor on a board is warmed by it, so it reads high. Correct it with the **Temperature Offset** setting of the device's
-**Temperature and Humidity** feature, in tenths of a degree, found by comparing it with a thermometer which can be
-trusted, placed next to it for half an hour. The humidity is corrected with it.
+A sensor on a board is warmed by it, so it reads high. Correct it with the **Temperature Offset** setting of the
+device's **Temperature and Humidity** feature, in tenths of a degree, found by comparing it with a thermometer which can
+be trusted, placed next to it for half an hour. The humidity is corrected with it.

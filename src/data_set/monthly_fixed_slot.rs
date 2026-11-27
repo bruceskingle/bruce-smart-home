@@ -496,7 +496,7 @@ impl<S: SlotSource> MonthlyFixedSlotDataSet<S> {
         // The fetching is in a block of its own so that if it fails, the rows fetched before the failure are still
         // written to the cache below rather than being lost.
         let fetch_result: anyhow::Result<()> = async {
-            // An offline profile only has what is cached.
+            // An offline domain only has what is cached.
             if config.offline {
                 return Ok(());
             }

@@ -10,13 +10,11 @@ Octopus Energy provide some [Official API docs](https://developer.octopus.energy
 ## General Observations
 There are a lot of deprecated attributes which have alternative newer implementations, in these cases I have ignored the deprecated versions and used the replacements.
 
-When GraphQL Interface objects are returned the `__typename` attribute contains the name of the underlying concrete type. A query can use inline fragments to request attributes which exist in the underlying concrete type but not in the interface, but there are cases where multiple identical types implement an interface with the same set of attributes, e.g.
-`Charge`,
-`Payment`,
-`Refund` and
-`Credit`
-all implement `TransactionType`
-and all have the same attributes except for Charge which has two additional values.
+When GraphQL Interface objects are returned the `__typename` attribute contains the name of the underlying concrete
+type. A query can use inline fragments to request attributes which exist in the underlying concrete type but not in the
+interface, but there are cases where multiple identical types implement an interface with the same set of attributes,
+e.g. `Charge`, `Payment`, `Refund` and `Credit` all implement `TransactionType` and all have the same attributes except
+for Charge which has two additional values.
 
 The following inline fragment may be used to access these in a query, but you will also likely see the `__typename` attribute being requested because this tells you what type of transaction is happening.
 

@@ -4,18 +4,18 @@ use dioxus::prelude::*;
 
 use crate::{
     AppContext,
-    components::{app::Route, delete_profile::DeleteProfileDialog},
-    profile::{format_size, profile_names_equal},
+    components::{app::Route, delete_domain::DeleteDomainDialog},
+    domain::{domain_names_equal, format_size},
 };
 
-/// The disk space used by a profile, by plugin, with buttons to delete the profile or return to the home page.
+/// The disk space used by a domain, by plugin, with buttons to delete the domain or return to the home page.
 #[component]
-pub fn ProfileSize(name: String) -> Element {
+pub fn DomainSize(name: String) -> Element {
     let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let context = context_signal.read().as_ref().unwrap().clone();
     let navigator = use_navigator();
     let mut delete_open = use_signal(|| false);
-    let is_active = profile_names_equal(&name, &context.profile.active_profile.name);
+    let is_active = domain_names_equal(&name, &context.domain.active_domain.name);
 
     // Walking the cache directory may take a while, so it is done off the UI thread.
     let usage = use_resource({
@@ -23,7 +23,7 @@ pub fn ProfileSize(name: String) -> Element {
         move || {
             let name = name.clone();
             async move {
-                tokio::task::spawn_blocking(move || crate::profile::profile_cache_usage(&name))
+                tokio::task::spawn_blocking(move || crate::domain::domain_cache_usage(&name))
                     .await
                     .map_err(|error| error.to_string())
                     .and_then(|result| result.map_err(|error| error.to_string()))
@@ -32,8 +32,8 @@ pub fn ProfileSize(name: String) -> Element {
     });
 
     rsx! {
-        div { class: "profile-size",
-            h1 { "Profile {name}" }
+        div { class: "domain-size",
+            h1 { "Domain {name}" }
             match &*usage.read() {
                 None => rsx! { p { "Calculating..." } },
                 Some(Err(error)) => rsx! { p { class: "invalid", "{error}" } },
@@ -56,11 +56,11 @@ pub fn ProfileSize(name: String) -> Element {
                     }
                 },
             }
-            div { class: "profile-size-buttons",
+            div { class: "domain-size-buttons",
                 button {
                     class: "danger",
                     disabled: is_active,
-                    title: if is_active { "The active profile cannot be deleted" },
+                    title: if is_active { "The active domain cannot be deleted" },
                     onclick: move |_| delete_open.set(true),
                     "Delete"
                 }
@@ -68,7 +68,7 @@ pub fn ProfileSize(name: String) -> Element {
             }
         }
         if delete_open() {
-            DeleteProfileDialog { name: name.clone(), on_close: move |_| delete_open.set(false) }
+            DeleteDomainDialog { name: name.clone(), on_close: move |_| delete_open.set(false) }
         }
     }
 }

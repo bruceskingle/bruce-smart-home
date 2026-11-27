@@ -4,11 +4,11 @@ use dioxus::prelude::*;
 
 use crate::AppContext;
 
-/// A modal dialog asking for the name of a copy of a profile, and whether it is offline. OK copies it, see
-/// profile::copy_profile, off the page's thread, as the downloaded data can be large, and reloads the profiles so that
+/// A modal dialog asking for the name of a copy of a domain, and whether it is offline. OK copies it, see
+/// domain::copy_domain, off the page's thread, as the downloaded data can be large, and reloads the domains so that
 /// the menu lists the copy, Cancel calls on_close.
 #[component]
-pub fn CopyProfileDialog(name: String, on_close: EventHandler<()>) -> Element {
+pub fn CopyDomainDialog(name: String, on_close: EventHandler<()>) -> Element {
     let mut context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let mut new_name = use_signal(|| format!("{name}_copy"));
     let mut offline = use_signal(|| true);
@@ -22,7 +22,7 @@ pub fn CopyProfileDialog(name: String, on_close: EventHandler<()>) -> Element {
             copying.set(true);
             error.set(None);
             spawn(async move {
-                let result = tokio::task::spawn_blocking(move || crate::profile::copy_profile(&name, &to, offline))
+                let result = tokio::task::spawn_blocking(move || crate::domain::copy_domain(&name, &to, offline))
                     .await
                     .map_err(anyhow::Error::from)
                     .and_then(|result| result);
@@ -30,15 +30,15 @@ pub fn CopyProfileDialog(name: String, on_close: EventHandler<()>) -> Element {
                     .read()
                     .as_ref()
                     .unwrap()
-                    .profile
-                    .active_profile
+                    .domain
+                    .active_domain
                     .name
                     .clone();
-                match result.and_then(|_| crate::profile::fetch_active_profile(&Some(active_name))) {
-                    Ok(profile) => {
+                match result.and_then(|_| crate::domain::fetch_active_domain(&Some(active_name))) {
+                    Ok(domain) => {
                         context_signal.set(Some(Arc::new(AppContext {
                             args: crate::Args::parse_all(),
-                            profile,
+                            domain,
                             store: Default::default(),
                         })));
                         on_close.call(());
@@ -52,7 +52,7 @@ pub fn CopyProfileDialog(name: String, on_close: EventHandler<()>) -> Element {
 
     rsx! {
         div { class: "modal-backdrop",
-            div { class: "modal profile-dialog",
+            div { class: "modal domain-dialog",
                 h3 { "Copy {name}" }
                 input {
                     r#type: "text",
@@ -82,7 +82,7 @@ pub fn CopyProfileDialog(name: String, on_close: EventHandler<()>) -> Element {
                         "topology, without changing {name}. It does not have {name}'s logins or capture devices."
                     }
                     p { class: if offline() { "hidden" },
-                        "The copy has {name}'s logins and capture devices, and fetches and polls as {name} does when it is the active profile."
+                        "The copy has {name}'s logins and capture devices, and fetches and polls as {name} does when it is the active domain."
                     }
                 }
                 if copying() {

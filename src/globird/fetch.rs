@@ -1,4 +1,4 @@
-//! Fetching GloBird data into the profile's store, see store.rs, and what the days kept hold.
+//! Fetching GloBird data into the domain's store, see store.rs, and what the days kept hold.
 //!
 //! The replies are kept as GloBird sent them: the account, `globird.account`, each power service's meters,
 //! `globird.meters`, and each row of the usage and costs, `globird.usage` and `globird.cost`, a DataSet for each NMI, by
@@ -49,7 +49,7 @@ const REQUEST_DAYS: i64 = FETCH_DAYS + 1;
 /// How many of the latest days are fetched again, even if cached, as their readings may still arrive or change.
 pub const REFETCH_DAYS: i64 = 7;
 
-/// The kinds the replies are kept as in the profile's store, see the module documentation.
+/// The kinds the replies are kept as in the domain's store, see the module documentation.
 const ACCOUNT_KIND: &str = "globird.account";
 const METERS_KIND: &str = "globird.meters";
 const USAGE_KIND: &str = "globird.usage";
@@ -378,7 +378,7 @@ fn cached_rows<T: serde::de::DeserializeOwned>(cache_config: &CacheConfig, kind:
     };
     let mut rows = Vec::new();
     for hk in store
-        .data_sets(&format!("{}/{kind}/", store.site()))
+        .data_sets(&format!("{}/{kind}/", store.domain()))
         .unwrap_or_default()
     {
         for item in store.all(&hk).unwrap_or_default() {
@@ -419,7 +419,7 @@ pub fn meters(cache_config: &CacheConfig) -> Vec<Meter> {
         return Vec::new();
     };
     store
-        .data_sets(&format!("{}/{METERS_KIND}/", store.site()))
+        .data_sets(&format!("{}/{METERS_KIND}/", store.domain()))
         .unwrap_or_default()
         .iter()
         .filter_map(|hk| store.get(hk, "-").ok()?.and_then(|item| item.attributes))

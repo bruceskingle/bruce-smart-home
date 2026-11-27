@@ -1,6 +1,6 @@
-//! The Tesla gateway's registers, as the profile's capture devices and the app saved them, see snapshot.rs, for Home's
+//! The Tesla gateway's registers, as the domain's capture devices and the app saved them, see snapshot.rs, for Home's
 //! Electricity page: what they measured of the site's use, which splits the grid's import by use, see power::measured,
-//! and the site meter's readings of the grid, which are used if the profile has no others, e.g. a supplier's.
+//! and the site meter's readings of the grid, which are used if the domain has no others, e.g. a supplier's.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -24,7 +24,7 @@ const NAME: &str = "Tesla";
 /// source and as measurements of the site's use, for nearly the same range, reads the snapshots once rather than
 /// twice: they are thousands a day, and reading a week of them takes about a second.
 struct ReadRegisters {
-    /// The store they were read from, by its address, as a profile has a store of its own.
+    /// The store they were read from, by its address, as a domain has a store of its own.
     store: usize,
     start: i64,
     end: i64,

@@ -82,7 +82,7 @@ pub enum CostCategory { Usage, Supply, Export, Credit(String), Other(String) }
   day's usage cost is not split by band, but the bands' rates can be worked out from many days at once, each day being
   one equation of its bands' kWh, see the open questions.
 
-**A site** is what a profile describes: its timezone, e.g. Europe/London or Australia/Sydney, for days and the axis;
+**A site** is what a domain describes: its timezone, e.g. Europe/London or Australia/Sydney, for days and the axis;
 its currency, GBP or AUD; its supplier's module; and its devices.
 
 ## Where the code goes
@@ -101,7 +101,7 @@ its currency, GBP or AUD; its supplier's module; and its devices.
 ### What was built first
 
 The shape above is not built yet. What is, in `src/power/`, is the Electricity page's own, put together by the app from
-whatever the profile's modules give, none of which knows of the others:
+whatever the domain's modules give, none of which knows of the others:
 
 - Each module gives its `SiteData` for a range through an `ElectricitySource`: a supplier's meters' readings, by
   label, e.g. Octopus's half hours by rate or GloBird's 5 minutes by charge type, a grid meter's readings every few
@@ -160,10 +160,10 @@ export, each with an id the setting refers to, e.g.
 | myenergi | `myenergi:Z12345678`, `myenergi:Z12345678:grid` | a zappi's own charging, and its grid CT clamp, every minute; later a libbi's, an eddi's and a harvi's |
 | Tesla | `tesla:site`, `tesla:battery`, `tesla:solar`, `tesla:load` | the gateway's meters, every 10 seconds, read by a capture device |
 
-A channel is one place in the topology, however many resolutions it comes in: the Octopus meter's half hours and its Home
-Mini readings are one channel, the finer used where there are some, as now. Two channels on the same circuit, e.g. the
-billing meter and a grid CT clamp at the same connection, are two measurements of one thing, to check one against the
-other and to fill each other's gaps.
+A channel is one place in the topology, however many resolutions it comes in: the Octopus meter's half hours and its
+Home Mini readings are one channel, the finer used where there are some, as now. Two channels on the same circuit, e.g.
+the billing meter and a grid CT clamp at the same connection, are two measurements of one thing, to check one against
+the other and to fill each other's gaps.
 
 ### The tree
 
@@ -200,7 +200,7 @@ pub struct Circuit {
 }
 ```
 
-It is the app's setting of the profile, as the capture devices are, not any module's, as it is about how the modules'
+It is the app's setting of the domain, as the capture devices are, not any module's, as it is about how the modules'
 channels relate to each other.
 
 - A measured circuit's energy is its channels', the most detailed one which has the period.
@@ -238,9 +238,9 @@ Unlike the NSPanel's, which is drawn for one house, it would be drawn from the s
 ### What is built when
 
 1. This write-up, reviewed. Done.
-2. The setting, kept with the profile's settings, and a Site page under Home to make it, with a diagram; the first
+2. The setting, kept with the domain's settings, and a Site page under Home to make it, with a diagram; the first
    household's assumption in `power/measured.rs` replaced by the split from the topology, `power/topology.rs`. Done:
-   until a profile's topology is saved, its import is shown by rate only, so the first household saves its tree once.
+   until a domain's topology is saved, its import is shown by rate only, so the first household saves its tree once.
 3. The myenergi module's channels, the zappi's charging and grid CT, from its minute records, which myenergi keeps.
    Done, `myenergi/electricity.rs`. myenergi's records miss about 70 minutes a day, mostly one at a time; gaps of up
    to 2 minutes are filled with the average of the minutes either side, which makes 94% of the first household's
@@ -259,19 +259,19 @@ Unlike the NSPanel's, which is drawn for one house, it would be drawn from the s
    add up, and the current topology's names kept.
 4a. Categories, done: a circuit is one of the kinds which energy goes through differently, the grid, a board, a
    battery and solar panels, or a load of a category, Car, House and Unknown built in, and others the user adds on the
-   Site page, e.g. Hot water, saved with the profile. The split gives each category's share, labelled with its prefix,
+   Site page, e.g. Hot water, saved with the domain. The split gives each category's share, labelled with its prefix,
    EV for the car and Home for the house, as Octopus's labels have them, or its name, e.g. Hot water Low Rate. Colours
-   chosen, for categories on the Site page and for labels in the graphs' Categories menus, are saved with the profile,
+   chosen, for categories on the Site page and for labels in the graphs' Categories menus, are saved with the domain,
    a category's being the default of its labels'.
 5. The live flow display, from the topology and the latest readings. Done, `power/live.rs` and Home's Live page: each
    circuit's power over the latest minute every placed measurement has, with dots moving along the lines, read from the
    capture devices every 10 seconds while the page is shown, the zappi's latest minute where it lags, marked with its
    time. Streaming from the devices was considered and left: they poll every 10 seconds anyway, and their web server
    handles one request at a time.
-6. Done, `power/flows.rs` and the Electricity page's Flows view: graphs of where the energy came from and where it went, beside the Electricity graph, which mixes the two and is
-   hard to read, as the first household's Home Assistant energy dashboard shows them: sources, the grid, the solar
-   panels and the batteries discharging, and sinks, the house, the car, the batteries charging and export, each
-   stacked over time, from the topology's split.
+6. Done, `power/flows.rs` and the Electricity page's Flows view: graphs of where the energy came from and where it went,
+   beside the Electricity graph, which mixes the two and is hard to read, as the first household's Home Assistant energy
+   dashboard shows them: sources, the grid, the solar panels and the batteries discharging, and sinks, the house, the
+   car, the batteries charging and export, each stacked over time, from the topology's split.
 
 ## Storage
 
@@ -286,9 +286,9 @@ as the sort key, see bruce-db's design.
 1. The GloBird module: the client, login as the portal's web page does, with no retries and a stop at a captcha, the
    session kept between runs, and the replies cached by day. Tests against `testdata/globird`.
 2. `src/power.rs`, and the Octopus Electricity page moved onto it, looking exactly as it does now.
-3. GloBird as a `PowerSource`: a GloBird profile's Electricity page shows import by band, export, and each day's
+3. GloBird as a `PowerSource`: a GloBird domain's Electricity page shows import by band, export, and each day's
    cost.
-4. A profile for the GloBird account on this computer, to show its owner.
+4. A domain for the GloBird account on this computer, to show its owner.
 
 Tesla and the zappi for that site wait for a capture device there.
 

@@ -3,17 +3,17 @@
 //!
 //! ```text
 //! .bruce-smart-home/           the settings, see settings_dir
-//!     profiles.json            the profiles, their settings and the sources' credentials
-//!     tokens/                  each profile's modules' sessions and refresh tokens, <profile>-<module>.json
+//!     domains.json             the domains, their settings and the sources' credentials, profiles.json before 0.6.0
+//!     tokens/                  each domain's modules' sessions and refresh tokens, <domain ID hex>-<module>.json
 //!     node                     this installation's node, see store.rs
 //!     window-state.json        where the window was
 //! .bruce-smart-home-data/      the data, see data_dir
-//!     store/<site>/            each profile's store, see store.rs
-//!     logs/                    each profile's log, <profile>.log
+//!     store/<domain ID hex>/   each domain's store, see store.rs
+//!     logs/                    each domain's log, <domain ID hex>.log, or app.log for one not yet founded
 //! ```
 //!
-//! A profile's data from before 0.5.0, in the old cache directory, see old_cache_dir, is converted into its store when
-//! it is upgraded, see profile::upgrade_profile.
+//! A domain's data from before 0.5.0, in the old cache directory, see old_cache_dir, is converted into its store when
+//! it is upgraded, see domain::upgrade_domain.
 //!
 //! The data home is the home directory unless it has been moved elsewhere, e.g. to keep the credentials on another
 //! drive.
@@ -72,15 +72,45 @@ pub fn data_home() -> anyhow::Result<PathBuf> {
     Ok(data_home.path)
 }
 
-/// The data directory there would be without the --home option, e.g. where the profiles normally are when another
+/// Uses path as the data home, before anything asks for it, so that a test, whose command line is not the app's, needs
+/// neither the --home option nor the usual one.
+#[cfg(test)]
+pub fn use_for_tests(path: &Path) {
+    let _ = DATA_HOME.set(Ok(DataHome {
+        path: path.to_path_buf(),
+        source: Some("a test".to_string()),
+    }));
+}
+
+/// The data directory there would be without the --home option, e.g. where the domains normally are when another
 /// data directory is used for screenshots, see screenshots.rs.
 pub fn usual_data_home() -> anyhow::Result<PathBuf> {
     Ok(resolve(None, std::env::var_os(HOME_ENV_VAR), dirs::home_dir())?.path)
 }
 
-/// The profiles of a data home, e.g. the usual one, see usual_data_home.
-pub fn profiles_path_in(home: &Path) -> PathBuf {
-    home.join(SETTINGS_DIR).join("profiles.json")
+/// The file of the domains, in a settings directory.
+const DOMAINS_FILE: &str = "domains.json";
+/// What it was called before 25 November 2026, when domains were profiles, which it is renamed from, see domain_file.
+const OLD_DOMAINS_FILE: &str = "profiles.json";
+
+/// The file of the domains in the settings directory dir, renamed from what it was called before, if it has not been
+/// already, so that the domains are found.
+fn domain_file(dir: &Path) -> PathBuf {
+    let path = dir.join(DOMAINS_FILE);
+    let old = dir.join(OLD_DOMAINS_FILE);
+    if !path.exists()
+        && old.exists()
+        && let Err(error) = fs::rename(&old, &path)
+    {
+        eprintln!("Unable to rename {} to {}: {error}", old.display(), path.display());
+        return old;
+    }
+    path
+}
+
+/// The domains of a data home, e.g. the usual one, see usual_data_home.
+pub fn domains_path_in(home: &Path) -> PathBuf {
+    domain_file(&home.join(SETTINGS_DIR))
 }
 
 /// The old cache directory in a data home, see old_cache_dir.
@@ -165,31 +195,31 @@ pub fn data_dir() -> anyhow::Result<PathBuf> {
     Ok(dir)
 }
 
-/// The file of the profiles.
-pub fn profiles_path() -> anyhow::Result<PathBuf> {
-    Ok(settings_dir()?.join("profiles.json"))
+/// The file of the domains.
+pub fn domains_path() -> anyhow::Result<PathBuf> {
+    Ok(domain_file(&settings_dir()?))
 }
 
-/// The directory of the modules' sessions and tokens, <profile>-<module>.json, made if it is not there.
+/// The directory of the modules' sessions and tokens, <domain>-<module>.json, made if it is not there.
 pub fn tokens_dir() -> anyhow::Result<PathBuf> {
     let dir = settings_dir()?.join("tokens");
     crate::private_file::create_private_dir(&dir)?;
     Ok(dir)
 }
 
-/// The directory of the profiles' logs, made if it is not there.
+/// The directory of the domains' logs, made if it is not there.
 pub fn logs_dir() -> anyhow::Result<PathBuf> {
     let dir = data_dir()?.join("logs");
     crate::private_file::create_private_dir(&dir)?;
     Ok(dir)
 }
 
-/// The directory of the profiles' stores, a directory of sites, see store.rs.
+/// The directory of the domains' stores, a directory of sites, see store.rs.
 pub fn store_dir() -> anyhow::Result<PathBuf> {
     Ok(data_dir()?.join("store"))
 }
 
-/// The cache directory of the app before 0.5.0, which is only read, to convert a profile's data into its store
+/// The cache directory of the app before 0.5.0, which is only read, to convert a domain's data into its store
 /// when it is upgraded, see convert.rs, and is not made if it is not there.
 pub fn old_cache_dir() -> anyhow::Result<PathBuf> {
     Ok(old_cache_dir_in(&data_home()?))

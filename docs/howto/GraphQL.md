@@ -83,7 +83,7 @@ Now click the big play button in the centre and on the right hand side you shoul
 }
 ```
 
-As you can see, we got an error because the value `test` which we provided as the `APIKey` attribute of the input variable is not a valid API key. We can see the structure of the GraphQL response here, the top level `errors` attribute contains information about the problems the server detected in the request. 
+As you can see, we got an error because the value `test` which we provided as the `APIKey` attribute of the input variable is not a valid API key. We can see the structure of the GraphQL response here, the top level `errors` attribute contains information about the problems the server detected in the request.
 
 The `data` element contains the returned data, in this case a single element containing the value of the requested `obtainKrakenToken` querey, which is `null`.
 

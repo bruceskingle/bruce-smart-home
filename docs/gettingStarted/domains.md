@@ -1,25 +1,30 @@
-# Profiles
+# Domains
 
-Bruce's Smart Home keeps your profiles, with the credentials it needs to access the various data providers, in ```.bruce-smart-home/profiles.json``` in your home directory, see [Your Data](cachedData.md). It is possible to have multiple profiles, each of which is entirely independent of the others, they have separate login credentials and data caches so if you manage multiple Octopus Energy accounts you can use profiles to easily switch between them.
+Bruce's Smart Home keeps your domains, with the credentials it needs to access the various data providers, in
+```.bruce-smart-home/domains.json``` in your home directory, see [Your Data](cachedData.md). It is possible to have
+multiple domains, each of which is entirely independent of the others, they have separate login credentials and data
+caches so if you manage multiple Octopus Energy accounts you can use domains to easily switch between them.
 
-In the application there is a profile selector at the top right of the screen which you can use to switch profiles, create new ones or delete them. They can also be selected by passing the command line parameter ```--profile=test_profile``` where test_profile is the name of the profile to be used.
+In the application there is a domain selector at the top right of the screen which you can use to switch domains, create
+new ones or delete them. They can also be selected by passing the command line parameter ```--domain=test_domain```
+where test_domain is the name of the domain to be used.
 
-## Creating a Profile
+## Creating a Domain
 
-Click the profile menu at the top right, which shows the name of the active profile, to see all the profiles, change
+Click the domain menu at the top right, which shows the name of the active domain, to see all the domains, change
 to another one, or create a new one:
 
-<img src="profile-menu.png" width="1024">
+<img src="domain-menu.png" width="1024">
 
-Click ```Create New Profile```, type a name for it, which may have letters, digits and underscores, and press
+Click ```Create New Domain```, type a name for it, which may have letters, digits and underscores, and press
 ```Enter```:
 
-<img src="profile-name.png" width="1024">
+<img src="domain-name.png" width="1024">
 
-The new profile becomes the active one. It has no logins yet, so its modules are ```[inactive]``` until you log in to
+The new domain becomes the active one. It has no logins yet, so its modules are ```[inactive]``` until you log in to
 them, see [Logging in to Octopus](../octopus/initOctopus.md):
 
-<img src="profile-created.png" width="1024">
+<img src="domain-created.png" width="1024">
 
 ## Moving the Data Directory
 Everything Bruce's Smart Home keeps, in two directories, ```.bruce-smart-home``` and ```.bruce-smart-home-data``` (see [Your Data](cachedData.md)), is kept in your home directory unless you choose another data directory, for example on another drive to keep the credentials separate or to save space. The data directory is the first of these which is set:
@@ -35,7 +40,7 @@ To move existing data, quit Bruce's Smart Home, move ```.bruce-smart-home``` and
 
 The data directory is created if the directory containing it exists. If it does not, for example because it is on a drive which is not connected, Bruce's Smart Home shows an error rather than using your home directory, so that credentials are never stored somewhere you did not choose. The data directory should only be accessible by you, on macOS and Linux a warning is printed if it is not (```chmod 700``` fixes this).
 
-When any module is initialised, if there is a current profile then the configuration will be added to that profile, otherwise a new profile called ```default``` will be created. The ```profiles.json``` file is a JSON document containing an array of profiles similar to this, in which the secrets, such as the API key, are encrypted, see [Your Data](cachedData.md):
+When any module is initialised, if there is a current domain then the configuration will be added to that domain, otherwise a new domain called ```default``` will be created. The ```domains.json``` file is a JSON document containing an array of domains similar to this, in which the secrets, such as the API key, are encrypted, see [Your Data](cachedData.md):
 
 ```
 [
@@ -49,7 +54,7 @@ When any module is initialised, if there is a current profile then the configura
     }
   },
   {
-    "name": "test_profile",
+    "name": "test_domain",
     "modules": {
       "octopus": {
         "apiKey": "enc:v1:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
@@ -60,4 +65,4 @@ When any module is initialised, if there is a current profile then the configura
 ]
 ```
 
-The first profile listed will be used unless another is specified by passing the command line parameter ```--profile=test_profile``` where test_profile is the name of the profile to be used. Profiles are entirely independent of each other, they have separate credentials, may have different combinations of modules enabled, and have separate data caches.
+The first domain listed will be used unless another is specified by passing the command line parameter ```--domain=test_domain``` where test_domain is the name of the domain to be used. Domains are entirely independent of each other, they have separate credentials, may have different combinations of modules enabled, and have separate data caches.

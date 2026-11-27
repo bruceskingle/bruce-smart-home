@@ -215,7 +215,7 @@ impl GlobirdModule {
             Some(json) => serde_json::from_value(json)?,
             None => Profile::default(),
         };
-        // The args are used instead of the profile, but not saved in it.
+        // The args are used instead of the domain, but not saved in it.
         if args.globird_email.is_some() {
             profile.email = args.globird_email.clone();
         }
@@ -366,7 +366,7 @@ fn FetchIfDue(context: SharedProp<GlobirdContext>, generation: Signal<u32>) -> E
 
 /// Fetches the days from one the user chooses to today which are not cached, see GlobirdContext::fetch_since, so that
 /// the days GloBird keeps from before the app fetched, e.g. a year, can be kept, saying what it is doing, and bumps
-/// generation once it has, so that the page shows them. Shows nothing for an offline profile.
+/// generation once it has, so that the page shows them. Shows nothing for an offline domain.
 #[component]
 fn FetchSince(context: SharedProp<GlobirdContext>, generation: Signal<u32>) -> Element {
     let mut generation = generation;
@@ -698,7 +698,7 @@ pub struct GlobirdModuleFactory {
 }
 
 impl GlobirdModuleFactory {
-    /// Logs in once, which checks the email and password, and saves them in the profile, and the session in the module's
+    /// Logs in once, which checks the email and password, and saves them in the domain, and the session in the module's
     /// cache file.
     async fn login(context: Arc<AppContext>, email: String, password: String, verbose: bool) -> anyhow::Result<()> {
         let client = GlobirdClient::new(email.clone(), password.clone(), None, verbose)?;
@@ -713,7 +713,7 @@ impl GlobirdModuleFactory {
             email: Some(email),
             password: Some(password),
         };
-        crate::profile::update_profile(&context.profile.active_profile.name, MODULE_ID, &profile)?;
+        crate::domain::update_domain(&context.domain.active_domain.name, MODULE_ID, &profile)?;
         crate::login::cleared(&context, MODULE_ID);
         Ok(())
     }
@@ -722,8 +722,8 @@ impl GlobirdModuleFactory {
 #[async_trait]
 impl ModuleFactory for GlobirdModuleFactory {
     async fn is_ready(&self) -> anyhow::Result<bool> {
-        // An offline profile has no login, it only shows its cached data, see Profile::offline.
-        Ok(self.context.profile.active_profile.offline
+        // An offline domain has no login, it only shows its cached data, see Profile::offline.
+        Ok(self.context.domain.active_domain.offline
             || (self.profile.email.is_some() && self.profile.password.is_some()))
     }
 

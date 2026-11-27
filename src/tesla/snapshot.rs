@@ -1,5 +1,5 @@
 //! Snapshots of what the gateway says, each the responses of its LIVE endpoints at one time, and once a day the details
-//! which rarely change, from its DAILY endpoints, kept in the profile's store, see store.rs, as the kinds
+//! which rarely change, from its DAILY endpoints, kept in the domain's store, see store.rs, as the kinds
 //! `tesla.snapshot` and `tesla.details`: a DataSet each for the site's gateway, of each as it was taken, by its time to
 //! the second, versioned by that time and written by what took it, the app or a capture device. The app's own is a
 //! microsecond newer, so that it wins over a device's of the same second, as it has more in it.

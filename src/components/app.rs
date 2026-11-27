@@ -26,10 +26,10 @@ pub enum Route {
         // Fields of the route variant will be passed to the component as props. In this case, the module component must accept
         // an `id` prop of type `i32`.
         Module { module_id: String },
-        // The disk space used by a profile, part of the Home app.
-        #[route("/profile/:name")]
-        ProfileSize { name: String },
-        // The app's settings for the active profile.
+        // The disk space used by a domain, part of the Home app.
+        #[route("/domain/:name")]
+        DomainSize { name: String },
+        // The app's settings for the active domain.
         #[route("/settings")]
         Settings {},
 }
@@ -120,11 +120,11 @@ pub fn App() -> Element {
 
     // let opt_context = &*context_signal.read();
     // let context = opt_context.as_ref().unwrap();
-    // let profile = &context.profile.active_profile;
+    // let domain = &context.domain.active_domain;
 
-    // if !profile.version.eq(CURRENT_VERSION) {
+    // if !domain.version.eq(CURRENT_VERSION) {
 
-    //     let profile_version = if profile.version.len() == 0 {"0.0.0"} else { &profile.version };
+    //     let domain_version = if domain.version.len() == 0 {"0.0.0"} else { &domain.version };
 
     //     return rsx! {
     //         ErrorBoundary {
@@ -144,7 +144,7 @@ pub fn App() -> Element {
 
     //             div { class: "dialog",
     //                 p {
-    //                     "Profile {profile.name} is version {profile_version} but the current version is {CURRENT_VERSION}"
+    //                     "Domain {domain.name} is version {domain_version} but the current version is {CURRENT_VERSION}"
     //                 }
     //                 p { "Do you want to upgrade it to the current version?" }
     //             }
@@ -171,7 +171,7 @@ pub fn App() -> Element {
 
             Router::<Route> {}
 
-            // A list of one, keyed by the context, so that a new profile's modules are polled, as Dioxus only uses
+            // A list of one, keyed by the context, so that a new domain's modules are polled, as Dioxus only uses
             // keys in lists.
             for context in context_signal.read().iter().cloned() {
                 crate::polling::Poller {

@@ -433,13 +433,13 @@ Developer account's Account Holder or an Admin, and is done on the Mac the relea
    and is not listed here.)
 2. **Make a certificate request.** Open **Keychain Access** (Spotlight finds it). From its menu: Keychain Access >
    Certificate Assistant > **Request a Certificate From a Certificate Authority…**. User Email Address: your Apple
-   developer email. Common Name: e.g. `Bruce's Smart Home Developer ID`. CA Email Address: empty. Choose **Saved to disk**,
-   Continue, and save the `.certSigningRequest` file, e.g. to the Desktop. This also makes the certificate's private
-   key in your login keychain, so do it on this Mac.
-3. **Ask Apple for the certificate.** Go to [Certificates](https://developer.apple.com/account/resources/certificates/list)
-   (developer.apple.com > Account > Certificates, IDs & Profiles > Certificates), click **+**, choose
-   **Developer ID Application** (not Installer), Continue, upload the `.certSigningRequest` file, and download the
-   certificate, a `.cer` file.
+   developer email. Common Name: e.g. `Bruce's Smart Home Developer ID`. CA Email Address: empty. Choose **Saved to
+   disk**, Continue, and save the `.certSigningRequest` file, e.g. to the Desktop. This also makes the certificate's
+   private key in your login keychain, so do it on this Mac.
+3. **Ask Apple for the certificate.** Go to
+   [Certificates](https://developer.apple.com/account/resources/certificates/list) (developer.apple.com > Account >
+   Certificates, IDs & Domains > Certificates), click **+**, choose **Developer ID Application** (not Installer),
+   Continue, upload the `.certSigningRequest` file, and download the certificate, a `.cer` file.
 4. **Install it.** Open the `.cer` file, which adds it to the login keychain.
 5. **If Keychain Access says it is not trusted**, the Mac is missing Apple's intermediate certificate, which Xcode
    would have installed: download **Developer ID - G2** from [Apple's certificate authority
@@ -452,8 +452,9 @@ Developer account's Account Holder or an Admin, and is done on the Mac the relea
 
 ### Part 2: the API key
 
-8. **Open the keys page.** Go to [App Store Connect > Users and Access > Integrations](https://appstoreconnect.apple.com/access/integrations/api)
-   and choose **App Store Connect API**, then the **Team Keys** tab. (Not Individual Keys, which have no Issuer ID.)
+8. **Open the keys page.** Go to [App Store Connect > Users and Access >
+   Integrations](https://appstoreconnect.apple.com/access/integrations/api) and choose **App Store Connect API**, then
+   the **Team Keys** tab. (Not Individual Keys, which have no Issuer ID.)
 9. **Note the Issuer ID.** It is above the list of keys, labelled Issuer ID, a UUID, five groups of letters and digits
    joined by hyphens, e.g. `69a6de7e-1234-47e3-e053-5b8c7c11a4d1`. Copy it with the Copy link next to it.
 10. **Make a key, or use the one there.** If there is no key yet, click **+** (Generate API Key), name it e.g.
@@ -472,8 +473,8 @@ Developer account's Account Holder or an Admin, and is done on the Mac the relea
 
 ### Part 3: the secrets on GitHub
 
-14. **Set the five secrets**, in Terminal in `~/git/bruce-smart-home`, putting in your own file names, Key ID and Issuer ID
-    as in step 13. The files are read and sent as they are, so nothing secret is typed or shown:
+14. **Set the five secrets**, in Terminal in `~/git/bruce-smart-home`, putting in your own file names, Key ID and Issuer
+    ID as in step 13. The files are read and sent as they are, so nothing secret is typed or shown:
 
     ```
     base64 -i ~/Desktop/DeveloperID.p12 | gh secret set APPLE_CERTIFICATE

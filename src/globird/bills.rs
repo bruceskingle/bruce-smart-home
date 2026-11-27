@@ -1,7 +1,7 @@
 //! GloBird's bills, from the account's correspondence: the emails GloBird has sent, each bill's with the bill attached
 //! as a PDF, whose text is read for its charges, see parse_bill.
 //!
-//! What GloBird sent is kept as it sent it, in the profile's store, see store.rs, in DataSets of the account, by the
+//! What GloBird sent is kept as it sent it, in the domain's store, see store.rs, in DataSets of the account, by the
 //! hash of its ID: each email listed, `globird.mail`, by when it was sent and its ID, with a `#list/<offset>` record of
 //! each page fetched, saying how many emails there are; each bill's email, `globird.mail.detail`, by its ID; and each
 //! bill's PDF in the store's blobs, with a `globird.document` record of it, by the document's ID. A bill never changes

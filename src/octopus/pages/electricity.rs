@@ -479,7 +479,7 @@ impl ElectricitySource for OctopusElectricity {
 /// For developers, see AppArgs::octopusday: asks Octopus for each meter's half hours of day, with the query the app
 /// fetches them with, and prints how many came back, their times, and which are final or partial, without storing
 /// them, e.g. to see whether a day the store is missing is there to fetch; then the import meter's from Octopus's REST
-/// API, with the profile's API key, api_key, which is not shown, as it sometimes has what GraphQL does not.
+/// API, with the domain's API key, api_key, which is not shown, as it sometimes has what GraphQL does not.
 pub async fn print_day(context: &OctopusContext, day: time::Date, api_key: Option<&str>) -> anyhow::Result<()> {
     use crate::data_set::SlotSource;
     let account = Account::load(context).await?;
@@ -544,7 +544,7 @@ pub async fn print_day(context: &OctopusContext, day: time::Date, api_key: Optio
     }
     // The import meter's from the REST API, by each of its meters' serial numbers, which the properties give.
     let Some(api_key) = api_key else {
-        println!("REST: the profile has no API key");
+        println!("REST: the domain has no API key");
         return Ok(());
     };
     let properties =

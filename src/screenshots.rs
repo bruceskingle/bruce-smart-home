@@ -1,10 +1,10 @@
-//! Screenshots of the app for the documentation, taken by the app itself: bruce-smart-home --profile demo --screenshots
+//! Screenshots of the app for the documentation, taken by the app itself: bruce-smart-home --domain demo --screenshots
 //!
 //! The shots are listed in a JSON file, docs/screenshots.json by default, see ShotFile. For each one the app goes to
 //! the home page, follows the shot's steps, e.g. clicking on what has a given text, as someone using it would, then
 //! saves a picture of the window, with its frame, to the shot's file. Then it exits.
 //!
-//! Use the demo profile, a redacted copy of a real one, see redact.rs, which is offline, so that the pictures do not
+//! Use the demo domain, a redacted copy of a real one, see redact.rs, which is offline, so that the pictures do not
 //! identify anyone, and are the same each time. The window is the size the file gives, which is not remembered as the
 //! size of the app's window, and the log panel is hidden. See docs/Screenshots.md.
 
@@ -42,12 +42,12 @@ pub struct ShotFile {
     /// The size of the app's window, its content, in logical pixels.
     pub window: WindowSize,
     pub shots: Vec<Shot>,
-    /// Profiles the shots create, e.g. to show a new profile's first run, which are deleted before the shots, in case
-    /// an earlier run stopped part way, and afterwards, when the profile the app started with is made the active one
-    /// again. Any profile with one of these names is deleted, so they must not be ones in use.
+    /// Domains the shots create, e.g. to show a new domain's first run, which are deleted before the shots, in case
+    /// an earlier run stopped part way, and afterwards, when the domain the app started with is made the active one
+    /// again. Any domain with one of these names is deleted, so they must not be ones in use.
     #[serde(default)]
-    pub new_profiles: Vec<String>,
-    /// A data directory whose profiles and data are deleted before the shots, so that the first shots show what
+    pub new_domains: Vec<String>,
+    /// A data directory whose domains and data are deleted before the shots, so that the first shots show what
     /// someone sees the first time they run the app, e.g. /Users/yourname. It must be the data directory given with
     /// --home, see prepare_data_directory, so that no other is ever cleared.
     #[serde(default)]
@@ -121,12 +121,12 @@ enum Step {
     },
     /// Presses a key in what has the focus, e.g. {"key": "Enter"} in a field which has been typed into.
     Key { key: String },
-    /// Copies the profile of this name from the usual data directory, e.g. the redacted demo profile, see redact.rs,
-    /// into the active profile, offline and without logins, and starts the app again with it, e.g. after the shots of
-    /// the first run, {"loadProfile": "demo"}.
-    LoadProfile {
-        #[serde(rename = "loadProfile")]
-        load_profile: String,
+    /// Copies the domain of this name from the usual data directory, e.g. the redacted demo domain, see redact.rs,
+    /// into the active domain, offline and without logins, and starts the app again with it, e.g. after the shots of
+    /// the first run, {"loadDomain": "demo"}.
+    LoadDomain {
+        #[serde(rename = "loadDomain")]
+        load_domain: String,
     },
     /// Waits for this many milliseconds.
     Wait { wait: u64 },
@@ -137,14 +137,14 @@ enum Step {
     },
 }
 
-/// Deletes the profiles and data in the data directory, for a shot list with fresh_data_directory, so that the app
+/// Deletes the domains and data in the data directory, for a shot list with fresh_data_directory, so that the app
 /// starts as it does the first time. Called before the window opens. The data directory must be the one the shot list
-/// gives, and not the usual one, so that the real profiles are never deleted.
+/// gives, and not the usual one, so that the real domains are never deleted.
 pub fn prepare_data_directory(fresh: &Path) -> anyhow::Result<()> {
     let data_home = crate::data_home::data_home()?;
     if data_home != std::path::absolute(fresh)? || data_home == crate::data_home::usual_data_home()? {
         bail!(
-            "The shot list starts with a fresh data directory {}, which deletes its profiles and data, so give it with \
+            "The shot list starts with a fresh data directory {}, which deletes its domains and data, so give it with \
             --home, it is not the data directory in use, {}",
             fresh.display(),
             data_home.display()
@@ -155,24 +155,23 @@ pub fn prepare_data_directory(fresh: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Copies the profile from, in the usual data directory, into the active profile, see Step::LoadProfile: its cached
-/// data, replacing the active profile's, and its modules without their logins, settings and when its data is from.
-fn load_profile_data(from: &str) -> anyhow::Result<()> {
-    use crate::profile::{Profile, ProfileFile, profile_names_equal};
+/// Copies the domain from, in the usual data directory, into the active domain, see Step::LoadDomain: its cached
+/// data, replacing the active domain's, and its modules without their logins, settings and when its data is from.
+fn load_domain_data(from: &str) -> anyhow::Result<()> {
+    use crate::domain::{Domain, DomainFile, domain_names_equal};
 
     let usual = crate::data_home::usual_data_home()?;
-    let usual_profiles: ProfileFile =
-        crate::profile::read_profile_file_at(&crate::data_home::profiles_path_in(&usual))?;
-    let source = usual_profiles
+    let usual_domains: DomainFile = crate::domain::read_domain_file_at(&crate::data_home::domains_path_in(&usual))?;
+    let source = usual_domains
         .iter()
-        .find(|profile| profile_names_equal(&profile.name, from))
-        .ok_or_else(|| anyhow!("there is no profile {from} in {}", usual.display()))?;
-    let active = crate::profile::fetch_active_profile(&None)?.active_profile.name;
+        .find(|domain| domain_names_equal(&domain.name, from))
+        .ok_or_else(|| anyhow!("there is no domain {from} in {}", usual.display()))?;
+    let active = crate::domain::fetch_active_domain(&None)?.active_domain.name;
 
-    // A redacted profile's data is in the old layout, see redact.rs, which is converted into the copy's store below.
+    // A redacted domain's data is in the old layout, see redact.rs, which is converted into the copy's store below.
     let usual_cache = crate::data_home::old_cache_dir_in(&usual);
     let cache = crate::AppContext::get_cache_dir_path()?;
-    // Only the modules which a redacted profile can have, see redact::is_redactable.
+    // Only the modules which a redacted domain can have, see redact::is_redactable.
     for module_id in source
         .modules
         .keys()
@@ -186,12 +185,12 @@ fn load_profile_data(from: &str) -> anyhow::Result<()> {
     }
 
     let path = crate::AppContext::get_file_path()?;
-    let mut profiles: ProfileFile = if path.exists() {
-        crate::profile::read_profile_file_at(&path)?
+    let mut domains: DomainFile = if path.exists() {
+        crate::domain::read_domain_file_at(&path)?
     } else {
         Vec::new()
     };
-    profiles.retain(|profile| !profile_names_equal(&profile.name, &active));
+    domains.retain(|domain| !domain_names_equal(&domain.name, &active));
     let modules = source
         .modules
         .iter()
@@ -204,9 +203,9 @@ fn load_profile_data(from: &str) -> anyhow::Result<()> {
             (module_id.clone(), module)
         })
         .collect();
-    profiles.insert(
+    domains.insert(
         0,
-        Profile {
+        Domain {
             name: active,
             version: source.version.clone(),
             modules,
@@ -214,15 +213,17 @@ fn load_profile_data(from: &str) -> anyhow::Result<()> {
             offline: true,
             as_of: source.as_of,
             // A site of its own, in this data home, into which its data is converted, as it is in the old layout.
-            site: None,
+            id: None,
+            security: None,
+            awaiting_founding: false,
         },
     );
-    crate::profile::write_profile_file_at(&path, &profiles)?;
-    let active = profiles[0].name.clone();
-    if crate::profile::ProfileVersionState::from(&profiles[0].version)?
-        == crate::profile::ProfileVersionState::OlderThanCurrent
+    crate::domain::write_domain_file_at(&path, &domains)?;
+    let active = domains[0].name.clone();
+    if crate::domain::DomainVersionState::from(&domains[0].version)?
+        == crate::domain::DomainVersionState::OlderThanCurrent
     {
-        crate::profile::upgrade_profile(&active, &mut bruce_db::progress::Silent)?;
+        crate::domain::upgrade_domain(&active, &mut bruce_db::progress::Silent)?;
     }
     Ok(())
 }
@@ -285,11 +286,11 @@ async fn take_all(path: &Path) -> anyhow::Result<usize> {
     to_front(&main.window);
     tokio::time::sleep(Duration::from_secs(2)).await;
     let help_was_shown = crate::help::is_shown();
-    // The profile the app started with, to go back to after the shots which create profiles.
-    let started_with = crate::profile::fetch_active_profile(&None)
-        .map(|profile| profile.active_profile.name)
+    // The domain the app started with, to go back to after the shots which create domains.
+    let started_with = crate::domain::fetch_active_domain(&None)
+        .map(|domain| domain.active_domain.name)
         .ok();
-    remove_new_profiles(&shot_file.new_profiles, started_with.as_deref());
+    remove_new_domains(&shot_file.new_domains, started_with.as_deref());
     let mut taken = 0;
     for (index, shot) in shot_file.shots.iter().enumerate() {
         println!("Shot {} of {}: {}", index + 1, shot_file.shots.len(), shot.file);
@@ -308,41 +309,41 @@ async fn take_all(path: &Path) -> anyhow::Result<usize> {
         tokio::time::sleep(SETTLE).await;
     }
     crate::help::show_for_now(help_was_shown);
-    remove_new_profiles(&shot_file.new_profiles, started_with.as_deref());
+    remove_new_domains(&shot_file.new_domains, started_with.as_deref());
     Ok(taken)
 }
 
-/// Deletes the profiles the shots created, after making the profile the app started with the active one again, so that
+/// Deletes the domains the shots created, after making the domain the app started with the active one again, so that
 /// it is the one the app opens with next time.
-fn remove_new_profiles(new_profiles: &[String], started_with: Option<&str>) {
+fn remove_new_domains(new_domains: &[String], started_with: Option<&str>) {
     let Some(started_with) = started_with else {
         return;
     };
-    if new_profiles.is_empty() {
+    if new_domains.is_empty() {
         return;
     }
-    if let Err(error) = crate::profile::set_active_profile(&started_with.to_string()) {
-        eprintln!("Unable to make {started_with} the active profile again: {error:#}");
+    if let Err(error) = crate::domain::set_active_domain(&started_with.to_string()) {
+        eprintln!("Unable to make {started_with} the active domain again: {error:#}");
         return;
     }
-    let existing = crate::profile::fetch_active_profile(&None)
-        .map(|profile| profile.all_profiles)
+    let existing = crate::domain::fetch_active_domain(&None)
+        .map(|domain| domain.all_domains)
         .unwrap_or_default();
-    for profile in new_profiles.iter().filter(|profile| {
+    for domain in new_domains.iter().filter(|domain| {
         existing
             .iter()
-            .any(|name| crate::profile::profile_names_equal(name, profile))
+            .any(|name| crate::domain::domain_names_equal(name, domain))
     }) {
-        match crate::profile::delete_profile(profile, started_with) {
-            Ok(()) => println!("Deleted the profile {profile} the shots created"),
-            Err(error) => eprintln!("Unable to delete the profile {profile} the shots created: {error:#}"),
+        match crate::domain::delete_domain(domain, started_with) {
+            Ok(()) => println!("Deleted the domain {domain} the shots created"),
+            Err(error) => eprintln!("Unable to delete the domain {domain} the shots created: {error:#}"),
         }
     }
 }
 
 async fn take(shot: &Shot, main: &DesktopService) -> anyhow::Result<()> {
     crate::help::show_for_now(shot.help);
-    // Closes anything the last shot left open, e.g. the date picker or the new profile's name.
+    // Closes anything the last shot left open, e.g. the date picker or the new domain's name.
     let _ = document::eval(
         "const element = document.activeElement || document.body;
         element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));",
@@ -396,8 +397,8 @@ async fn take(shot: &Shot, main: &DesktopService) -> anyhow::Result<()> {
                  return true;",
                 json(key),
             ), "unable to press the key").await?,
-            Step::LoadProfile { load_profile } => {
-                load_profile_data(load_profile)?;
+            Step::LoadDomain { load_domain } => {
+                load_domain_data(load_domain)?;
                 let mut init = consume_context::<Signal<crate::InitRequested>>();
                 init.set(crate::InitRequested(true));
                 wait_for_selector(".nav", WAIT_FOR_LIMIT).await?;
@@ -408,7 +409,7 @@ async fn take(shot: &Shot, main: &DesktopService) -> anyhow::Result<()> {
         tokio::time::sleep(SETTLE).await;
     }
     // Only while the picture is taken, as the steps may have clicked on the page list. The help again, as e.g.
-    // choosing a new profile shows or hides it as the profile's settings say.
+    // choosing a new domain shows or hides it as the domain's settings say.
     *PAGE_LIST_HIDDEN.write() = !shot.pages;
     crate::help::show_for_now(shot.help);
     tokio::time::sleep(SETTLE).await;

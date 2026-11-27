@@ -1,6 +1,6 @@
 # Settings
 
-These are the settings of the active profile, each profile has its own. ![Settings](icons/settings.svg) at the top right opens them.
+These are the settings of the active domain, each domain has its own. ![Settings](icons/settings.svg) at the top right opens them.
 
 ## Log
 

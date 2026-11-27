@@ -1,12 +1,13 @@
 # Installing on Windows
 
-How to download Bruce's Smart Home for your PC and install it. The app is not signed, so Windows warns about the download
-and the installer, and this shows how to keep and run them.
+How to download Bruce's Smart Home for your PC and install it. The app is not signed, so Windows warns about the
+download and the installer, and this shows how to keep and run them.
 
 ## Download the Release Binary
 
-Navigate to [https://github.com/bruceskingle/bruce-smart-home/releases/](https://github.com/bruceskingle/bruce-smart-home/releases/) to find the
-latest release: 
+Navigate to
+[https://github.com/bruceskingle/bruce-smart-home/releases/](https://github.com/bruceskingle/bruce-smart-home/releases/)
+to find the latest release:
 
 ![Download Page](../download.png)
 

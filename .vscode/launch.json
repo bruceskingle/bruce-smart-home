@@ -212,12 +212,12 @@
                 "OS_ACTIVITY_MODE": "disable"
             }
         },
-        // The app with the demo profile, a redacted, offline, copy of a real profile's data, e.g. for screenshots, see
-        // docs/Redaction.md. Make or refresh it with: bruce-smart-home --redact <profile> demo
+        // The app with the demo domain, a redacted, offline, copy of a real domain's data, e.g. for screenshots, see
+        // docs/Redaction.md. Make or refresh it with: bruce-smart-home --redact <domain> demo
         {
             "type": "lldb",
             "request": "launch",
-            "name": "App: Demo Profile",
+            "name": "App: Demo Domain",
             "presentation": { "group": "1 App", "order": 2 },
             "cargo": {
                 "args": [
@@ -233,7 +233,7 @@
             },
             "args": [
                 "-v",
-                "--profile",
+                "--domain",
                 "demo"
             ],
             "cwd": "${workspaceFolder}",
@@ -245,7 +245,7 @@
             }
         },
         // Fetches the latest data without a window, as a scheduled fetch does, see docs/ScheduledFetch.md. It uses the
-        // profile the app last used, add "--profile", "<name>" to the args for another one. Its output is in the
+        // domain the app last used, add "--domain", "<name>" to the args for another one. Its output is in the
         // terminal.
         {
             "type": "lldb",
@@ -275,12 +275,12 @@
                 "OS_ACTIVITY_MODE": "disable"
             }
         },
-        // Copies a profile's data to the demo profile with everything which identifies you replaced, without a window,
-        // see docs/Redaction.md. It asks which profile to copy. Its output is in the terminal.
+        // Copies a domain's data to the demo domain with everything which identifies you replaced, without a window,
+        // see docs/Redaction.md. It asks which domain to copy. Its output is in the terminal.
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Redact Profile into Demo",
+            "name": "Redact Domain into Demo",
             "presentation": { "group": "2 Tools", "order": 2 },
             "cargo": {
                 "args": [
@@ -296,7 +296,7 @@
             },
             "args": [
                 "--redact",
-                "${input:redactProfile}",
+                "${input:redactDomain}",
                 "demo"
             ],
             "cwd": "${workspaceFolder}",
@@ -308,7 +308,7 @@
             }
         },
         // Takes the screenshots in docs/screenshots.json, then exits, see docs/Screenshots.md: in the data directory
-        // /Users/yourname, which it clears first, for the first run, then with a copy of the demo profile. The first
+        // /Users/yourname, which it clears first, for the first run, then with a copy of the demo domain. The first
         // time, macOS asks for the Screen Recording permission for VS Code.
         {
             "type": "lldb",
@@ -414,9 +414,9 @@
     ],
     "inputs": [
         {
-            "id": "redactProfile",
+            "id": "redactDomain",
             "type": "promptString",
-            "description": "The profile to copy into the demo profile, redacted",
+            "description": "The domain to copy into the demo domain, redacted",
             "default": "n2"
         }
     ]

@@ -106,7 +106,7 @@ fn comparable(agreement: &serde_json::Value) -> serde_json::Value {
 }
 
 /// Records each agreement in force now, with its whole tariff, as Octopus gave it, when it differs from the last
-/// recorded for the agreement, e.g. a new standing charge or new unit rates, in the profile's store, see store.rs, as
+/// recorded for the agreement, e.g. a new standing charge or new unit rates, in the domain's store, see store.rs, as
 /// the kind `octopus.tariff`, a DataSet for each type of meter of the account, of {"seen", "meter", "agreement"} by when
 /// it was seen and the agreement's ID, so that every change is kept. Octopus only returns a tariff as it is now, e.g.
 /// the unit rates which apply now, so this is the only record of what it was before, and of when it changed.

@@ -1,6 +1,6 @@
-//! Converting a profile made before the store, see store.rs, when it is upgraded to 0.5.0, see
-//! profile::upgrade_profile: what each module, and the app itself, kept in the cache directory is put into the profile's
-//! site's store, and left where it was. A module converts its own,
+//! Converting a domain made before the store, see store.rs, when it is upgraded to 0.5.0, see
+//! domain::upgrade_domain: what each module, and the app itself, kept in the cache directory is put into the domain's
+//! domain's store, and left where it was. A module converts its own,
 //! see ModuleRegistration::convert; the DataSets of the Octopus module import their own files the first time each is
 //! used, see data_set::Records::import_legacy.
 //!
@@ -70,7 +70,7 @@ pub fn legacy_files(dir: &Path) -> Vec<LegacyFile> {
     files
 }
 
-/// Converts the climate readings, `<profile>-climate/<device>/<series>/<date>.json`, each a map of a period's start to
+/// Converts the climate readings, `<domain>-climate/<device>/<series>/<date>.json`, each a map of a period's start to
 /// its end, value and whether it was open, and the device's name, device.json, into the periods the devices give,
 /// see climate.rs.
 fn convert_climate(store: &Store, dir: &Path, progress: &mut dyn Progress) -> anyhow::Result<usize> {
@@ -121,7 +121,7 @@ fn convert_climate(store: &Store, dir: &Path, progress: &mut dyn Progress) -> an
     Ok(count)
 }
 
-/// Converts the poll log, `<profile>-polling/<date>.jsonl`, a record a line, each with its time, see polling.rs.
+/// Converts the poll log, `<domain>-polling/<date>.jsonl`, a record a line, each with its time, see polling.rs.
 fn convert_polling(store: &Store, dir: &Path, progress: &mut dyn Progress) -> anyhow::Result<usize> {
     let hk = store.hash_key("app.poll", &[Part::Name(crate::store::origin())])?;
     let mut count = 0;
@@ -154,7 +154,7 @@ fn took(started: std::time::Instant) -> String {
 }
 
 /// Before a converter's next file: stops, with Cancelled, if the conversion has been cancelled, which is safe between
-/// files, see convert_profile, and otherwise says how far through its files it is, e.g. "1200 of 4839 files", see
+/// files, see convert_domain, and otherwise says how far through its files it is, e.g. "1200 of 4839 files", see
 /// report_count.
 pub fn step(progress: &mut dyn Progress, index: usize, total: usize) -> anyhow::Result<()> {
     progress.check()?;
@@ -162,25 +162,25 @@ pub fn step(progress: &mut dyn Progress, index: usize, total: usize) -> anyhow::
     Ok(())
 }
 
-/// Converts the profile's old cache into its store, see the module documentation, saying how far it is with progress,
+/// Converts the domain's old cache into its store, see the module documentation, saying how far it is with progress,
 /// e.g. "Converting tesla, 3 of 6: 1200 of 4839 files", and what each part converted.
 ///
 /// It stops if progress is cancelled, between files, or if a part fails, returning the error, without marking the
-/// profile converted, so that converting it again, e.g. by upgrading it again, does it all: the old files are as they
+/// domain converted, so that converting it again, e.g. by upgrading it again, does it all: the old files are as they
 /// were, and records already put are put again, which changes nothing.
-pub fn convert_profile(profile_name: &str, progress: &mut dyn Progress) -> anyhow::Result<()> {
-    let store = crate::store::for_profile(profile_name)?;
+pub fn convert_domain(domain_name: &str, progress: &mut dyn Progress) -> anyhow::Result<()> {
+    let store = crate::store::for_domain(domain_name)?;
     // Once, see CONVERTED.
     let converted = store.hash_key(CONVERTED, &[])?;
     if store.get(&converted, "-")?.is_some() {
         progress.report(&format!(
-            "{profile_name}'s data has been converted into the store already"
+            "{domain_name}'s data has been converted into the store already"
         ));
         return Ok(());
     }
     // Synced once at the end, as it is many records at once, and synced as usual again however it ends.
     store.set_sync(false);
-    let result = convert_parts(&store, profile_name, progress);
+    let result = convert_parts(&store, domain_name, progress);
     store.set_sync(true);
     store.sync()?;
     result?;
@@ -188,7 +188,7 @@ pub fn convert_profile(profile_name: &str, progress: &mut dyn Progress) -> anyho
         &converted,
         "-",
         crate::store::version_now(),
-        serde_json::json!({ "profile": profile_name }),
+        serde_json::json!({ "domain": domain_name }),
     ))?;
     progress.report("Compacting the store");
     let started = std::time::Instant::now();
@@ -202,11 +202,11 @@ pub fn convert_profile(profile_name: &str, progress: &mut dyn Progress) -> anyho
     Ok(())
 }
 
-/// Converts each part of the profile's old cache, the app's own and each module's, see convert_profile, stopping at
+/// Converts each part of the domain's old cache, the app's own and each module's, see convert_domain, stopping at
 /// the first which fails or is cancelled.
-fn convert_parts(store: &Arc<Store>, profile_name: &str, progress: &mut dyn Progress) -> anyhow::Result<()> {
+fn convert_parts(store: &Arc<Store>, domain_name: &str, progress: &mut dyn Progress) -> anyhow::Result<()> {
     let cache = crate::AppContext::get_cache_dir_path()?;
-    let dir = |name: &str| cache.join(format!("{profile_name}-{name}"));
+    let dir = |name: &str| cache.join(format!("{domain_name}-{name}"));
     // Those with a directory to convert, numbered for the progress.
     let converters = crate::ModuleRegistrations::converters();
     let parts: Vec<String> = ["climate", "polling"]
@@ -234,25 +234,25 @@ fn convert_parts(store: &Arc<Store>, profile_name: &str, progress: &mut dyn Prog
     Ok(())
 }
 
-/// Upgrades the profile, see profile::upgrade_profile, for --upgrade, saying what it did.
-pub fn upgrade(profile_name: &str) -> anyhow::Result<()> {
-    crate::profile::upgrade_profile(
-        profile_name,
+/// Upgrades the domain, see domain::upgrade_domain, for --upgrade, saying what it did.
+pub fn upgrade(domain_name: &str) -> anyhow::Result<()> {
+    crate::domain::upgrade_domain(
+        domain_name,
         &mut bruce_db::progress::Reporter::new(|message: &str| println!("{message}")),
     )?;
-    println!("{profile_name} is now version {}", crate::profile::CURRENT_VERSION);
+    println!("{domain_name} is now version {}", crate::domain::CURRENT_VERSION);
     Ok(())
 }
 
-/// Encrypts the secrets of a profile, for --encryptsecrets, temporary until 0.5.0 is released, see
-/// profile::encrypt_secrets.
-pub fn encrypt_secrets(profile_name: &str) -> anyhow::Result<()> {
-    crate::profile::encrypt_secrets(profile_name)?;
-    println!("{profile_name}'s secrets are encrypted");
+/// Encrypts the secrets of a domain, for --encryptsecrets, temporary until 0.5.0 is released, see
+/// domain::encrypt_secrets.
+pub fn encrypt_secrets(domain_name: &str) -> anyhow::Result<()> {
+    crate::domain::encrypt_secrets(domain_name)?;
+    println!("{domain_name}'s secrets are encrypted");
     Ok(())
 }
 
-/// The kind of the record which says a profile's data has been converted, so that it is converted once.
+/// The kind of the record which says a domain's data has been converted, so that it is converted once.
 const CONVERTED: &str = "app.converted";
 
 /// A module's converter, see ModuleRegistration::convert. It says how far it is to its last argument, and stops if it

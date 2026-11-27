@@ -20,6 +20,7 @@ mod device;
 #[allow(dead_code)]
 #[path = "../../src/device_kinds.rs"]
 mod device_kinds;
+mod domain;
 mod graph;
 mod myenergi;
 mod octopus;

@@ -1,7 +1,7 @@
 //! Polling the modules while the app is open, e.g. snapshots of the Tesla gateway and the zappi's status, whose
 //! history nothing else keeps, see Module::poll.
 //!
-//! The Poller has its own instance of each module of the profile, built when the app starts or the profile changes,
+//! The Poller has its own instance of each module of the domain, built when the app starts or the domain changes,
 //! and polls each one when it is due, one at a time. What it is doing is in the PollStatuses signal, which the Polling
 //! page shows, and every poll is logged.
 
@@ -30,8 +30,8 @@ static RUNNING: std::sync::Mutex<Option<(u64, PollLog)>> = std::sync::Mutex::new
 /// The id the next poller is given, so that one which is replaced does not stop the log of the one replacing it.
 static NEXT_POLLER_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
-/// The poller's own log of a profile: when it started and stopped, a heartbeat every minute, and every poll, so that
-/// whether it was running all the time can be seen, e.g. gaps while the computer was asleep. Kept in the profile's
+/// The poller's own log of a domain: when it started and stopped, a heartbeat every minute, and every poll, so that
+/// whether it was running all the time can be seen, e.g. gaps while the computer was asleep. Kept in the domain's
 /// store, see store.rs, as the kind `app.poll`, a DataSet for this installation, each record by its time.
 #[derive(Clone)]
 struct PollLog {
@@ -40,8 +40,8 @@ struct PollLog {
 }
 
 impl PollLog {
-    fn new(profile_name: &str) -> anyhow::Result<PollLog> {
-        let store = crate::store::for_profile(profile_name)?;
+    fn new(domain_name: &str) -> anyhow::Result<PollLog> {
+        let store = crate::store::for_domain(domain_name)?;
         let hk = store.hash_key("app.poll", &[bruce_db::Part::Name(crate::store::origin())])?;
         Ok(PollLog { store, hk })
     }
@@ -113,7 +113,7 @@ impl PollStatus {
     }
 }
 
-/// The status of each module of the profile, by module id, provided as a context by App.
+/// The status of each module of the domain, by module id, provided as a context by App.
 pub type PollStatuses = Signal<BTreeMap<String, PollStatus>>;
 
 /// The first time after now which is a whole number of intervals since midnight UTC, e.g. 10:05:00 after 10:03:12
@@ -138,9 +138,9 @@ async fn build(
     Ok(Some(factory.build().await?))
 }
 
-/// Polls the modules of the context's profile while it is shown. Renders nothing. It must be given a key which changes
-/// with the context, so that a new profile's modules are polled.
-/// How often the profile's capture devices are looked for on the network, to follow one given another address, see
+/// Polls the modules of the context's domain while it is shown. Renders nothing. It must be given a key which changes
+/// with the context, so that a new domain's modules are polled.
+/// How often the domain's capture devices are looked for on the network, to follow one given another address, see
 /// Poller.
 const FOLLOW_ADDRESSES_EVERY: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
@@ -150,7 +150,7 @@ pub fn Poller(context: crate::util::SharedProp<AppContext>) -> Element {
     let mut statuses = use_context::<PollStatuses>();
     let id = use_hook(|| NEXT_POLLER_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
 
-    // The profile's capture devices followed to where they are found on the network, now and every
+    // The domain's capture devices followed to where they are found on the network, now and every
     // FOLLOW_ADDRESSES_EVERY, see capture_device::follow_addresses, so that one given another address by the router is
     // still read, whichever page is shown.
     use_future({
@@ -158,14 +158,14 @@ pub fn Poller(context: crate::util::SharedProp<AppContext>) -> Element {
         move || {
             let context = context.clone();
             async move {
-                if context.profile.active_profile.offline {
+                if context.domain.active_domain.offline {
                     return;
                 }
-                let profile_name = context.profile.active_profile.name.clone();
+                let domain_name = context.domain.active_domain.name.clone();
                 loop {
                     match crate::discovery::browse().await {
                         Ok(found) => {
-                            if let Err(error) = crate::capture_device::follow_addresses(&profile_name, &found) {
+                            if let Err(error) = crate::capture_device::follow_addresses(&domain_name, &found) {
                                 crate::log_warning!("Unable to update the capture devices' addresses, {error:#}");
                             }
                         }
@@ -185,11 +185,11 @@ pub fn Poller(context: crate::util::SharedProp<AppContext>) -> Element {
         async move {
             statuses.set(BTreeMap::new());
             crate::capture_device::clear_statuses();
-            // An offline profile is only its cached data, so there is nothing to poll.
-            if context.profile.active_profile.offline {
+            // An offline domain is only its cached data, so there is nothing to poll.
+            if context.domain.active_domain.offline {
                 return;
             }
-            let log = match PollLog::new(&context.profile.active_profile.name) {
+            let log = match PollLog::new(&context.domain.active_domain.name) {
                 Ok(log) => log,
                 Err(error) => {
                     crate::log_error!("Unable to start the polling log, {error:#}");
@@ -199,7 +199,7 @@ pub fn Poller(context: crate::util::SharedProp<AppContext>) -> Element {
             log.record(serde_json::json!({ "event": "start", "version": env!("CARGO_PKG_VERSION"), "pid": std::process::id() }));
             *RUNNING.lock().unwrap() = Some((id, log.clone()));
             let mut last_heartbeat = std::time::Instant::now();
-            let module_ids: Vec<String> = context.profile.active_profile.modules.keys().cloned().collect();
+            let module_ids: Vec<String> = context.domain.active_domain.modules.keys().cloned().collect();
             let mut modules = Vec::new();
             for module_id in module_ids {
                 statuses.write().insert(module_id.clone(), PollStatus::new());
@@ -231,10 +231,10 @@ pub fn Poller(context: crate::util::SharedProp<AppContext>) -> Element {
                 }
             }
 
-            // The temperature and humidity the profile's capture devices measure, which are not a module's, see
+            // The temperature and humidity the domain's capture devices measure, which are not a module's, see
             // climate.rs.
-            if !crate::capture_device::adopted_devices(&context.profile.active_profile.name).is_empty() {
-                let reader = crate::climate::ClimateReader::new(&context.profile.active_profile.name);
+            if !crate::capture_device::adopted_devices(&context.domain.active_domain.name).is_empty() {
+                let reader = crate::climate::ClimateReader::new(&context.domain.active_domain.name);
                 let mut status = PollStatus::new();
                 status.state = PollState::Waiting;
                 status.interval = reader.poll_interval();
@@ -345,13 +345,13 @@ pub fn Poller(context: crate::util::SharedProp<AppContext>) -> Element {
         }
     });
 
-    // When a new profile's poller replaces this one, as the app quitting is recorded by record_quit.
+    // When a new domain's poller replaces this one, as the app quitting is recorded by record_quit.
     use_drop(move || {
         let mut running = RUNNING.lock().unwrap();
         if running.as_ref().is_some_and(|(running_id, _)| *running_id == id)
             && let Some((_, log)) = running.take()
         {
-            log.record(serde_json::json!({ "event": "stop", "reason": "replaced, e.g. the profile changed" }));
+            log.record(serde_json::json!({ "event": "stop", "reason": "replaced, e.g. the domain changed" }));
         }
     });
 

@@ -11,7 +11,7 @@ The [Chrome Inspector](../howto/ChromeInspector.md) page describes how you can u
 ## Trying These Calls For Yourself
 For each call in the following section we show the `Query` and `Variables`, these values can be copied and pasted into https://api.octopus.energy/v1/graphql-playground to execute the query interactively. The official API documentation contains a link to https://api.octopus.energy/v1/graphql which is another very similar, but apparently older, version of the same thing.
 
-Before you can do this you need to authenticate (log in), this can be done using your email address and password, or API key. I strongly recommend *not* storing your password anywhere including interactive GraphQL UIs, so the first step is to find your API Key. 
+Before you can do this you need to authenticate (log in), this can be done using your email address and password, or API key. I strongly recommend *not* storing your password anywhere including interactive GraphQL UIs, so the first step is to find your API Key.
 
 This is shown at https://octopus.energy/dashboard/new/accounts/personal-details/api-access
 

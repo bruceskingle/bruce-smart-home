@@ -2,13 +2,14 @@
 
 Firmware for an ESP32 which polls what Bruce's Smart Home needs while the computer it runs on sleeps, built on
 [bruce-esp-idf](../../bruce-esp-idf), which must be checked out next to this repo, with
-[bruce-embedded-std](../../bruce-embedded-std) and bruce-embedded-firmware-record. It polls the Tesla
-gateway, myenergi's zappi and Octopus's smart charging, and keeps what it gets on an SD card. The boards it runs on, and what a board needs, an ESP32-S3 with PSRAM and an SD card, are in the user guide's
-[Capture Device Hardware](../docs/CaptureHardware.md), and the SD cards which have been tried in the platform's
+[bruce-embedded-std](../../bruce-embedded-std) and bruce-embedded-firmware-record. It polls the Tesla gateway,
+myenergi's zappi and Octopus's smart charging, and keeps what it gets on an SD card. The boards it runs on, and what a
+board needs, an ESP32-S3 with PSRAM and an SD card, are in the user guide's [Capture Device
+Hardware](../docs/CaptureHardware.md), and the SD cards which have been tried in the platform's
 [Hardware](../../bruce-esp-idf/docs/Hardware.md#sd-cards) page. What each board's screen shows is in `src/main.rs`'s
 `board` and `src/screen.rs`. The Waveshare ESP32-S3-RLCD-4.2's **Temperature and Humidity Log** feature (`climate.rs`)
-logs its own sensor every 10 seconds, as periods of each value, at `/api/capture/climate/records`, which the app's
-Temp & Humidity page shows, and its screen shows its 18650 battery's voltage and roughly how full it is (`battery.rs`).
+logs its own sensor every 10 seconds, as periods of each value, at `/api/capture/climate/records`, which the app's Temp
+& Humidity page shows, and its screen shows its 18650 battery's voltage and roughly how full it is (`battery.rs`).
 `sdkconfig.defaults.esp32s3` adds the ESP32-S3 boards' flash and PSRAM to `sdkconfig.defaults`.
 
 ## Building and flashing

@@ -38,7 +38,7 @@ where
             records.put(&format!("{:08}", place - 1), value)
         })?;
         let mut _attributes = DataSetAttributes { cached: true };
-        // An offline profile cannot refresh, so it always reads what is cached, however old.
+        // An offline domain cannot refresh, so it always reads what is cached, however old.
         let mut refresh = !config.offline && records.fetched_age()?.is_none_or(|age| age > refresh_after);
 
         if !refresh {
@@ -60,7 +60,7 @@ where
             refresh = true;
         }
 
-        // An offline profile only has what is cached.
+        // An offline domain only has what is cached.
         if refresh && !config.offline {
             let previous = records.all()?.len();
             data.clear();

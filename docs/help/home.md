@@ -4,7 +4,7 @@ Home has its pages listed down the left, which ![Hide the page list](icons/hide-
 
 ## Electricity
 
-[Electricity](electricity.md), where the profile's electricity went, from the module which supplies it, Octopus or GloBird. It is the first page shown, unless the profile has neither yet.
+[Electricity](electricity.md), where the domain's electricity went, from the module which supplies it, Octopus or GloBird. It is the first page shown, unless the domain has neither yet.
 
 ## Live
 
@@ -16,9 +16,9 @@ Home has its pages listed down the left, which ![Hide the page list](icons/hide-
 
 ## Modules
 
-Modules lists every module, and whether the active profile uses it. Each module connects to one supplier or device: [Octopus Energy](octopus/index.md), [myenergi](myenergi/index.md), [Tesla](tesla/index.md) and [GloBird](globird/index.md). Click a module here, or its name in the bar at the top, to open it.
+Modules lists every module, and whether the active domain uses it. Each module connects to one supplier or device: [Octopus Energy](octopus/index.md), [myenergi](myenergi/index.md), [Tesla](tesla/index.md) and [GloBird](globird/index.md). Click a module here, or its name in the bar at the top, to open it.
 
-**Data Directory** is where the app keeps its data, the profiles and a copy of everything it has downloaded. **Build Info** is the version of the app, useful when reporting a problem.
+**Data Directory** is where the app keeps its data, the domains and a copy of everything it has downloaded. **Build Info** is the version of the app, useful when reporting a problem.
 
 ## Polling
 
@@ -32,7 +32,7 @@ Without capture devices, polling stops while the app is closed or the computer i
 
 ## Devices
 
-Devices lists the [capture devices](devices.md) the profile has adopted, small always-on boards which fetch data while this computer sleeps, and adopts more.
+Devices lists the [capture devices](devices.md) the domain has adopted, small always-on boards which fetch data while this computer sleeps, and adopts more.
 
 ## Temp & Humidity
 
@@ -42,7 +42,7 @@ The buttons at the top right:
 
 - ![Help](icons/help.svg) shows or hides this help.
 - ![Log](icons/log.svg) shows or hides [the log](log.md) along the bottom of the window.
-- ![Profile](icons/profile.svg) and the profile's name is the profile menu, which changes between [profiles](profile-size.md), creates a new one, or copies, renames or deletes one.
+- ![Domain](icons/domain.svg) and the domain's name is the domain menu, which changes between [domains](domain-size.md), creates a new one, or copies, renames or deletes one.
 - ![Settings](icons/settings.svg) opens the [settings](settings.md).
 
 See the [help contents](index.md) for everything else.

@@ -21,8 +21,8 @@ pub use single_record::SingleRecordDataSet;
 /// collections such as
 /// * A single object
 /// * A list of objects
-/// * A set of samples each of which has a start and end DateTime where the end of one sample equals the start of the next, these samples
-///   are cached in sets for a month of data.
+/// * A set of samples each of which has a start and end DateTime where the end of one sample equals the start of the
+///   next, these samples are cached in sets for a month of data.
 ///
 /// Each DataSet is written to a single file on the local file system, that file is the master copy and the synchronization control
 /// between processes.

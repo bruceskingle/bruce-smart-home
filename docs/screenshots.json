@@ -1,7 +1,7 @@
 {
     "window": {"width": 1700, "height": 1024},
     "freshDataDirectory": "/Users/yourname",
-    "newProfiles": ["new_demo"],
+    "newDomains": ["new_demo"],
     "shots": [
         {
             "file": "docs/gettingStarted/Screenshot1.png", "help": true,
@@ -13,7 +13,7 @@
         },
         {
             "file": "docs/octopus/meters/Screenshot1.png",
-            "steps": [ {"loadProfile": "demo"}, {"click": "octopus"}, {"click": "Meters"}, {"waitFor": "Meter Points"} ]
+            "steps": [ {"loadDomain": "demo"}, {"click": "octopus"}, {"click": "Meters"}, {"waitFor": "Meter Points"} ]
         },
         {
             "file": "docs/octopus/meters/Screenshot2.png",
@@ -84,16 +84,16 @@
             "steps": [ {"click": "octopus"}, {"click": "Bills"}, {"row": "9.00", "select": ".bill-ref .link"}, {"wait": 3000} ]
         },
         {
-            "file": "docs/gettingStarted/profile-menu.png",
+            "file": "docs/gettingStarted/domain-menu.png",
             "steps": [ {"select": ".dropdown-toggle"} ]
         },
         {
-            "file": "docs/gettingStarted/profile-name.png",
-            "steps": [ {"select": ".dropdown-toggle"}, {"click": "Create New Profile"}, {"input": ".profile-rename", "value": "new_demo"} ]
+            "file": "docs/gettingStarted/domain-name.png",
+            "steps": [ {"select": ".dropdown-toggle"}, {"click": "Create New Domain"}, {"input": ".domain-rename", "value": "new_demo"} ]
         },
         {
-            "file": "docs/gettingStarted/profile-created.png",
-            "steps": [ {"select": ".dropdown-toggle"}, {"click": "Create New Profile"}, {"input": ".profile-rename", "value": "new_demo"}, {"key": "Enter"}, {"waitFor": "inactive"} ]
+            "file": "docs/gettingStarted/domain-created.png",
+            "steps": [ {"select": ".dropdown-toggle"}, {"click": "Create New Domain"}, {"input": ".domain-rename", "value": "new_demo"}, {"key": "Enter"}, {"waitFor": "inactive"} ]
         }
     ]
 }

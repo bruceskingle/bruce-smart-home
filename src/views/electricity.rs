@@ -22,6 +22,7 @@ use crate::components::stacked_bar_graph::{
 };
 use crate::components::toggle_button::ToggleButton;
 use crate::data_set::CancelToken;
+use crate::domain::Settings as DomainSettings;
 use crate::period::Period;
 use crate::power::measured::{MeasurementSource, Measurements};
 use crate::power::topology::{CAR, TopologySplit};
@@ -29,7 +30,6 @@ use crate::power::{
     self, EXPORT_LABEL, Electricity, ElectricityPoint, ElectricitySource, EvComparison, LoadedElectricity,
     MEASURED_EV_LABEL, OCTOPUS_EV_LABEL,
 };
-use crate::profile::Settings as ProfileSettings;
 use crate::util::SharedProp;
 use crate::{AppContext, ModuleRegistrations};
 
@@ -191,7 +191,7 @@ async fn load_stored(
 const KEPT_LOADS: usize = 8;
 
 thread_local! {
-    /// The latest load of each range shown, by profile, page and range, while the app runs, the latest last, so that
+    /// The latest load of each range shown, by domain, page and range, while the app runs, the latest last, so that
     /// going back to a page draws it at once, while it loads again, rather than after the store has been read, which
     /// took over 2 s for a week, with Tesla's measurements, on 23 November 2026. The pages run on the UI's thread.
     static LOADED: RefCell<Vec<(String, Rc<Loaded>)>> = const { RefCell::new(Vec::new()) };
@@ -229,11 +229,11 @@ pub fn ElectricityExplorer(
     sources: Vec<SharedProp<dyn ElectricitySource>>,
     measurements: Vec<SharedProp<dyn MeasurementSource>>,
 ) -> Element {
-    let settings = use_context::<Signal<ProfileSettings>>();
-    let profile_name = use_context::<Signal<Option<Arc<AppContext>>>>()
+    let settings = use_context::<Signal<DomainSettings>>();
+    let domain_name = use_context::<Signal<Option<Arc<AppContext>>>>()
         .read()
         .as_ref()
-        .map(|context| context.profile.active_profile.name.clone())
+        .map(|context| context.domain.active_domain.name.clone())
         .unwrap_or_default();
     let topology = settings.read().topology.clone();
     let source = sources[0].clone();
@@ -278,12 +278,12 @@ pub fn ElectricityExplorer(
         let measurements = measurements.clone();
         let cancel = cancel.clone();
         let title = title.clone();
-        let profile_name = profile_name.clone();
+        let domain_name = domain_name.clone();
         move || {
             let sources = sources.clone();
             let measurements = measurements.clone();
             let dates = range().to_date_times(tz);
-            let key = format!("{profile_name} {title} {:?}", dates.as_ref().ok());
+            let key = format!("{domain_name} {title} {:?}", dates.as_ref().ok());
             let reload_period = *reload.peek();
             let token = CancelToken::new();
             *cancel.borrow_mut() = token.clone();
@@ -1090,7 +1090,7 @@ fn electricity_graph(
     }
 }
 
-/// What Home's Electricity and Site pages found in the profile's modules, see ElectricityPage.
+/// What Home's Electricity and Site pages found in the domain's modules, see ElectricityPage.
 pub(crate) struct Found {
     /// The sources, suppliers' first, see SourceKind.
     pub(crate) sources: Vec<Arc<dyn ElectricitySource>>,
@@ -1105,7 +1105,7 @@ pub(crate) struct Found {
     _modules: Vec<Box<dyn crate::Module + Send>>,
 }
 
-/// Builds each of the profile's modules, as when its own pages are shown, see views/module.rs, for their electricity
+/// Builds each of the domain's modules, as when its own pages are shown, see views/module.rs, for their electricity
 /// measurements and channels.
 pub(crate) async fn find(context: Arc<AppContext>, registrations: ModuleRegistrations) -> anyhow::Result<Found> {
     let mut found = Found {
@@ -1116,7 +1116,7 @@ pub(crate) async fn find(context: Arc<AppContext>, registrations: ModuleRegistra
         notices: Vec::new(),
         _modules: Vec::new(),
     };
-    for module_id in context.profile.active_profile.modules.keys() {
+    for module_id in context.domain.active_domain.modules.keys() {
         // Each step is logged if it is slow, as the page waits for all of them before it loads anything.
         let started = std::time::Instant::now();
         let factory = registrations.module_factory(module_id, &context).await?;
@@ -1141,7 +1141,7 @@ pub(crate) async fn find(context: Arc<AppContext>, registrations: ModuleRegistra
     Ok(found)
 }
 
-/// The site's electricity, Home's first page, from the profile's modules: a supplier's, e.g. Octopus's, if there is
+/// The site's electricity, Home's first page, from the domain's modules: a supplier's, e.g. Octopus's, if there is
 /// one, otherwise a device's which measures the grid, e.g. the Tesla gateway's, split by use by whatever measured it,
 /// see power.rs. The modules do not know of each other: this puts them together.
 #[component]
@@ -1151,7 +1151,7 @@ pub fn ElectricityPage() -> Element {
     let found = use_resource(move || {
         let context = context_signal.read().clone();
         let registrations = registrations.clone();
-        async move { find(context.ok_or_else(|| anyhow!("There is no profile"))?, registrations).await }
+        async move { find(context.ok_or_else(|| anyhow!("There is no domain"))?, registrations).await }
     });
     let not_ready = |not_ready: &[String]| {
         rsx! {
@@ -1187,7 +1187,7 @@ pub fn ElectricityPage() -> Element {
         },
         Some(Ok(Found { not_ready: waiting, .. })) => rsx! {
             h1 { "Electricity" }
-            p { "None of this profile's modules has electricity to show, e.g. Octopus, GloBird or Tesla. Choose one on the Modules page." }
+            p { "None of this domain's modules has electricity to show, e.g. Octopus, GloBird or Tesla. Choose one on the Modules page." }
             {not_ready(waiting)}
         },
     }

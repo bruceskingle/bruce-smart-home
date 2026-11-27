@@ -2599,7 +2599,7 @@ query energyProducts($postcode:String!) {
   }
 }
 ```
-Note that this query returns instances of `EnergyTariffType` which does not include `HalfHourlyTariff` or `PrepayTariff` so in this sense at least, Intelligent Go is not an Energy Product. 
+Note that this query returns instances of `EnergyTariffType` which does not include `HalfHourlyTariff` or `PrepayTariff` so in this sense at least, Intelligent Go is not an Energy Product.
 
 ## getBills
 ### Query

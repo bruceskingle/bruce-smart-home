@@ -2,14 +2,14 @@ use dioxus::prelude::*;
 
 use crate::components::error_text::ErrorText;
 use crate::octopus::{Profile, graphql::account::viewer::AccountInterface};
-use crate::{InitRequested, profile};
+use crate::{InitRequested, domain};
 
 #[derive(Props, Clone)]
 pub struct AccountRowProps {
     accounts: Vec<AccountInterface>,
     selected_account_id: String,
     profile: Profile,
-    profile_name: String,
+    domain_name: String,
 }
 
 impl PartialEq for AccountRowProps {
@@ -20,7 +20,7 @@ impl PartialEq for AccountRowProps {
             .eq(other.accounts.iter().map(|account| &account.number_))
             && self.selected_account_id == other.selected_account_id
             && self.profile == other.profile
-            && self.profile_name == other.profile_name
+            && self.domain_name == other.domain_name
     }
 }
 
@@ -34,7 +34,7 @@ pub fn AccountRow(props: AccountRowProps) -> Element {
     let valid_account_ids = account_ids.clone();
     let selected_account_id = props.selected_account_id.clone();
     let profile = props.profile.clone();
-    let profile_name = props.profile_name.clone();
+    let domain_name = props.domain_name.clone();
 
     rsx! {
         tr {
@@ -60,9 +60,9 @@ pub fn AccountRow(props: AccountRowProps) -> Element {
                                 account_number: Some(account_number.clone()),
                                 ..profile.clone()
                             };
-                            match profile::update_profile(&profile_name, "octopus", &updated_profile) {
+                            match domain::update_domain(&domain_name, "octopus", &updated_profile) {
                                 Ok(()) => {
-                                    crate::log_info!("Selected Octopus account {account_number} for profile {profile_name}");
+                                    crate::log_info!("Selected Octopus account {account_number} for profile {domain_name}");
                                     init_signal.set(InitRequested(true));
                                 }
                                 Err(save_error) => {
@@ -80,7 +80,7 @@ pub fn AccountRow(props: AccountRowProps) -> Element {
                             }
                         }
                     }
-                    p { class: "note", "Used by all the Octopus pages, and saved with this profile." }
+                    p { class: "note", "Used by all the Octopus pages, and saved with this domain." }
                 } else {
                     "{props.selected_account_id}"
                 }

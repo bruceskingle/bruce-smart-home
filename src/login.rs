@@ -73,15 +73,15 @@ pub fn refused(context: &AppContext, module_id: &str, reason: impl Into<String>)
     .into()
 }
 
-/// Records that the saved login of module_id in profile_name could not be decrypted, for reason, as a refused login, so
-/// that its login page says why it asks for it again, unless a refusal is already saved. It is called when the profile
-/// file is read, before there is an AppContext, see profile.rs.
-pub fn unreadable(profile_name: &str, module_id: &str, reason: String) {
-    let path = AppContext::login_file_path_of(profile_name, module_id);
+/// Records that the saved login of module_id in domain_name could not be decrypted, for reason, as a refused login, so
+/// that its login page says why it asks for it again, unless a refusal is already saved. It is called when the domain
+/// file is read, before there is an AppContext, see domain.rs.
+pub fn unreadable(domain_name: &str, module_id: &str, reason: String) {
+    let path = AppContext::login_file_path_of(domain_name, module_id);
     if path.as_ref().is_ok_and(|path| path.exists()) {
         return;
     }
-    // Nothing is drawn again, as the profile is read before its pages are drawn, which read the reason then.
+    // Nothing is drawn again, as the domain is read before its pages are drawn, which read the reason then.
     save_reason(path, module_id, &reason);
 }
 
@@ -114,13 +114,13 @@ pub fn saved_refusal(context: &AppContext, module_id: &str) -> Option<String> {
 
 /// Whether module_id can be used, so that every page, and polling, agree: its saved login was not refused, see refused,
 /// and it says it is logged in, see ModuleFactory::is_ready. A module may still have a token of a refused login, e.g.
-/// Octopus, but it is not used until the user logs in again, as its login page says. An offline profile has no login.
+/// Octopus, but it is not used until the user logs in again, as its login page says. An offline domain has no login.
 pub async fn is_ready(
     context: &AppContext,
     module_id: &str,
     factory: &std::sync::Arc<dyn crate::ModuleFactory + Send>,
 ) -> anyhow::Result<bool> {
-    if !context.profile.active_profile.offline && saved_refusal(context, module_id).is_some() {
+    if !context.domain.active_domain.offline && saved_refusal(context, module_id).is_some() {
         return Ok(false);
     }
     factory.is_ready().await

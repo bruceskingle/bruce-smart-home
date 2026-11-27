@@ -1,4 +1,4 @@
-//! The Capture Devices page: the ESP32s the profile has adopted, see capture_device.rs, with their state, settings,
+//! The Capture Devices page: the ESP32s the domain has adopted, see capture_device.rs, with their state, settings,
 //! restart and release, and adopting another.
 
 use crate::discovery::CaptureDevice;
@@ -11,18 +11,18 @@ use serde_json::{Map, Value, json};
 use crate::AppContext;
 use crate::capture_device::{self, DeviceClient, DeviceProfile, FoundDevice};
 use crate::components::error_text::ErrorText;
-use crate::profile::Settings as ProfileSettings;
+use crate::domain::Settings as DomainSettings;
 
 /// A setting changed on the page but not yet saved, by feature and setting name.
 type Edits = BTreeMap<(String, String), Value>;
 
-/// A module whose profile fills in a feature's settings: the feature, the module, and the pairs of the setting and
-/// the profile's field it is filled in from, see FROM_PROFILE.
-type FromProfile = (&'static str, &'static str, &'static [(&'static str, &'static str)]);
+/// A module whose domain fills in a feature's settings: the feature, the module, and the pairs of the setting and
+/// the domain's field it is filled in from, see FROM_DOMAIN.
+type FromDomain = (&'static str, &'static str, &'static [(&'static str, &'static str)]);
 
-/// The settings of a device's features which the profile's modules know, as (feature, module, [(setting, the module
-/// profile's field)]), see FeatureSettings' Fill In.
-const FROM_PROFILE: &[FromProfile] = &[
+/// The settings of a device's features which the domain's modules know, as (feature, module, [(setting, the module
+/// domain's field)]), see FeatureSettings' Fill In.
+const FROM_DOMAIN: &[FromDomain] = &[
     (
         "TeslaCapture",
         "tesla",
@@ -40,15 +40,15 @@ const FROM_PROFILE: &[FromProfile] = &[
     ("OctopusCapture", "octopus", &[("octopus_key", "apiKey")]),
 ];
 
-/// What the profile's module knows of a device feature's settings, see FROM_PROFILE, as edits.
-fn from_profile(profile_name: &str, feature: &str) -> Edits {
-    let Some((_, module, fields)) = FROM_PROFILE.iter().find(|(name, _, _)| *name == feature) else {
+/// What the domain's module knows of a device feature's settings, see FROM_DOMAIN, as edits.
+fn from_domain(domain_name: &str, feature: &str) -> Edits {
+    let Some((_, module, fields)) = FROM_DOMAIN.iter().find(|(name, _, _)| *name == feature) else {
         return Edits::new();
     };
-    let profile = crate::profile::fetch_active_profile(&Some(profile_name.to_string())).ok();
-    let module_profile = profile
+    let domain = crate::domain::fetch_active_domain(&Some(domain_name.to_string())).ok();
+    let module_profile = domain
         .as_ref()
-        .and_then(|profile| profile.active_profile.modules.get(*module));
+        .and_then(|domain| domain.active_domain.modules.get(*module));
     let mut edits: Edits = fields
         .iter()
         .filter_map(|(setting, field)| {
@@ -58,7 +58,7 @@ fn from_profile(profile_name: &str, feature: &str) -> Edits {
         .collect();
     // The account the Octopus module uses, its default, the first of its cached viewer's, see ViewerDataSet.
     if feature == "OctopusCapture" {
-        let viewer = crate::store::for_profile(profile_name).ok().and_then(|store| {
+        let viewer = crate::store::for_domain(domain_name).ok().and_then(|store| {
             crate::data_set::Records::in_store(store, "#Viewer")
                 .ok()?
                 .get("-")
@@ -79,13 +79,13 @@ fn from_profile(profile_name: &str, feature: &str) -> Edits {
 /// adopted, so that the app has what it took straight away.
 const READING_MODULES: &[&str] = &["tesla", "myenergi", "octopus"];
 
-/// Saves the profile's devices, in the profile and for the pages which show them.
+/// Saves the domain's devices, in the domain and for the pages which show them.
 fn save_devices(
-    profile_name: &str,
-    settings: &mut Signal<ProfileSettings>,
+    domain_name: &str,
+    settings: &mut Signal<DomainSettings>,
     devices: Vec<DeviceProfile>,
 ) -> Result<(), String> {
-    crate::profile::update_capture_devices(profile_name, &devices)
+    crate::domain::update_capture_devices(domain_name, &devices)
         .map_err(|error| format!("Unable to save the devices, {error:#}"))?;
     settings.write().capture_devices = devices;
     Ok(())
@@ -248,11 +248,11 @@ fn up_time(seconds: u64) -> String {
 #[component]
 pub fn Devices() -> Element {
     let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
-    let settings = use_context::<Signal<ProfileSettings>>();
-    let profile_name = context_signal
+    let settings = use_context::<Signal<DomainSettings>>();
+    let domain_name = context_signal
         .read()
         .as_ref()
-        .map(|context| context.profile.active_profile.name.clone())
+        .map(|context| context.domain.active_domain.name.clone())
         .unwrap_or_default();
     let devices = settings.read().capture_devices.clone();
     // The device whose card is shown, below the table, see DeviceRow.
@@ -263,19 +263,19 @@ pub fn Devices() -> Element {
     let mut discovered = use_signal(Vec::<crate::discovery::Found>::new);
     let mut follow_settings = settings;
     use_future({
-        let profile_name = profile_name.clone();
+        let domain_name = domain_name.clone();
         move || {
-            let profile_name = profile_name.clone();
+            let domain_name = domain_name.clone();
             async move {
                 loop {
                     match crate::discovery::browse().await {
                         Ok(found) => {
-                            // A device of the profile found at another address is moved to it, and its row and card
+                            // A device of the domain found at another address is moved to it, and its row and card
                             // with it.
-                            match capture_device::follow_addresses(&profile_name, &found) {
+                            match capture_device::follow_addresses(&domain_name, &found) {
                                 Ok(moves) if !moves.is_empty() => {
                                     follow_settings.write().capture_devices =
-                                        capture_device::adopted_devices(&profile_name);
+                                        capture_device::adopted_devices(&domain_name);
                                 }
                                 Ok(_) => {}
                                 Err(error) => {
@@ -296,10 +296,10 @@ pub fn Devices() -> Element {
         div { class: "settings-page",
             h1 { "Capture Devices" }
             p { class: "note",
-                "Capture devices are small always-on ESP32 boards which fetch data while this computer sleeps. Once adopted, only this profile can change their settings."
+                "Capture devices are small always-on ESP32 boards which fetch data while this computer sleeps. Once adopted, only this domain can change their settings."
             }
             if devices.is_empty() {
-                p { "There are no capture devices in profile {profile_name} yet." }
+                p { "There are no capture devices in domain {domain_name} yet." }
             } else {
                 table { class: "display device-list",
                     tr {
@@ -316,19 +316,20 @@ pub fn Devices() -> Element {
                     }
                 }
             }
-            // The device whose ID was clicked, while it is still in the profile, which Forget would remove it from.
+            // The device whose ID was clicked, while it is still in the domain, which Forget would remove it from.
             if let Some(shown) = selected().filter(|shown| devices.iter().any(|device| device.id == shown.device.id)) {
                 DeviceCard {
                     key: "{shown.device.id}",
                     device: shown.device.clone(),
-                    profile_name: profile_name.clone(),
+                    domain_name: domain_name.clone(),
                     info: shown.info,
                     starts: shown.starts,
                     generation: shown.generation,
                     selected,
                 }
             }
-            AddDevice { profile_name: profile_name.clone(), discovered }
+            AddDevice { domain_name: domain_name.clone(), discovered }
+            super::domain_access::DomainAccess { domain_name: domain_name.clone() }
             NetworkBoards { discovered }
             FlashBoard {}
         }
@@ -336,10 +337,10 @@ pub fn Devices() -> Element {
 }
 
 /// Every board found on the network by mDNS, see discovery.rs, whatever its firmware, e.g. a platform demo, with what
-/// it says it is, and whether this profile, or another app, has adopted it.
+/// it says it is, and whether this domain, or another app, has adopted it.
 #[component]
 fn NetworkBoards(discovered: Signal<Vec<crate::discovery::Found>>) -> Element {
-    let settings = use_context::<Signal<ProfileSettings>>();
+    let settings = use_context::<Signal<DomainSettings>>();
     let known: Vec<String> = settings
         .read()
         .capture_devices
@@ -371,7 +372,7 @@ fn NetworkBoards(discovered: Signal<Vec<crate::discovery::Found>>) -> Element {
                         td { "{board.address}" }
                         td {
                             if known.contains(&board.id) {
-                                "In this profile"
+                                "In this domain"
                             } else if board.is_adopted() {
                                 span { class: "invalid", "Adopted elsewhere" }
                             } else if board.fact("adopted").is_some() {
@@ -392,11 +393,11 @@ fn NetworkBoards(discovered: Signal<Vec<crate::discovery::Found>>) -> Element {
 const CAPTURE_FIRMWARE_NAME: &str = "bruce-smart-home-capture";
 
 /// Flashing firmware from the shared firmware folder, see bruce-embedded-firmware, to a board plugged in by USB, e.g.
-/// a new one, with bruce-embedded-flash's Flasher, the capture firmware first, shown when asked, as it lists the USB ports every few seconds. Boards the profile has adopted are named as such,
+/// a new one, with bruce-embedded-flash's Flasher, the capture firmware first, shown when asked, as it lists the USB ports every few seconds. Boards the domain has adopted are named as such,
 /// and flashing other firmware to one is agreed to first.
 #[component]
 fn FlashBoard() -> Element {
-    let settings = use_context::<Signal<ProfileSettings>>();
+    let settings = use_context::<Signal<DomainSettings>>();
     let mut shown = use_signal(|| false);
     let mut getting = use_signal(|| false);
     let mut firmware = use_resource(move || async move {
@@ -599,13 +600,13 @@ fn DeviceRow(device: DeviceProfile, selected: Signal<Option<Selected>>) -> Eleme
 #[component]
 fn DeviceCard(
     device: DeviceProfile,
-    profile_name: String,
+    domain_name: String,
     info: Resource<anyhow::Result<capture_device::DeviceInfo>>,
     starts: Resource<anyhow::Result<capture_device::Starts>>,
     generation: Signal<u32>,
     selected: Signal<Option<Selected>>,
 ) -> Element {
-    let mut settings = use_context::<Signal<ProfileSettings>>();
+    let mut settings = use_context::<Signal<DomainSettings>>();
     let mut generation = generation;
     let mut selected = selected;
     let mut status = use_signal(|| None::<Result<String, String>>);
@@ -618,7 +619,7 @@ fn DeviceCard(
 
     let remove = {
         let device = device.clone();
-        let profile_name = profile_name.clone();
+        let domain_name = domain_name.clone();
         move || {
             let devices: Vec<DeviceProfile> = settings
                 .read()
@@ -627,7 +628,7 @@ fn DeviceCard(
                 .filter(|other| other.id != device.id)
                 .cloned()
                 .collect();
-            if let Err(error) = save_devices(&profile_name, &mut settings, devices) {
+            if let Err(error) = save_devices(&domain_name, &mut settings, devices) {
                 status.set(Some(Err(error)));
             } else {
                 selected.set(None);
@@ -796,7 +797,7 @@ fn DeviceCard(
                     },
                 }
             }
-            BatteryHistory { profile_name: profile_name.clone(), device_id: device.id.clone() }
+            BatteryHistory { domain_name: domain_name.clone(), device_id: device.id.clone() }
             div { class: "settings-buttons",
                 button { r#type: "button", disabled: busy(), onclick: move |_| show_settings.set(!show_settings()), if show_settings() { "Hide Settings" } else { "Settings" } }
                 button { r#type: "button", disabled: busy(), onclick: move |_| { status.set(None); generation += 1; }, "Refresh" }
@@ -816,9 +817,9 @@ fn DeviceCard(
                     div { class: "settings-buttons",
                         span {
                             if action == "release" {
-                                "Release the device, so that its own /config page manages it again, and remove it from this profile?"
+                                "Release the device, so that its own /config page manages it again, and remove it from this domain?"
                             } else {
-                                "Remove the device from this profile without releasing it? It stays adopted until its BOOT button is held for 5 seconds."
+                                "Remove the device from this domain without releasing it? It stays adopted until its BOOT button is held for 5 seconds."
                             }
                         }
                         button { r#type: "button", onclick: confirm, "Yes" }
@@ -837,8 +838,8 @@ fn DeviceCard(
 
 /// Finds a device by its address and adopts it with the code on its screen.
 #[component]
-fn AddDevice(profile_name: String, discovered: Signal<Vec<crate::discovery::Found>>) -> Element {
-    let mut settings = use_context::<Signal<ProfileSettings>>();
+fn AddDevice(domain_name: String, discovered: Signal<Vec<crate::discovery::Found>>) -> Element {
+    let mut settings = use_context::<Signal<DomainSettings>>();
     let poll_statuses = try_use_context::<crate::polling::PollStatuses>();
     let mut address = use_signal(String::new);
     let mut found = use_signal(|| None::<FoundDevice>);
@@ -861,9 +862,9 @@ fn AddDevice(profile_name: String, discovered: Signal<Vec<crate::discovery::Foun
                         .iter()
                         .any(|known| known.id == device.info.id)
                     {
-                        status.set(Some(Err(format!("{} is already in this profile", device.info.id))));
+                        status.set(Some(Err(format!("{} is already in this domain", device.info.id))));
                     } else if device.info.adopted {
-                        status.set(Some(Err("Another app, or another profile, has adopted it. To adopt it here, hold its BOOT button for 5 seconds to release it, then Find it again.".to_string())));
+                        status.set(Some(Err("Another app, or another domain, has adopted it. To adopt it here, hold its BOOT button for 5 seconds to release it, then Find it again.".to_string())));
                         found.set(Some(device));
                     } else {
                         found.set(Some(device));
@@ -897,16 +898,16 @@ fn AddDevice(profile_name: String, discovered: Signal<Vec<crate::discovery::Foun
     };
 
     let adopt = move || {
-        let profile_name = profile_name.clone();
+        let domain_name = domain_name.clone();
         spawn(async move {
             let Some(device) = found() else { return };
             busy.set(true);
             // The last action's message, which this replaces.
             status.set(None);
-            let site = match crate::profile::ensure_site(&profile_name) {
+            let site = match crate::domain::ensure_id(&domain_name) {
                 Ok(site) => site.to_string(),
                 Err(error) => {
-                    status.set(Some(Err(format!("Not adopted, as the profile has no site, {error:#}"))));
+                    status.set(Some(Err(format!("Not adopted, as the domain has no site, {error:#}"))));
                     busy.set(false);
                     return;
                 }
@@ -916,7 +917,7 @@ fn AddDevice(profile_name: String, discovered: Signal<Vec<crate::discovery::Foun
                     let mut devices = settings.read().capture_devices.clone();
                     devices.retain(|other| other.id != adopted.id);
                     devices.push(adopted);
-                    match save_devices(&profile_name, &mut settings, devices) {
+                    match save_devices(&domain_name, &mut settings, devices) {
                         Ok(()) => {
                             // Its card, which appears above, says so.
                             status.set(None);
@@ -970,7 +971,7 @@ fn AddDevice(profile_name: String, discovered: Signal<Vec<crate::discovery::Foun
         }
         h2 { "Add a Capture Device" }
         if !new_here.is_empty() {
-            p { class: "note", "Capture devices on the network which this profile does not have:" }
+            p { class: "note", "Capture devices on the network which this domain does not have:" }
             table { class: "device-details",
                 for found in new_here {
                     tr {
@@ -1170,13 +1171,13 @@ fn FeatureSettings(
     device_id: String,
 ) -> Element {
     let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
-    let profile_name = context_signal
+    let domain_name = context_signal
         .read()
         .as_ref()
-        .map(|context| context.profile.active_profile.name.clone())
+        .map(|context| context.domain.active_domain.name.clone())
         .unwrap_or_default();
     let name = feature["name"].as_str().unwrap_or_default().to_string();
-    let fillable = FROM_PROFILE.iter().any(|(feature, _, _)| *feature == name);
+    let fillable = FROM_DOMAIN.iter().any(|(feature, _, _)| *feature == name);
     // What the device says to show it as, e.g. Tesla Powerwall, otherwise its name.
     let title = feature["label"]
         .as_str()
@@ -1212,12 +1213,12 @@ fn FeatureSettings(
                 div { class: "settings-buttons",
                     button {
                         r#type: "button",
-                        title: "Fill in the settings this profile's modules know, e.g. the API key, to check, then Save",
+                        title: "Fill in the settings this domain's modules know, e.g. the API key, to check, then Save",
                         onclick: {
-                            let (name, profile_name) = (name.clone(), profile_name.clone());
-                            move |_| edits.write().extend(from_profile(&profile_name, &name))
+                            let (name, domain_name) = (name.clone(), domain_name.clone());
+                            move |_| edits.write().extend(from_domain(&domain_name, &name))
                         },
-                        "Fill in from this profile"
+                        "Fill in from this domain"
                     }
                 }
             }
@@ -1225,7 +1226,7 @@ fn FeatureSettings(
                 SettingField { key: "{setting[\"name\"]}", feature: name.clone(), setting: setting.clone(), edits }
                 // The temperature sensor's offset is worked out from what a thermometer beside it says, see Calibrate.
                 if setting["name"] == json!(TEMPERATURE_OFFSET) {
-                    Calibrate { profile_name: profile_name.clone(), device_id: device_id.clone(), feature: name.clone(), setting, edits }
+                    Calibrate { domain_name: domain_name.clone(), device_id: device_id.clone(), feature: name.clone(), setting, edits }
                 }
             }
         }
@@ -1411,11 +1412,11 @@ const BATTERY_DAYS: i64 = 2;
 /// A device's battery's voltage over the last BATTERY_DAYS days, as it gave it with its temperature and humidity, see
 /// climate::BATTERY, as of the app's last read of it, nothing if it has none, e.g. a board without a battery.
 #[component]
-fn BatteryHistory(profile_name: String, device_id: String) -> Element {
+fn BatteryHistory(domain_name: String, device_id: String) -> Element {
     let tz = time_tz::system::get_timezone().unwrap_or(time_tz::timezones::db::UTC);
     let now = crate::clock::now_utc();
     let from = now - time::Duration::days(BATTERY_DAYS);
-    let periods = crate::climate::store(&profile_name)
+    let periods = crate::climate::store(&domain_name)
         .map(|dir| crate::climate::load_series(&dir, &device_id, &crate::climate::BATTERY, from, now))
         .unwrap_or_default();
     let Some(latest) = periods.last().map(|period| period.value) else {
@@ -1438,17 +1439,11 @@ const TEMPERATURE_OFFSET: &str = "offset_tenths";
 /// setting's value on the device, is what the sensor itself read, and the offset is the thermometer's less that. To
 /// within a tenth, as the readings are kept to tenths, and as of the app's last read, a few minutes ago at most.
 #[component]
-fn Calibrate(
-    profile_name: String,
-    device_id: String,
-    feature: String,
-    setting: Value,
-    edits: Signal<Edits>,
-) -> Element {
+fn Calibrate(domain_name: String, device_id: String, feature: String, setting: Value, edits: Signal<Edits>) -> Element {
     let mut actual = use_signal(String::new);
     let mut note = use_signal(|| None::<Result<String, String>>);
     let now = crate::clock::now_utc();
-    let latest = crate::climate::store(&profile_name)
+    let latest = crate::climate::store(&domain_name)
         .ok()
         .map(|dir| {
             crate::climate::load_series(

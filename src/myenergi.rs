@@ -76,7 +76,7 @@ fn redacted(secret: &Option<String>) -> Option<&'static str> {
 pub struct MyenergiContext {
     client: MyenergiClient,
     cache_config: Arc<CacheConfig>,
-    /// The profile's store, which the statuses and records are kept in, see fetch.rs.
+    /// The domain's store, which the statuses and records are kept in, see fetch.rs.
     store: Arc<bruce_db::Store>,
 }
 
@@ -84,9 +84,9 @@ pub struct MyenergiModule {
     context: Arc<MyenergiContext>,
     /// The day poll last fetched whole days on, see fetch::poll.
     whole_days_fetched: std::sync::Mutex<Option<time::Date>>,
-    /// The statuses the profile's capture devices took, see poll.
+    /// The statuses the domain's capture devices took, see poll.
     capture: crate::capture_device::CaptureReader,
-    profile_name: String,
+    domain_name: String,
 }
 
 /// How often the status is polled.
@@ -110,7 +110,7 @@ impl MyenergiModule {
             Some(json) => serde_json::from_value(json)?,
             None => Profile::default(),
         };
-        // The args are used instead of the profile, but not saved in it.
+        // The args are used instead of the domain, but not saved in it.
         if args.myenergi_hub_serial.is_some() {
             profile.hub_serial = args.myenergi_hub_serial.clone();
         }
@@ -152,11 +152,11 @@ impl Module for MyenergiModule {
         self.capture.next_read(now, POLL_INTERVAL)
     }
 
-    /// If any of the profile's capture devices polls the status, reads the statuses they took instead, so that the app
+    /// If any of the domain's capture devices polls the status, reads the statuses they took instead, so that the app
     /// does not poll it too, but still fetches the minute records, which myenergi keeps.
     async fn poll(&self, slot: Option<time::OffsetDateTime>) -> anyhow::Result<String> {
         let (store, offline) = (&self.context.store, self.context.cache_config.offline);
-        let devices = crate::capture_device::adopted_devices(&self.profile_name);
+        let devices = crate::capture_device::adopted_devices(&self.domain_name);
         let captured = !offline
             && self
                 .capture
@@ -463,7 +463,7 @@ pub struct MyenergiModuleFactory {
 
 impl MyenergiModuleFactory {
     /// Checks the hub serial and API key by fetching the status, which also finds the server with the hub's data, and
-    /// saves them in the profile.
+    /// saves them in the domain.
     async fn login(context: Arc<AppContext>, hub_serial: String, api_key: String, verbose: bool) -> anyhow::Result<()> {
         let client = MyenergiClient::new(hub_serial.clone(), api_key.clone(), None, verbose)?;
         client.status().await?;
@@ -472,7 +472,7 @@ impl MyenergiModuleFactory {
             api_key: Some(api_key),
             host: Some(client.host()),
         };
-        crate::profile::update_profile(&context.profile.active_profile.name, MODULE_ID, &profile)?;
+        crate::domain::update_domain(&context.domain.active_domain.name, MODULE_ID, &profile)?;
         crate::login::cleared(&context, MODULE_ID);
         crate::log_info!("Logged in to myenergi");
         Ok(())
@@ -482,8 +482,8 @@ impl MyenergiModuleFactory {
 #[async_trait]
 impl ModuleFactory for MyenergiModuleFactory {
     async fn is_ready(&self) -> anyhow::Result<bool> {
-        // An offline profile has no login, it only shows its cached data, see Profile::offline.
-        Ok(self.context.profile.active_profile.offline
+        // An offline domain has no login, it only shows its cached data, see Profile::offline.
+        Ok(self.context.domain.active_domain.offline
             || (self.profile.hub_serial.is_some() && self.profile.api_key.is_some()))
     }
 
@@ -582,7 +582,7 @@ impl ModuleFactory for MyenergiModuleFactory {
             }),
             whole_days_fetched: std::sync::Mutex::new(None),
             capture: crate::capture_device::CaptureReader::new("capture/myenergi/records"),
-            profile_name: self.context.profile.active_profile.name.clone(),
+            domain_name: self.context.domain.active_domain.name.clone(),
         }))
     }
 }

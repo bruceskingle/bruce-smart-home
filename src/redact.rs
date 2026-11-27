@@ -1,8 +1,8 @@
-//! Redaction of a profile's data, so that it can be shown, e.g. in screenshots for the documentation, without
-//! revealing who it belongs to: bruce-smart-home --redact <profile> <new profile>
+//! Redaction of a domain's data, so that it can be shown, e.g. in screenshots for the documentation, without
+//! revealing who it belongs to: bruce-smart-home --redact <domain> <new domain>
 //!
-//! The profile's cached data is copied to a new profile with every identifying value replaced, in the files and in
-//! their names, and without its logins. The new profile is offline, see Profile::offline, so it only shows the copy.
+//! The domain's cached data is copied to a new domain with every identifying value replaced, in the files and in
+//! their names, and without its logins. The new domain is offline, see Domain::offline, so it only shows the copy.
 //!
 //! What replaces what is in a CSV mapping file in the home directory, see MAPPING_FILE, never in the repository, as it
 //! reveals the real values. Its own pairs come first. Redacting finds the identifiers which are not in it, by the
@@ -25,7 +25,7 @@ use rand::Rng;
 use regex::Regex;
 use serde_json::Value;
 
-use crate::profile::{ProfileFile, profile_names_equal};
+use crate::domain::{DomainFile, domain_names_equal};
 use crate::{AppContext, private_file};
 
 /// The mapping file, in the home directory.
@@ -517,7 +517,7 @@ fn read_tree(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
     Ok(files)
 }
 
-/// When the newest of the profile from's data files was written, i.e. when its data was last fetched, as a unix
+/// When the newest of the domain from's data files was written, i.e. when its data was last fetched, as a unix
 /// timestamp.
 fn newest_file_time(cache_dir: &Path, from: &str, module_ids: &[&String]) -> Option<i64> {
     let mut newest = None;
@@ -547,8 +547,8 @@ fn mapping_path() -> anyhow::Result<PathBuf> {
         .join(MAPPING_FILE))
 }
 
-/// The modules whose data can be redacted. The others are left out of a redacted profile, as what identifies you in
-/// their data, and the secrets in their profiles, are not known here yet.
+/// The modules whose data can be redacted. The others are left out of a redacted domain, as what identifies you in
+/// their data, and the secrets in their domains, are not known here yet.
 const REDACTABLE_MODULES: [&str; 1] = ["octopus"];
 
 /// Whether the module's data can be redacted, see REDACTABLE_MODULES.
@@ -556,24 +556,24 @@ pub fn is_redactable(module_id: &str) -> bool {
     REDACTABLE_MODULES.contains(&module_id)
 }
 
-/// Copies the cached data of the profile from to a new, offline, profile to, redacted, see the module documentation.
+/// Copies the cached data of the domain from to a new, offline, domain to, redacted, see the module documentation.
 /// Prints what it does, for --redact.
-pub fn redact_profile(from: &str, to: &str) -> anyhow::Result<()> {
-    if !crate::profile::is_valid_profile_name(to) {
-        bail!("The new profile's name must contain only letters, digits and underscores");
+pub fn redact_domain(from: &str, to: &str) -> anyhow::Result<()> {
+    if !crate::domain::is_valid_domain_name(to) {
+        bail!("The new domain's name must contain only letters, digits and underscores");
     }
-    if profile_names_equal(from, to) {
-        bail!("The new profile must have a different name to the one it is redacted from");
+    if domain_names_equal(from, to) {
+        bail!("The new domain must have a different name to the one it is redacted from");
     }
-    let profiles: ProfileFile = crate::profile::read_profile_file_at(&AppContext::get_file_path()?)?;
-    let source = profiles
+    let domains: DomainFile = crate::domain::read_domain_file_at(&AppContext::get_file_path()?)?;
+    let source = domains
         .iter()
-        .find(|profile| profile_names_equal(&profile.name, from))
-        .ok_or_else(|| anyhow!("There is no profile {from}"))?;
-    if let Some(existing) = profiles.iter().find(|profile| profile_names_equal(&profile.name, to))
+        .find(|domain| domain_names_equal(&domain.name, from))
+        .ok_or_else(|| anyhow!("There is no domain {from}"))?;
+    if let Some(existing) = domains.iter().find(|domain| domain_names_equal(&domain.name, to))
         && !existing.offline
     {
-        bail!("There is already a profile {to} which is not a redacted one, so it is not replaced");
+        bail!("There is already a domain {to} which is not a redacted one, so it is not replaced");
     }
 
     let mut mapping = Mapping::load(mapping_path()?)?;
@@ -657,9 +657,9 @@ pub fn redact_profile(from: &str, to: &str) -> anyhow::Result<()> {
     for module in redacted.modules.values_mut() {
         *module = serde_json::from_str(&replacer.replace(&module.to_string()))?;
     }
-    crate::profile::save_redacted_profile(&redacted, to, newest_file_time(&cache_dir, from, &module_ids))?;
+    crate::domain::save_redacted_domain(&redacted, to, newest_file_time(&cache_dir, from, &module_ids))?;
 
-    println!("Redacted {file_count} files of profile {from} into profile {to}, which is offline.");
+    println!("Redacted {file_count} files of domain {from} into domain {to}, which is offline.");
     report_added(&added, &mapping);
     Ok(())
 }

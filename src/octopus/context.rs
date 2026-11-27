@@ -13,13 +13,13 @@ pub struct OctopusContext {
     pub billing_timezone: &'static time_tz::Tz,
     pub cache_config: Arc<CacheConfig>,
     pub request_manager: Arc<RequestManager>,
-    /// The profile's store, see store.rs, which the module's data is moving into from the cache.
+    /// The domain's store, see store.rs, which the module's data is moving into from the cache.
     pub store: Arc<bruce_db::Store>,
 }
 
 impl OctopusContext {
     /// The same, reading only what is stored, nothing fetched, see CacheConfig::stored_only, for a page to draw at once
-    /// from what the profile has, while it fetches what is missing.
+    /// from what the domain has, while it fetches what is missing.
     pub fn stored_only(&self) -> Arc<OctopusContext> {
         Arc::new(OctopusContext {
             account_id: self.account_id.clone(),

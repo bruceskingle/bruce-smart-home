@@ -1,5 +1,5 @@
 //! The store, bruce-db, which the modules keep their data in, see docs/Store.md and bruce-db's docs/design.md: a
-//! directory of sites in the data home, one site for each profile, see Profile::site.
+//! directory of sites in the data home, one site for each domain, see Domain::site.
 //!
 //! What a source gave is kept as it gave it, and anything worked out from it, if it is kept at all, in kinds of its
 //! own, see AGENTS.md's "Caches hold only what the source sent". Versions written by the app have this installation's
@@ -12,31 +12,41 @@ use std::time::Duration;
 
 use bruce_db::{Id, Micros, Store, Version};
 
-/// The directory of every profile's site's store, in the data directory, see data_home.rs.
+/// The directory of every domain's store, in the data directory, see data_home.rs.
 pub fn store_dir() -> anyhow::Result<PathBuf> {
     crate::data_home::store_dir()
 }
 
-/// The store of the profile's site, made if it has none, see profile::ensure_site.
-pub fn open(profile_name: &str) -> anyhow::Result<Store> {
-    let site = crate::profile::ensure_site(profile_name)?;
+/// The domain's store, made if it has none, see domain::ensure_id.
+pub fn open(domain_name: &str) -> anyhow::Result<Store> {
+    let site = crate::domain::ensure_id(domain_name)?;
     let dir = store_dir()?;
     crate::private_file::create_private_dir(&dir)?;
     Store::open(&format!("file://{}", dir.display()), &site)
 }
 
-/// The store of the profile's site, see open, opened once and shared, as a store keeps its journal in memory, see
-/// bruce-db's file.rs, and pages open it by the profile's name each time they are drawn.
-pub fn for_profile(profile_name: &str) -> anyhow::Result<Arc<Store>> {
-    static STORES: OnceLock<Mutex<HashMap<String, Arc<Store>>>> = OnceLock::new();
+/// The stores opened, by domain, see for_domain.
+static STORES: OnceLock<Mutex<HashMap<String, Arc<Store>>>> = OnceLock::new();
+
+/// Forgets the domain's store, so that it is opened again, e.g. as the domain's ID has changed, see
+/// domain_security::found_domain.
+pub fn forget(domain_name: &str) {
+    if let Some(stores) = STORES.get() {
+        stores.lock().unwrap().remove(domain_name);
+    }
+}
+
+/// The domain's store, see open, opened once and shared, as a store keeps its journal in memory, see
+/// bruce-db's file.rs, and pages open it by the domain's name each time they are drawn.
+pub fn for_domain(domain_name: &str) -> anyhow::Result<Arc<Store>> {
     let mut stores = STORES.get_or_init(Default::default).lock().unwrap();
-    if let Some(store) = stores.get(profile_name) {
+    if let Some(store) = stores.get(domain_name) {
         return Ok(store.clone());
     }
-    let store = Arc::new(open(profile_name)?);
-    stores.insert(profile_name.to_string(), store.clone());
+    let store = Arc::new(open(domain_name)?);
+    stores.insert(domain_name.to_string(), store.clone());
     drop(stores);
-    compact_in_background(profile_name, store.clone());
+    compact_in_background(domain_name, store.clone());
     Ok(store)
 }
 
@@ -51,10 +61,10 @@ const COMPACTION_INTERVAL: Duration = Duration::from_secs(60 * 60);
 /// Compacts the store's journal on a thread of its own, see FIRST_COMPACTION and COMPACTION_INTERVAL: its hours which
 /// have ended are folded into the DataSets' files, see bruce-db's journal by the hour, so that the journal, which is
 /// kept in memory and read whenever the store is opened, stays an hour or two. A late record goes in a later hour, and
-/// is merged when that hour is, as the newest version wins. How long it takes is in the profile's log, from bruce-db.
-fn compact_in_background(profile_name: &str, store: Arc<Store>) {
+/// is merged when that hour is, as the newest version wins. How long it takes is in the domain's log, from bruce-db.
+fn compact_in_background(domain_name: &str, store: Arc<Store>) {
     let spawned = std::thread::Builder::new()
-        .name(format!("compact {profile_name}"))
+        .name(format!("compact {domain_name}"))
         .spawn(move || {
             std::thread::sleep(FIRST_COMPACTION);
             loop {
@@ -75,16 +85,16 @@ pub fn device_part(device_id: &str) -> String {
     crate::device_kinds::device_part(device_id)
 }
 
-/// The directory of a site's store, e.g. to count or delete it with its profile.
-pub fn site_dir(site: &Id) -> anyhow::Result<PathBuf> {
+/// The directory of a domain's store, by its ID, e.g. to count or delete it with the domain.
+pub fn store_dir_of(site: &Id) -> anyhow::Result<PathBuf> {
     Ok(store_dir()?.join(site.hex()))
 }
 
-/// A new site for a profile, its ID made, as a created thing's is, see the design's IDs, from what made it, this
-/// installation, when, and the profile's name then, which may later change.
-pub fn new_site(profile_name: &str) -> anyhow::Result<Id> {
+/// A new site for a domain, its ID made, as a created thing's is, see the design's IDs, from what made it, this
+/// installation, when, and the domain's name then, which may later change.
+pub fn new_id(domain_name: &str) -> anyhow::Result<Id> {
     Id::of(&serde_json::json!({
-        "site": {"profile": profile_name, "created": Micros::now().to_text(), "node": node()?},
+        "site": {"domain": domain_name, "created": Micros::now().to_text(), "node": node()?},
     }))
 }
 

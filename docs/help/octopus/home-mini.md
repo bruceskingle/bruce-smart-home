@@ -15,4 +15,4 @@ Octopus limits how many of these readings can be downloaded in an hour. If a dow
 
 These readings are what the meter measured, they are not used for billing, which uses [the meter's half hourly readings](meter.md). The [Electricity](../electricity.md) page puts the two together.
 
-The readings this profile already has are shown at once, while Octopus is asked for any missing, with a line above the graph saying what is being fetched, and **Cancel**; the graph is drawn again when they arrive.
+The readings this domain already has are shown at once, while Octopus is asked for any missing, with a line above the graph saying what is being fetched, and **Cancel**; the graph is drawn again when they arrive.

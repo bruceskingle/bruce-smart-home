@@ -7,7 +7,7 @@ The help panel shows help about the screen you are looking at. Links like these 
 ## The App
 
 - [Home](home.md), where the app starts.
-- [Profiles](profile-size.md), each with its own logins, data and settings.
+- [Domains](domain-size.md), each with its own logins, data and settings.
 - [Settings](settings.md) and [the log](log.md).
 - [Choosing dates](date-range.md) and [using the graphs](graphs.md), which are the same on every page with a graph.
 

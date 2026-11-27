@@ -1,14 +1,14 @@
 //! The log of important events, e.g. data fetched or requests which failed, as ERROR, WARNING or INFO entries, kept in a
-//! file for each profile in the cache directory and shown in the log panel, see views/log_panel.rs. Verbose output (-v)
+//! file for each domain in the cache directory and shown in the log panel, see views/log_panel.rs. Verbose output (-v)
 //! still goes to stdout and is not logged.
 //!
 //! More than one process can write to the same log at once, e.g. the app and a scheduled fetch (--fetch). Each entry
-//! is written while holding a lock on <profile>.log.lock, by opening the file, writing the whole line and closing it
+//! is written while holding a lock on <domain>.log.lock, by opening the file, writing the whole line and closing it
 //! again, so that lines are never mixed up and every process writes to the current file. Entries from other than the
 //! app are marked with where they came from, e.g. [fetch].
 //!
-//! Old entries are never removed from the file, instead the file is rolled, renamed to <profile>.log.old replacing the
-//! previous one, as the profile's log settings say, see LogRetention: by default when its first entry is more than 24
+//! Old entries are never removed from the file, instead the file is rolled, renamed to <domain>.log.old replacing the
+//! previous one, as the domain's log settings say, see LogRetention: by default when its first entry is more than 24
 //! hours old.
 //!
 //! The log panel reads the file as it grows, see LogReader, so it shows the entries of all the processes.
@@ -105,7 +105,7 @@ impl LogEntry {
     }
 }
 
-/// When the log file is rolled, renamed to <profile>.log.old, so that the log holds what it says and a little more.
+/// When the log file is rolled, renamed to <domain>.log.old, so that the log holds what it says and a little more.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "keep", rename_all = "camelCase")]
 pub enum LogRetention {
@@ -150,7 +150,7 @@ impl LogRetention {
     }
 }
 
-/// The log settings of a profile, see Settings.
+/// The log settings of a domain, see Settings.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogSettings {
@@ -175,27 +175,75 @@ impl Default for LogSettings {
 }
 
 struct Logger {
-    profile_name: String,
+    domain_name: String,
     path: PathBuf,
     process: Process,
     retention: LogRetention,
 }
 
 static LOGGER: Mutex<Option<Logger>> = Mutex::new(None);
-/// The profiles whose log has been rolled by this process for LogRetention::EachRun, so that changing back to a
-/// profile does not roll it again.
+/// The domains whose log has been rolled by this process for LogRetention::EachRun, so that changing back to a
+/// domain does not roll it again.
 static ROLLED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 /// Entries which could not be written to the file, which the log panel shows after those in the file.
 static UNWRITTEN: Mutex<Vec<LogEntry>> = Mutex::new(Vec::new());
 
-/// The log file of a profile, in the cache directory.
-pub fn log_path(profile_name: &str) -> anyhow::Result<PathBuf> {
-    Ok(crate::data_home::logs_dir()?.join(format!("{profile_name}.log")))
+/// The name of the log of a domain which has no ID yet, e.g. one awaiting its founding, see domain::files_key.
+const APP_LOG: &str = "app";
+
+/// The log file of a domain, in the logs directory, named by its ID, see domain::files_key, or the app's own, for one
+/// which has none yet.
+pub fn log_path(domain_name: &str) -> anyhow::Result<PathBuf> {
+    let key = crate::domain::files_key(domain_name)?.unwrap_or_else(|| APP_LOG.to_string());
+    Ok(log_path_of(&key))
 }
 
-/// The files of a profile's log, the log, the previous log it was rolled to and the lock file, which may not exist.
-pub fn log_files(profile_name: &str) -> anyhow::Result<[PathBuf; 3]> {
-    let path = log_path(profile_name)?;
+/// The log file named key, see log_path.
+fn log_path_of(key: &str) -> PathBuf {
+    crate::data_home::logs_dir()
+        .unwrap_or_default()
+        .join(format!("{key}.log"))
+}
+
+/// The files of a domain's log, the log, the previous log it was rolled to and the lock file, which may not exist.
+pub fn log_files(domain_name: &str) -> anyhow::Result<[PathBuf; 3]> {
+    let path = log_path(domain_name)?;
+    Ok([old_path(&path), lock_path(&path), path])
+}
+
+/// Moves the log named from, and the log it was rolled to, to those named to, see log_files_of, e.g. as a domain's log
+/// is named by its ID from 0.6.0, see domain::rename_files. Where one named to is there already, e.g. as the app logged
+/// to it before upgrading the domain, the lines of the one named from are put before its own, holding its lock, so
+/// that no line is lost and the log stays in order.
+pub fn move_log(from: &str, to: &str) -> anyhow::Result<()> {
+    let [from_old, from_lock, from_path] = log_files_of(from)?;
+    let [to_old, _, to_path] = log_files_of(to)?;
+    for (source, target) in [(&from_old, &to_old), (&from_path, &to_path)] {
+        if !source.exists() {
+            continue;
+        }
+        let _lock = lock(target)?;
+        if target.exists() {
+            let mut merged = fs::read(source)?;
+            merged.extend(fs::read(target)?);
+            let new = target.with_extension("log-merged");
+            fs::write(&new, merged)?;
+            fs::rename(&new, target)?;
+            fs::remove_file(source)?;
+        } else {
+            fs::rename(source, target)?;
+        }
+    }
+    match fs::remove_file(&from_lock) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.into()),
+        _ => Ok(()),
+    }
+}
+
+/// The files of the log named key, see log_files, e.g. to rename them, see domain::rename_files.
+pub fn log_files_of(key: &str) -> anyhow::Result<[PathBuf; 3]> {
+    crate::data_home::logs_dir()?;
+    let path = log_path_of(key);
     Ok([old_path(&path), lock_path(&path), path])
 }
 
@@ -250,31 +298,27 @@ fn append(path: &Path, retention: LogRetention, line: &str, now: OffsetDateTime)
     file.write_all(format!("{line}\n").as_bytes())
 }
 
-/// Starts the log of the profile for this process, then logs that it started. With LogRetention::EachRun the app rolls
-/// the log the first time. Called when the profile is chosen, so a change of profile is logged in the previous one.
-pub fn start(profile_name: &str, settings: &LogSettings, process: Process) {
-    let path = match log_path(profile_name) {
+/// Starts the log of the domain for this process, then logs that it started. With LogRetention::EachRun the app rolls
+/// the log the first time. Called when the domain is chosen, so a change of domain is logged in the previous one.
+pub fn start(domain_name: &str, settings: &LogSettings, process: Process) {
+    let path = match log_path(domain_name) {
         Ok(path) => path,
         Err(error) => {
             eprintln!("Unable to find the log file: {error}");
             return;
         }
     };
-    let previous = LOGGER
-        .lock()
-        .unwrap()
-        .as_ref()
-        .map(|logger| logger.profile_name.clone());
-    if previous.is_some_and(|previous| previous != profile_name) {
-        crate::log_info!("Changed to profile {profile_name}");
+    let previous = LOGGER.lock().unwrap().as_ref().map(|logger| logger.domain_name.clone());
+    if previous.is_some_and(|previous| previous != domain_name) {
+        crate::log_info!("Changed to domain {domain_name}");
     }
 
     let mut rolled = ROLLED.lock().unwrap();
     if process == Process::App
         && settings.retention == LogRetention::EachRun
-        && !rolled.iter().any(|name| name == profile_name)
+        && !rolled.iter().any(|name| name == domain_name)
     {
-        rolled.push(profile_name.to_string());
+        rolled.push(domain_name.to_string());
         if let Err(error) = lock(&path).and_then(|_lock| roll(&path)) {
             eprintln!("Unable to roll the log file {}: {error}", path.display());
         }
@@ -282,7 +326,7 @@ pub fn start(profile_name: &str, settings: &LogSettings, process: Process) {
     drop(rolled);
 
     *LOGGER.lock().unwrap() = Some(Logger {
-        profile_name: profile_name.to_string(),
+        domain_name: domain_name.to_string(),
         path,
         process,
         retention: settings.retention,
@@ -291,7 +335,7 @@ pub fn start(profile_name: &str, settings: &LogSettings, process: Process) {
     log(
         Level::Info,
         format!(
-            "Started, Bruce's Smart Home {}, profile {profile_name}",
+            "Started, Bruce's Smart Home {}, domain {domain_name}",
             env!("CARGO_PKG_VERSION")
         ),
     );
@@ -321,7 +365,7 @@ pub fn log(level: Level, message: String) {
         source,
         message: message.replace(['\r', '\n'], " "),
     };
-    // Before the log is started, e.g. while the profile is read, entries are only printed.
+    // Before the log is started, e.g. while the domain is read, entries are only printed.
     let Some(logger) = logger.as_ref() else {
         println!("{}", entry.line());
         return;
@@ -366,7 +410,7 @@ pub fn forward_libraries() {
     }
 }
 
-/// The current log file, which changes when the profile does.
+/// The current log file, which changes when the domain does.
 pub fn current_path() -> Option<PathBuf> {
     LOGGER.lock().unwrap().as_ref().map(|logger| logger.path.clone())
 }

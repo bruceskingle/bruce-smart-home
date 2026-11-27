@@ -32,7 +32,7 @@ const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5 * 60
  */
 #[derive(Parser, Clone, PartialEq, Debug)]
 pub struct TeslaArgs {
-    /// The address of the Powerwall's gateway on the home network, instead of the one in the profile
+    /// The address of the Powerwall's gateway on the home network, instead of the one in the domain
     #[arg(long, env)]
     tesla_gateway_host: Option<String>,
 }
@@ -73,10 +73,10 @@ struct StoredToken {
 /// What the pages of the module share.
 pub struct TeslaContext {
     client: LocalClient,
-    /// The Powerwall samples the profile's capture devices took, see TeslaContext::take_snapshot.
+    /// The Powerwall samples the domain's capture devices took, see TeslaContext::take_snapshot.
     capture: crate::capture_device::CaptureReader,
     /// Where they, and the app's own, are saved.
-    /// The profile's store, which the snapshots are kept in, see snapshot.rs.
+    /// The domain's store, which the snapshots are kept in, see snapshot.rs.
     store: Arc<bruce_db::Store>,
     cache_config: Arc<CacheConfig>,
     context: Arc<AppContext>,
@@ -85,7 +85,7 @@ pub struct TeslaContext {
 
 impl TeslaContext {
     fn save_profile(&self, profile: Profile) -> anyhow::Result<()> {
-        crate::profile::update_profile(&self.context.profile.active_profile.name, MODULE_ID, &profile)?;
+        crate::domain::update_domain(&self.context.domain.active_domain.name, MODULE_ID, &profile)?;
         *self.profile.lock().unwrap() = profile;
         Ok(())
     }
@@ -94,10 +94,10 @@ impl TeslaContext {
     /// so a change saved by one, e.g. a rejected password removed, is not otherwise seen by the other until the app
     /// restarts.
     fn reload_profile(&self) {
-        let name = self.context.profile.active_profile.name.clone();
-        let profile = crate::profile::fetch_active_profile(&Some(name))
+        let name = self.context.domain.active_domain.name.clone();
+        let profile = crate::domain::fetch_active_domain(&Some(name))
             .ok()
-            .and_then(|active| active.active_profile.modules.get(MODULE_ID).cloned())
+            .and_then(|active| active.active_domain.modules.get(MODULE_ID).cloned())
             .and_then(|json| serde_json::from_value::<Profile>(json).ok());
         if let Some(profile) = profile {
             *self.profile.lock().unwrap() = profile;
@@ -105,9 +105,9 @@ impl TeslaContext {
     }
 
     /// Takes a snapshot, finding the gateway again first if it does not answer at its address, and saving the token it
-    /// gives. If the password is rejected it is removed from the profile, so that it is not tried again.
+    /// gives. If the password is rejected it is removed from the domain, so that it is not tried again.
     ///
-    /// If any of the profile's capture devices polls the gateway, reads the samples they took instead, see capture.rs,
+    /// If any of the domain's capture devices polls the gateway, reads the samples they took instead, see capture.rs,
     /// so that the app does not poll it too.
     async fn take_snapshot(
         &self,
@@ -115,7 +115,7 @@ impl TeslaContext {
         progress: &mut dyn FnMut(String),
     ) -> anyhow::Result<()> {
         self.reload_profile();
-        let devices = crate::capture_device::adopted_devices(&self.context.profile.active_profile.name);
+        let devices = crate::capture_device::adopted_devices(&self.context.domain.active_domain.name);
         // Those after the latest snapshot, the first time, and only into an online profile, see snapshot::take.
         let since = snapshot::latest(&self.store).as_ref().and_then(snapshot::time_of);
         let save = &mut |device: &crate::capture_device::DeviceProfile, record: &serde_json::Value| {
@@ -193,7 +193,7 @@ impl TeslaModule {
             Some(json) => serde_json::from_value(json)?,
             None => Profile::default(),
         };
-        // The arg is used instead of the profile, but not saved in it.
+        // The arg is used instead of the domain, but not saved in it.
         if args.tesla_gateway_host.is_some() {
             profile.gateway_host = args.tesla_gateway_host.clone();
         }
@@ -214,7 +214,7 @@ impl TeslaModule {
 
 #[async_trait(?Send)]
 impl Module for TeslaModule {
-    /// The grid's import and export through the gateway, for a profile with no supplier's.
+    /// The grid's import and export through the gateway, for a domain with no supplier's.
     fn electricity_source(&self) -> Option<Arc<dyn crate::power::ElectricitySource>> {
         Some(Arc::new(electricity::TeslaElectricity {
             store: self.context.store.clone(),
@@ -349,8 +349,8 @@ fn PowerwallPage(context: SharedProp<TeslaContext>) -> Element {
         .as_ref()
         .and_then(|snapshot| snapshot.pointer("/responses/system_status~1soe/percentage"))
         .and_then(|value| value.as_f64());
-    // Which the button reads, if the profile has any, see TeslaContext::take_snapshot.
-    let has_devices = !use_context::<Signal<crate::profile::Settings>>()
+    // Which the button reads, if the domain has any, see TeslaContext::take_snapshot.
+    let has_devices = !use_context::<Signal<crate::domain::Settings>>()
         .read()
         .capture_devices
         .is_empty();
@@ -499,7 +499,7 @@ pub struct TeslaModuleFactory {
 }
 
 impl TeslaModuleFactory {
-    /// Finds the gateway if host is empty, logs in once, and saves the login in the profile and the token in the cache.
+    /// Finds the gateway if host is empty, logs in once, and saves the login in the domain and the token in the cache.
     async fn login(
         context: Arc<AppContext>,
         profile: Profile,
@@ -536,7 +536,7 @@ impl TeslaModuleFactory {
             email: Some(email),
             password: Some(password),
         };
-        crate::profile::update_profile(&context.profile.active_profile.name, MODULE_ID, &profile)?;
+        crate::domain::update_domain(&context.domain.active_domain.name, MODULE_ID, &profile)?;
         if let Some(token) = client.token() {
             context.update_cache(MODULE_ID, &StoredToken { token })?;
         }
@@ -549,9 +549,9 @@ impl TeslaModuleFactory {
 #[async_trait]
 impl ModuleFactory for TeslaModuleFactory {
     async fn is_ready(&self) -> anyhow::Result<bool> {
-        // An offline profile has no login, it only shows its cached data, see Profile::offline.
-        Ok(self.context.profile.active_profile.offline
-            || !self.context.profile.active_profile.settings.capture_devices.is_empty()
+        // An offline domain has no login, it only shows its cached data, see Profile::offline.
+        Ok(self.context.domain.active_domain.offline
+            || !self.context.domain.active_domain.settings.capture_devices.is_empty()
             || (self.profile.gateway_host.is_some() && self.profile.email.is_some() && self.profile.password.is_some()))
     }
 

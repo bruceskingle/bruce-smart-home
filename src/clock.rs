@@ -1,4 +1,4 @@
-//! The app's idea of the time now. It is the real time, except for an offline profile, see Profile::offline, whose
+//! The app's idea of the time now. It is the real time, except for an offline domain, see Domain::offline, whose
 //! data ends when it was last fetched: its pages behave as if it were then, e.g. today and the last 7 days, so that
 //! they show its latest data however long ago that was.
 
@@ -13,7 +13,7 @@ const REAL: i64 = i64::MIN;
 /// The unix timestamp it is, or REAL.
 static AS_OF: AtomicI64 = AtomicI64::new(REAL);
 
-/// Makes it the unix timestamp as_of from now on, or the real time again with None. Set when a profile is chosen.
+/// Makes it the unix timestamp as_of from now on, or the real time again with None. Set when a domain is chosen.
 pub fn set_as_of(as_of: Option<i64>) {
     AS_OF.store(as_of.unwrap_or(REAL), Ordering::SeqCst);
 }

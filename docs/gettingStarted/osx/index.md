@@ -5,7 +5,8 @@ and notarized by Apple, so it opens like any other app downloaded from the inter
 
 ## Download the Release Binary
 
-Go to [https://github.com/bruceskingle/bruce-smart-home/releases/](https://github.com/bruceskingle/bruce-smart-home/releases/)
+Go to
+[https://github.com/bruceskingle/bruce-smart-home/releases/](https://github.com/bruceskingle/bruce-smart-home/releases/)
 to find the latest release:
 
 ![Download Page](../download.png)

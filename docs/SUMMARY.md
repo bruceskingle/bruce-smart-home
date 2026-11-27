@@ -11,7 +11,7 @@
 - [Logging in to Octopus](octopus/initOctopus.md)
 - [Viewing Bills](octopus/bills.md)
 - [Viewing Meter Readings](octopus/meters/index.md)
-- [Profiles](gettingStarted/profiles.md)
+- [Domains](gettingStarted/domains.md)
 - [Your Data](gettingStarted/cachedData.md)
 
 # Screen by Screen
@@ -21,7 +21,7 @@
         - [Electricity](help/electricity.md)
         - [Live](help/live.md)
         - [Site](help/site.md)
-    - [Profile](help/profile-size.md)
+    - [Domain](help/domain-size.md)
     - [Settings](help/settings.md)
     - [Capture Devices](help/devices.md)
         - [Capture Device Hardware](CaptureHardware.md)

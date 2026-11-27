@@ -7,6 +7,7 @@ pub mod capture_device;
 pub mod climate;
 pub mod components;
 pub mod discovery;
+mod domain;
 mod globird;
 mod http;
 pub mod login;
@@ -15,19 +16,22 @@ mod octopus;
 pub mod period;
 pub mod polling;
 pub mod power;
-mod profile;
 mod tesla;
 pub mod util;
 mod views;
 
 pub mod clock;
 pub mod data_home;
+pub mod domain_security;
+#[cfg(test)]
+mod domain_trial;
 pub mod help;
 pub mod logging;
 mod private_file;
 pub mod redact;
 pub mod screenshots;
 mod secrets;
+mod user_key;
 
 #[cfg(feature = "desktop")]
 pub mod window_state;
@@ -49,7 +53,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
-use crate::profile::ActiveProfile;
+use crate::domain::ActiveDomain;
 
 const NONE: &str = "None";
 const NULL: &str = "Null";
@@ -66,9 +70,9 @@ const NULL: &str = "Null";
 #[derive(Parser, Debug, Clone, PartialEq)]
 #[command(version, about, long_about = None)] // Read from `Cargo.toml`
 pub struct AppArgs {
-    /// Name of the config profile to use
-    #[arg(short, long)]
-    profile: Option<String>,
+    /// The name of the domain to use, as the app shows it.
+    #[arg(long)]
+    domain: Option<String>,
     #[arg(short, long, value_delimiter = ',', num_args = 1..)]
     modules: Vec<String>,
     #[arg(short, long)]
@@ -82,38 +86,38 @@ pub struct AppArgs {
     /// scheduled task, see docs/ScheduledFetch.md
     #[arg(long)]
     fetch: bool,
-    /// With a profile and a new profile's name, copy the profile's data to the new, offline, profile with everything
+    /// With a domain and a new domain's name, copy the domain's data to the new, offline, domain with everything
     /// which identifies you replaced. With docs, redact the documents in unredacted_docs into docs, run in the
     /// repository's directory. Either way without opening a window, then exit, see docs/Redaction.md. Options of the
     /// app itself have no hyphens, which would make them a module's, see Args::extract_module.
-    #[arg(long, num_args = 1..=2, value_names = ["PROFILE|docs", "NEW_PROFILE"])]
+    #[arg(long, num_args = 1..=2, value_names = ["DOMAIN|docs", "NEW_DOMAIN"])]
     redact: Vec<String>,
     /// Take the screenshots for the documentation listed in the file, docs/screenshots.json if it is not given, then
-    /// exit. Use with --profile demo, see docs/Screenshots.md
+    /// exit. Use with --domain demo, see docs/Screenshots.md
     #[arg(long, num_args = 0..=1, value_name = "SHOT_LIST", default_missing_value = screenshots::DEFAULT_FILE)]
     screenshots: Option<PathBuf>,
-    /// For developers: GET a path of the API of one of the profile's capture devices, by its ID, signed with the key the
+    /// For developers: GET a path of the API of one of the domain's capture devices, by its ID, signed with the key the
     /// app keeps for it, which is not shown, print the device's response, then exit, e.g.
     /// --deviceget 441bf6cc7fcc "capture/climate/records?limit=5". No hyphen, see redact.
     #[arg(long, num_args = 2, value_names = ["DEVICE", "PATH"])]
     deviceget: Vec<String>,
-    /// For developers: POST a JSON body to a path of the API of one of the profile's capture devices, as --deviceget
+    /// For developers: POST a JSON body to a path of the API of one of the domain's capture devices, as --deviceget
     /// does, e.g. --devicepost f85b1b909f50 config '{"features":{"Store":{"enabled":true}}}'. No hyphen, see redact.
     #[arg(long, num_args = 3, value_names = ["DEVICE", "PATH", "JSON"])]
     devicepost: Vec<String>,
-    /// For developers: ask Octopus for each of the profile's meters' half hours of a day, e.g. 2026-11-10, with the
+    /// For developers: ask Octopus for each of the domain's meters' half hours of a day, e.g. 2026-11-10, with the
     /// query the app fetches them with, print how many came back and their times, without storing them, then exit.
     /// No hyphen, see redact.
     #[arg(long, value_name = "DATE")]
     octopusday: Option<String>,
-    /// Upgrade a profile to the current version, as the Home page does when asked, e.g. converting what one made before
-    /// the store kept in the cache directory into its store, leaving the cache as it was, see profile::upgrade_profile,
+    /// Upgrade a domain to the current version, as the Home page does when asked, e.g. converting what one made before
+    /// the store kept in the cache directory into its store, leaving the cache as it was, see domain::upgrade_domain,
     /// then exit. No hyphen, see redact.
-    #[arg(long, value_name = "PROFILE")]
+    #[arg(long, value_name = "DOMAIN")]
     upgrade: Option<String>,
-    /// Temporary, until 0.5.0 is released: encrypt the secrets of a profile already upgraded to 0.5.0 before they were
-    /// encrypted, as the upgrade to 0.5.0 now does, see profile::encrypt_secrets, then exit. No hyphen, see redact.
-    #[arg(long, value_name = "PROFILE")]
+    /// Temporary, until 0.5.0 is released: encrypt the secrets of a domain already upgraded to 0.5.0 before they were
+    /// encrypted, as the upgrade to 0.5.0 now does, see domain::encrypt_secrets, then exit. No hyphen, see redact.
+    #[arg(long, value_name = "DOMAIN")]
     encryptsecrets: Option<String>,
 }
 
@@ -211,12 +215,12 @@ impl Args {
         self.app_args.screenshots.clone()
     }
 
-    /// The profile to upgrade, if --upgrade was given, see profile::upgrade_profile.
+    /// The domain to upgrade, if --upgrade was given, see domain::upgrade_domain.
     pub fn upgrade(&self) -> Option<&str> {
         self.app_args.upgrade.as_deref()
     }
 
-    /// The profile whose secrets to encrypt, if --encryptsecrets was given, see profile::encrypt_secrets.
+    /// The domain whose secrets to encrypt, if --encryptsecrets was given, see domain::encrypt_secrets.
     pub fn encrypt_secrets(&self) -> Option<&str> {
         self.app_args.encryptsecrets.as_deref()
     }
@@ -226,7 +230,7 @@ impl Args {
         matches!(self.app_args.redact.as_slice(), [docs] if docs == "docs")
     }
 
-    /// The profile to redact and the name of the redacted copy, if --redact was given, see redact.rs.
+    /// The domain to redact and the name of the redacted copy, if --redact was given, see redact.rs.
     pub fn redact(&self) -> Option<(&str, &str)> {
         match self.app_args.redact.as_slice() {
             [from, to] => Some((from, to)),
@@ -235,7 +239,7 @@ impl Args {
     }
 }
 
-/// Fetches the latest data of each module of the profile, see Module::fetch_latest_data, without a window, for --fetch.
+/// Fetches the latest data of each module of the domain, see Module::fetch_latest_data, without a window, for --fetch.
 /// A module which is not logged in, or whose fetch fails, is reported and the others are still fetched. Returns whether
 /// they all succeeded, for the exit status.
 /// For developers, --octopusday: prints what Octopus gives of each meter's half hours of the day, see
@@ -277,18 +281,18 @@ pub fn fetch_latest_data(args: Args) -> bool {
     let result = runtime.block_on(async move {
         let context = AppContext::new(args)?;
         let registrations = ModuleRegistrations::new(verbose);
-        let module_ids: Vec<String> = context.profile.active_profile.modules.keys().cloned().collect();
-        let devices = capture_device::adopted_devices(&context.profile.active_profile.name);
+        let module_ids: Vec<String> = context.domain.active_domain.modules.keys().cloned().collect();
+        let devices = capture_device::adopted_devices(&context.domain.active_domain.name);
         if module_ids.is_empty() && devices.is_empty() {
             return Err(anyhow!(
-                "Profile {} has no modules set up, open the app and log in first",
-                context.profile.active_profile.name
+                "Domain {} has no modules set up, open the app and log in first",
+                context.domain.active_domain.name
             ));
         }
         let mut all_ok = true;
         // What the capture devices on the store have captured, first, so that the modules see it, see
         // capture_device::replicate. Those with older firmware are read by the modules, as they were.
-        if !context.profile.active_profile.offline && !devices.is_empty() {
+        if !context.domain.active_domain.offline && !devices.is_empty() {
             let store = context.store()?;
             for device in &devices {
                 let progress = &mut |message: String| println!("{message}");
@@ -436,7 +440,7 @@ pub type ModuleFactoryConstructor =
 pub struct ModuleRegistration {
     pub module_id: String,
     pub constructor: Arc<ModuleFactoryConstructor>,
-    /// Converts what the module kept in its directory of the cache before the store into the profile's store, for
+    /// Converts what the module kept in its directory of the cache before the store into the domain's store, for
     /// --convert, see convert.rs, None if it has nothing to convert.
     pub convert: Option<convert::Converter>,
 }
@@ -499,19 +503,19 @@ impl ModuleRegistrations {
     ) -> anyhow::Result<Arc<dyn ModuleFactory + Send>> {
         if let Some(module_registration) = self.0.get(module_id) {
             let constructor = module_registration.constructor.as_ref();
-            let profile = context.profile.active_profile.modules.get(module_id).cloned();
+            let domain = context.domain.active_domain.modules.get(module_id).cloned();
 
             if context.args.app_args.verbose {
-                let mut redacted_profile = profile.clone();
-                if let Some(value) = &mut redacted_profile {
+                let mut redacted_domain = domain.clone();
+                if let Some(value) = &mut redacted_domain {
                     bruce_graphql::redact::redact_secrets(value);
                 }
                 println!(
-                    "Initializing module '{}' with profile '{:?}'",
-                    module_id, redacted_profile
+                    "Initializing module '{}' with domain '{:?}'",
+                    module_id, redacted_domain
                 );
             }
-            let builder = constructor(context.clone(), profile)?;
+            let builder = constructor(context.clone(), domain)?;
 
             Ok(builder)
         } else {
@@ -557,8 +561,8 @@ impl ModuleRegistrations {
 
 pub struct AppContext {
     pub args: Args,
-    pub profile: ActiveProfile,
-    /// The profile's site's store, opened the first time it is needed, see store.
+    pub domain: ActiveDomain,
+    /// The domain's store, opened the first time it is needed, see store.
     pub store: std::sync::OnceLock<Arc<bruce_db::Store>>,
 }
 
@@ -570,83 +574,81 @@ pub struct InitRequested(pub bool);
 
 // impl PartialEq for AppContext {
 //     fn eq(&self, other: &Self) -> bool {
-//         self.args == other.args && self.profile == other.profile
+//         self.args == other.args && self.domain == other.domain
 //     }
 // }
 
 impl AppContext {
-    /// The profile file, see data_home.
+    /// The domain file, see data_home.
     pub fn get_file_path() -> anyhow::Result<PathBuf> {
-        data_home::profiles_path()
+        data_home::domains_path()
     }
 
-    /// The old cache directory, from before 0.5.0, holding each profile's modules' data, which is only read, to
-    /// convert a profile's data into its store, see data_home::old_cache_dir.
+    /// The old cache directory, from before 0.5.0, holding each domain's modules' data, which is only read, to
+    /// convert a domain's data into its store, see data_home::old_cache_dir.
     pub fn get_cache_dir_path() -> anyhow::Result<PathBuf> {
         data_home::old_cache_dir()
     }
 
     pub fn new(args: Args) -> anyhow::Result<Arc<AppContext>> {
-        let profile = crate::profile::fetch_active_profile(&args.app_args.profile)?;
-        Ok(Self::for_profile(args, profile))
+        let domain = crate::domain::fetch_active_domain(&args.app_args.domain)?;
+        Ok(Self::for_domain(args, domain))
     }
 
-    /// The context with the given profile active, starting its log, see logging.rs.
-    pub fn for_profile(args: Args, profile: ActiveProfile) -> Arc<AppContext> {
-        // An offline profile is shown as it was when its data was last fetched.
-        clock::set_as_of(profile.active_profile.as_of.filter(|_| profile.active_profile.offline));
-        help::start(&profile.active_profile.name, &profile.active_profile.settings.help);
+    /// The context with the given domain active, starting its log, see logging.rs.
+    pub fn for_domain(args: Args, domain: ActiveDomain) -> Arc<AppContext> {
+        // An offline domain is shown as it was when its data was last fetched.
+        clock::set_as_of(domain.active_domain.as_of.filter(|_| domain.active_domain.offline));
+        help::start(&domain.active_domain.name, &domain.active_domain.settings.help);
         let process = if args.fetch() {
             logging::Process::Fetch
         } else {
             logging::Process::App
         };
-        logging::start(
-            &profile.active_profile.name,
-            &profile.active_profile.settings.log,
-            process,
-        );
+        logging::start(&domain.active_domain.name, &domain.active_domain.settings.log, process);
         Arc::new(AppContext {
             args,
-            profile,
+            domain,
             store: Default::default(),
         })
     }
 
-    // pub fn with_profile(&self, profile_name: &String) -> anyhow::Result<Arc<AppContext>> {
+    // pub fn with_domain(&self, domain_name: &String) -> anyhow::Result<Arc<AppContext>> {
     //     Ok(Arc::new(AppContext {
     //         args: self.args.clone(),
-    //         profile: crate::profile::set_active_profile(profile_name)?,
+    //         domain: crate::domain::set_active_domain(domain_name)?,
     //    }))
     // }
 
-    /// The profile's site's store, see store.rs, opened, and the site made, the first time it is needed.
+    /// The domain's store, see store.rs, opened, and the site made, the first time it is needed.
     pub fn store(&self) -> anyhow::Result<Arc<bruce_db::Store>> {
         if let Some(store) = self.store.get() {
             return Ok(store.clone());
         }
-        let store = store::for_profile(&self.profile.active_profile.name)?;
+        let store = store::for_domain(&self.domain.active_domain.name)?;
         Ok(self.store.get_or_init(|| store).clone())
     }
 
+    /// The module's token file, named by the domain's ID, see domain::files_key.
     fn get_cache_file_path(&self, module_id: &str) -> anyhow::Result<PathBuf> {
-        let profile_name = &self.profile.active_profile.name;
-        Ok(data_home::tokens_dir()?.join(format!("{}-{}.json", profile_name, module_id)))
+        let key = domain::ensure_files_key(&self.domain.active_domain.name)?;
+        Ok(data_home::tokens_dir()?.join(format!("{key}-{module_id}.json")))
     }
 
     /// The file which says why the module's saved login was refused, beside its tokens, see login.rs.
     pub(crate) fn login_file_path(&self, module_id: &str) -> anyhow::Result<PathBuf> {
-        Self::login_file_path_of(&self.profile.active_profile.name, module_id)
+        Self::login_file_path_of(&self.domain.active_domain.name, module_id)
     }
 
-    /// The file which says why the saved login of the module of profile_name was refused, see login_file_path.
-    pub(crate) fn login_file_path_of(profile_name: &str, module_id: &str) -> anyhow::Result<PathBuf> {
-        Ok(data_home::tokens_dir()?.join(format!("{}-{}-login-refused.json", profile_name, module_id)))
+    /// The file which says why the saved login of the module of domain_name was refused, see login_file_path.
+    pub(crate) fn login_file_path_of(domain_name: &str, module_id: &str) -> anyhow::Result<PathBuf> {
+        let key = domain::ensure_files_key(domain_name)?;
+        Ok(data_home::tokens_dir()?.join(format!("{key}-{module_id}-login-refused.json")))
     }
 
     fn get_cache_data_dir_path(&self, module_id: &str) -> anyhow::Result<PathBuf> {
-        let profile_name = &self.profile.active_profile.name;
-        Ok(Self::get_cache_dir_path()?.join(format!("{}-{}", profile_name, module_id)))
+        let domain_name = &self.domain.active_domain.name;
+        Ok(Self::get_cache_dir_path()?.join(format!("{}-{}", domain_name, module_id)))
     }
 
     fn create_cache_config(&self, module_id: &str) -> anyhow::Result<Arc<CacheConfig>> {
@@ -654,7 +656,7 @@ impl AppContext {
         let dir_path = self.get_cache_data_dir_path(module_id)?;
 
         Ok(Arc::new(
-            CacheConfig::new(dir_path, self.profile.active_profile.offline).with_store(self.store()?),
+            CacheConfig::new(dir_path, self.domain.active_domain.offline).with_store(self.store()?),
         ))
     }
 
@@ -689,7 +691,7 @@ impl AppContext {
     }
 
     /// Saves the module's tokens, encrypted whole, see secrets::seal, as they are all secret.
-    pub fn update_cache<T>(&self, module_id: &str, profile: &T) -> anyhow::Result<()>
+    pub fn update_cache<T>(&self, module_id: &str, domain: &T) -> anyhow::Result<()>
     where
         T: Serialize,
     {
@@ -697,7 +699,7 @@ impl AppContext {
 
         serde_json::to_writer_pretty(
             private_file::create_private_file(path)?,
-            &secrets::seal(&serde_json::to_value(profile)?)?,
+            &secrets::seal(&serde_json::to_value(domain)?)?,
         )?;
 
         Ok(())
@@ -711,7 +713,7 @@ mod tests {
     fn the_module_comes_from_the_name_of_an_arg_not_its_value() {
         assert_eq!(Args::extract_module("--octopus-api-key=abc"), Some("octopus"));
         assert_eq!(Args::extract_module("--home=/tmp/ms-test"), None);
-        assert_eq!(Args::extract_module("--profile"), None);
+        assert_eq!(Args::extract_module("--domain"), None);
         assert_eq!(Args::extract_module("-v"), None);
     }
 }

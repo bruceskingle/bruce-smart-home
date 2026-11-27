@@ -14,4 +14,4 @@ For an export meter the readings are what you sent to the grid, and the cost is 
 
 Right click a bar for **Reload this bar** or **Reload this month**, which download it again in case Octopus has corrected it.
 
-The readings this profile already has are shown at once, while Octopus is asked for any newer, with a line above the graph saying what is being fetched, and **Cancel**; the graph is drawn again when they arrive.
+The readings this domain already has are shown at once, while Octopus is asked for any newer, with a line above the graph saying what is being fetched, and **Cancel**; the graph is drawn again when they arrive.

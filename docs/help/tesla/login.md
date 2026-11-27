@@ -5,7 +5,7 @@ The app logs in to the gateway as its customer, the same as the gateway's own we
 - **Gateway Address**, its IP address on your home network. Leave it empty and the app searches the network for it. If the gateway's address changes later, the app finds it again.
 - **Email** and **Password** of the customer login. If the password has never been changed, it is the last 5 characters of the password on the label inside the gateway's door.
 
-The app saves the email and password in the profile, so that it can log in again when the gateway asks it to. They only go to the gateway.
+The app saves the email and password in the domain, so that it can log in again when the gateway asks it to. They only go to the gateway.
 
 **Log In**, the last page in the list once you have logged in, shows this page again, so that you can give a changed gateway address or password at any time. Logging in replaces what was saved. ![Show](../icons/show.svg) beside the password shows what it holds, so that you can check it.
 

@@ -7,10 +7,10 @@ building, flashing or restarting a device, sending it a request, or reading its 
   It logs with the `log` macros, never `println!`, which panics on a device with no computer reading its USB port,
   see the platform's CLAUDE.md in bruce-esp-idf.
 
-- Read a device's serial log with `python3 capture/log.py <port>`, which leaves a board with a USB serial chip, e.g.
-  the CYD, running, but restarts an ESP32-S3 on its own USB port, e.g. the RLCD and the Guitron (reset reason Usb). `espflash monitor` restarts
-  it, and with `--non-interactive --no-reset` leaves it halted in its bootloader until `espflash reset`. The tasks
-  "Device: Flash" and "Device: Log" are in `.vscode/tasks.json`.
+- Read a device's serial log with `python3 capture/log.py <port>`, which leaves a board with a USB serial chip, e.g. the
+  CYD, running, but restarts an ESP32-S3 on its own USB port, e.g. the RLCD and the Guitron (reset reason Usb).
+  `espflash monitor` restarts it, and with `--non-interactive --no-reset` leaves it halted in its bootloader until
+  `espflash reset`. The tasks "Device: Flash" and "Device: Log" are in `.vscode/tasks.json`.
 - Before a request which changes a device, e.g. its settings, a restart, a release or a factory reset, check its state
   in the same command, e.g. `GET /api/info` says it is adopted, and stop if it is not as assumed: a "negative test" of a
   released device once wiped its Wi-Fi settings.
@@ -24,5 +24,5 @@ building, flashing or restarting a device, sending it a request, or reading its 
 - Flash or restart the devices one at a time, waiting until each polls again, so that one is always capturing, and
   away from the Octopus poll times, :29, :30, :59 and :00 past the hour.
 - A device without an SD card keeps its records in memory, which a restart loses, so before flashing or restarting
-  one, check that the app has read it lately, e.g. its last "GET /api/capture/..." in the profile's log, which it does
-  only while a profile which is not offline is active.
+  one, check that the app has read it lately, e.g. its last "GET /api/capture/..." in the domain's log, which it does
+  only while a domain which is not offline is active.

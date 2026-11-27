@@ -15,7 +15,7 @@ nothing reads them while it runs, so the installed app does not need the `docs` 
 
 ## Which Page a Screen Shows
 
-- **The app's own screens**, Home, the profile page and Settings, are chosen from the route in `Navbar`
+- **The app's own screens**, Home, the domain page and Settings, are chosen from the route in `Navbar`
   (`src/views/navbar.rs`).
 - **A module's screens** are chosen by the module's `Module::help_topic`, from the page and the rest of its path, e.g.
   for Octopus in `src/octopus.rs`. A new screen, or a new path within a page, needs a line there. Until a module is

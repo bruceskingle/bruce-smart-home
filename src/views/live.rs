@@ -15,9 +15,9 @@ use dioxus::prelude::*;
 
 use super::site::{BOX_WIDTH, MARGIN, Placed, ROW_GAP, box_height, category_colours, column_x, place, use_colour};
 use crate::components::error_text::ErrorText;
+use crate::domain::Settings as DomainSettings;
 use crate::power::live::{Live, live};
 use crate::power::topology::{Circuit, Use};
-use crate::profile::Settings as ProfileSettings;
 use crate::{AppContext, ModuleRegistrations};
 
 /// How often the circuits' power is worked out again, and the capture devices read, as often as they poll the gateway.
@@ -38,18 +38,18 @@ fn still(watts: f64) -> bool {
     watts.abs() < STILL
 }
 
-/// The circuits' power, of what the profile's modules have measured, worked out again every REFRESH.
+/// The circuits' power, of what the domain's modules have measured, worked out again every REFRESH.
 #[component]
 pub fn LivePage() -> Element {
     let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let registrations = use_context::<ModuleRegistrations>();
-    let settings = use_context::<Signal<ProfileSettings>>();
+    let settings = use_context::<Signal<DomainSettings>>();
     let found = use_resource(move || {
         let context = context_signal.read().clone();
         let registrations = registrations.clone();
         async move {
             let found =
-                super::electricity::find(context.ok_or_else(|| anyhow!("There is no profile"))?, registrations).await?;
+                super::electricity::find(context.ok_or_else(|| anyhow!("There is no domain"))?, registrations).await?;
             anyhow::Ok(Rc::new(found))
         }
     });

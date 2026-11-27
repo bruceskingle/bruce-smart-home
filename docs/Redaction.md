@@ -3,7 +3,7 @@
 The screenshots and examples in the documentation come from real Octopus accounts, so everything which identifies
 the account holder is replaced with made up values first. The app does this itself:
 
-- `bruce-smart-home --redact <profile> <new profile>` copies a profile's data to a new, offline, profile.
+- `bruce-smart-home --redact <domain> <new domain>` copies a domain's data to a new, offline, domain.
 - `bruce-smart-home --redact docs`, run in the repository's directory, redacts the documents in `unredacted_docs` into
   `docs`.
 
@@ -11,9 +11,9 @@ Both run without opening a window, print what they did, and exit with status 1 i
 
 ## The Mapping File
 
-What replaces what is in `~/.bruce-smart-home-redactions.csv`, in your home directory. **Keep it private**: it pairs each
-real value with the made up one which replaces it, so it reveals the real values. It must never be checked in, and is
-not in the repository for that reason.
+What replaces what is in `~/.bruce-smart-home-redactions.csv`, in your home directory. **Keep it private**: it pairs
+each real value with the made up one which replaces it, so it reveals the real values. It must never be checked in, and
+is not in the repository for that reason.
 
 It has a pair on each line, the real value, a comma, then the made up one. A value with a comma or a double quote in
 it, or which starts with `#` or a space, is in double quotes, with any double quote in it doubled. Lines starting with
@@ -36,8 +36,8 @@ which is all upper or lower case where it is found is replaced in the same case.
 ## What is Found
 
 - **By field**, in records with named fields: IDs and numbers (`id`, `number`, `accountNumber`, `mpan`, `mprn`,
-  `serialNumber`, `deviceId`, `nodeId`, `propertyId`, `userId`, `billingDocumentIdentifier`), names, addresses and
-  each of their lines, apart from the country, email addresses, phone numbers, postcodes, coordinates and dates of birth.
+  `serialNumber`, `deviceId`, `nodeId`, `propertyId`, `userId`, `billingDocumentIdentifier`), names, addresses and each
+  of their lines, apart from the country, email addresses, phone numbers, postcodes, coordinates and dates of birth.
 - **By shape**, anywhere, including records stored as lists of values and file names: account numbers (`A-` and 8 hex
   digits), device IDs, UUIDs, email addresses, quoted numbers of 6 or more digits, and numbers of 6 or more digits in
   file names.
@@ -59,16 +59,16 @@ up values stay the same when it is run again.
 The check only knows the identifiers it can find, so look at the result before publishing it, e.g. the screenshots
 themselves, or `git diff` of the documents.
 
-## Redacted Profiles
+## Redacted Domains
 
 The data is read from, and the copy written to, the old cache directory, `.bruce-smart-home-data/old-cache`, in the
-layout of the app before 0.5.0, and the copy is converted into the new profile's store when it is upgraded. This is
+layout of the app before 0.5.0, and the copy is converted into the new domain's store when it is upgraded. This is
 to change to reading and writing the stores.
 
-A profile made with `--redact` has the source profile's modules and settings, but no logins: its API key is removed and
+A domain made with `--redact` has the source domain's modules and settings, but no logins: its API key is removed and
 its login tokens are not copied. It is marked `offline`, so its modules count as logged in, and nothing is ever
 fetched, everything comes from the copied data, see `CacheConfig::offline`. Running `--redact` again with the same
-name replaces it, but a profile which is not a redacted one is never replaced.
+name replaces it, but a domain which is not a redacted one is never replaced.
 
 ## Documents
 

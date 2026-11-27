@@ -9,20 +9,20 @@ what the person asking wants, and do not send it anywhere they have not asked fo
 
 **Never read the settings directory**, usually `~/.bruce-smart-home`, nor the files `~/.bruce-smart-home-dir`,
 `~/.marco-sparko*`: they hold the household's passwords and API keys. Everything an analysis needs is in the data
-directory, and the installation's section below gives what it needs from the settings, e.g. each profile's topology.
+directory, and the installation's section below gives what it needs from the settings, e.g. each domain's topology.
 
 ## What is where
 
 ```
 ~/.bruce-smart-home-data/
-  AGENTS.md                this file, with the installation's profiles at the end
-  store/<site>/            each profile's data, a site of its own, see the installation's section
-  logs/<profile>.log       what the app did, e.g. each request and poll, and any errors
+  AGENTS.md                this file, with the installation's domains at the end
+  store/<site>/            each domain's data, a site of its own, see the installation's section
+  logs/<domain>.log       what the app did, e.g. each request and poll, and any errors
   old-cache/               data from before 0.5.0, in older formats, which the app no longer reads
 ```
 
-A profile is a household, or a copy of one: e.g. `Bruce` and `Jeff` are two households, and `Bruce_offline` a
-redacted, offline copy of `Bruce`. Each profile uses some of the app's modules, each a source of data: **octopus**
+A domain is a household, or a copy of one: e.g. `Bruce` and `Jeff` are two households, and `Bruce_offline` a
+redacted, offline copy of `Bruce`. Each domain uses some of the app's modules, each a source of data: **octopus**
 (Octopus Energy, a UK supplier), **globird** (GloBird Energy, an Australian supplier), **tesla** (a Tesla Powerwall
 gateway, read on the home network), and **myenergi** (a zappi car charger and its harvis).
 

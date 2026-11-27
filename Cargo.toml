@@ -42,7 +42,7 @@ rust_decimal_macros = "1.36.0"
 bruce-graphql = "0.6.0"
 # The store every module keeps its data in, see store.rs; a git-ignored .cargo/config.toml may patch in a checkout of
 # bruce-db next to this one, to work on both.
-bruce-db = "0.3.0"
+bruce-db = "0.4.0"
 # The log records of Bruce's libraries, e.g. bruce-db's timings, which logging.rs puts into the profile's log.
 log = "0.4"
 # Flashing the capture firmware to boards on USB, from bruce-embedded-flash, and finding boards on the network by mDNS,
@@ -89,6 +89,7 @@ rsa = { version = "0.9", features = ["sha2", "getrandom"] }
 base64 = "0.22"
 keyring = "4.2"
 chacha20poly1305 = "0.11"
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
 
 
 # Windows only, to create files which only their owner can access, see private_file.rs

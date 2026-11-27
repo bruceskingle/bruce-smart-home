@@ -1,5 +1,5 @@
 //! A site's topology: where in the house each module's channels measure, as a tree of circuits from the grid
-//! connection through the circuits each feeds, a setting of the profile, as it differs from house to house, see
+//! connection through the circuits each feeds, a setting of the domain, as it differs from house to house, see
 //! docs/PowerSchema.md. E.g. in one house the car's charger is outside the Tesla gateway, so the car's import is the
 //! grid's less the gateway's site meter's; in another the gateway's grid clamp is at the grid connection, as installers
 //! fit it, and the car is behind it. The modules only say what their channels are, see Channel, and the topology, which
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use super::measured::{HALF_HOUR, Measurements, Split, share, smoothed};
 
-/// The categories every profile has, see Use::Load, which the user can add to, see profile::Settings::categories: the
+/// The categories every domain has, see Use::Load, which the user can add to, see domain::Settings::categories: the
 /// car's charger, the house's own loads, and loads which are not known, e.g. the rest of what a board feeds which its
 /// measured circuits do not take.
 pub const CAR: &str = "Car";
@@ -181,7 +181,7 @@ impl Circuit {
         }
     }
 
-    /// A first topology for the channels the profile's modules have, to edit, from what each usually measures: the
+    /// A first topology for the channels the domain's modules have, to edit, from what each usually measures: the
     /// grid with whatever measures the grid connection, a gateway's site meter fed from it, if there is one, as a board
     /// feeding the batteries, the solar panels and the car, as installers fit them, and the house the rest, without
     /// the channels which measure the house, as the rest is what the others do not take. Where the car's charger

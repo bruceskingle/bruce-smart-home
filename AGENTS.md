@@ -1,8 +1,8 @@
 # Notes for Coding Agents
 
-Bruce's Smart Home is a Rust desktop app, built with [Dioxus](https://dioxuslabs.com), for seeing a household's energy: its
-use, costs and bills from Octopus Energy, and what its Tesla Powerwalls and myenergi zappi did. People's guides are in
-[docs/developers.md](docs/developers.md), which links to the notes on releases, help, redaction and screenshots.
+Bruce's Smart Home is a Rust desktop app, built with [Dioxus](https://dioxuslabs.com), for seeing a household's energy:
+its use, costs and bills from Octopus Energy, and what its Tesla Powerwalls and myenergi zappi did. People's guides are
+in [docs/developers.md](docs/developers.md), which links to the notes on releases, help, redaction and screenshots.
 
 Read the note for a kind of work before starting it:
 
@@ -21,10 +21,10 @@ Read the note for a kind of work before starting it:
 - `src/data_set/`: the file-backed caches the modules' data is kept in, each with its own rules for when to fetch again.
 - `src/polling.rs` and `src/capture_device.rs`: polling the sources, and reading what the capture devices polled.
 - `src/components/` and `src/views/`: shared Dioxus components, and the app's own pages.
-- `src/profile.rs`, `src/cache.rs`, `src/data_home.rs`: profiles, and where their settings and caches are kept.
+- `src/domain.rs`, `src/cache.rs`, `src/data_home.rs`: domains, and where their settings and caches are kept.
 - `src/store.rs`, `src/device_kinds.rs`: the store, bruce-db, which the app and the capture devices keep their data in,
   see [docs/Store.md](docs/Store.md) for how they use it, and bruce-db's docs/design.md for the store itself.
-- `src/redact.rs`: redacted, offline copies of a profile, for the docs and for testing without an account.
+- `src/redact.rs`: redacted, offline copies of a domain, for the docs and for testing without an account.
 - `graphql/octopus/`: the Octopus schema and the queries, from which `build.rs` generates the typed code, using the
   [bruce-graphql](https://github.com/bruceskingle/bruce-graphql) crates from crates.io, or from a checkout next to this
   one while they are changed with the app, linked with bruce-method-release.
@@ -35,19 +35,19 @@ Read the note for a kind of work before starting it:
 ## Building and Running
 
 - Run the app with `dx serve` or `dx run`, not `cargo run`, as Dioxus bundles the assets. Give it arguments with
-  `--args`, e.g. `dx serve --args="--profile=test"` (the `=` is needed when the value starts with `-`). `cargo build`
+  `--args`, e.g. `dx serve --args="--domain=test"` (the `=` is needed when the value starts with `-`). `cargo build`
   and `cargo test` are fine.
 - The VS Code debug launch writes the app's `-v` output to `target/verbose.log`, overwritten each run: GraphQL
   requests and replies, errors and cache activity, but not `eprintln!` output. Read it after a run the owner reports,
   rather than asking for the log.
 - Run `cargo fmt` after a change (`rustfmt.toml`, `max_width = 120`); in `capture/`, `cargo +stable fmt`.
-- Try changes with a redacted, offline profile, `--redact <profile> <new profile>`, see
+- Try changes with a redacted, offline domain, `--redact <domain> <new domain>`, see
   [docs/Redaction.md](docs/Redaction.md), or with `--home=<an empty directory>`, not with a real account.
 
 Each release is developed on a `vX.Y.Z` branch, squash merged to `main` when released, see
-[docs/Release.md](docs/Release.md). Base a pull request on the release branch, not on `main`. The libraries the app uses,
-e.g. bruce-graphql and bruce-db, are released to crates.io first, with bruce-method-release, and the app uses their
-published versions.
+[docs/Release.md](docs/Release.md). Base a pull request on the release branch, not on `main`. The libraries the app
+uses, e.g. bruce-graphql and bruce-db, are released to crates.io first, with bruce-method-release, and the app uses
+their published versions.
 
 ## Conventions
 
@@ -62,15 +62,15 @@ published versions.
   module's data; that is done only on Home's pages.
 - **Caches hold only what the source sent,** as it came; computed values, if cached at all, go in a cache of their
   own. The Octopus meter readings' cache breaks this, see [docs/Store.md](docs/Store.md).
-- **Changes to what is stored are profile upgrades:** bump `CURRENT_VERSION` in `src/profile.rs` and add a step to
-  `upgrade_profile` converting the version before, leaving the old data as it was. Home asks the user before
-  upgrading; `--upgrade PROFILE` runs it from the command line. 0.5.0's is the move into the store, `src/convert.rs`.
-- **Derived numbers.** A number as the source gave it is in the default colour; one the app works out (a total, a
-  count, a fitted rate, a split) has the `derived` class (`--derived` in `main.css`, magenta, as the help calls it, with `<span class="derived">magenta</span>`), e.g.
-  `td { class: "number derived", ... }`. A sum of a source's several rows is derived, its only row is not; check the
-  cache. Say so in the page's help. A value read from a document rather than given by an API, e.g. a GloBird bill's
-  charges, read from its PDF, has the `scraped` class (`--scraped`, a pale yellow, `<span class="scraped">yellow</span>` in the help), and
-  one worked out from those is `derived`.
+- **Changes to what is stored are domain upgrades:** bump `CURRENT_VERSION` in `src/domain.rs` and add a step to
+  `upgrade_domain` converting the version before, leaving the old data as it was. Home asks the user before
+  upgrading; `--upgrade DOMAIN` runs it from the command line. 0.5.0's is the move into the store, `src/convert.rs`.
+- **Derived numbers.** A number as the source gave it is in the default colour; one the app works out (a total, a count,
+  a fitted rate, a split) has the `derived` class (`--derived` in `main.css`, magenta, as the help calls it, with `<span
+  class="derived">magenta</span>`), e.g. `td { class: "number derived", ... }`. A sum of a source's several rows is
+  derived, its only row is not; check the cache. Say so in the page's help. A value read from a document rather than
+  given by an API, e.g. a GloBird bill's charges, read from its PDF, has the `scraped` class (`--scraped`, a pale
+  yellow, `<span class="scraped">yellow</span>` in the help), and one worked out from those is `derived`.
 - **Errors** are shown briefly with the detail as a tooltip, with `ErrorText` (`components/error_text.rs`), formatted
   with `{error:#}`, never `{error:?}`.
 - **Help.** A change to what a screen shows or does is made to its page in `docs/help/` too; a new page is added to

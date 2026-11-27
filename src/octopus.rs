@@ -110,7 +110,7 @@ fn redacted(secret: &Option<String>) -> Option<&'static str> {
     secret.as_ref().map(|_| bruce_graphql::redact::REDACTED)
 }
 
-/// The API host for a profile which does not have one, i.e. one created before it was added.
+/// The API host for a domain which does not have one, i.e. one created before it was added.
 fn default_api_host() -> String {
     "api.octopus.energy".to_string()
 }
@@ -137,9 +137,9 @@ pub struct OctopusModule {
     /// The requests polling has made, see flex_poll.rs.
     call_budget: flex_poll::CallBudget,
     charging_device: flex_poll::ChargingDevice,
-    /// The polls the profile's capture devices took, see poll.
+    /// The polls the domain's capture devices took, see poll.
     capture: crate::capture_device::CaptureReader,
-    profile_name: String,
+    domain_name: String,
 }
 
 const MODULE_ID: &str = "octopus";
@@ -194,7 +194,7 @@ impl OctopusModule {
             charging_device: flex_poll::ChargingDevice::default(),
             capture: crate::capture_device::CaptureReader::new("capture/octopus/records"),
             // Set by OctopusModuleFactory::build.
-            profile_name: String::new(),
+            domain_name: String::new(),
         })
     }
 
@@ -228,10 +228,10 @@ impl OctopusModule {
     }
 
     /// For developers, see AppArgs::octopusday: prints what Octopus gives of each meter's half hours of day, see
-    /// pages::print_day, with the profile's login.
+    /// pages::print_day, with the domain's login.
     pub async fn print_day(context: Arc<AppContext>, day: time::Date) -> anyhow::Result<()> {
-        let json_profile = context.profile.active_profile.modules.get(MODULE_ID).cloned();
-        // The profile's API key, for the REST API, which is not shown.
+        let json_profile = context.domain.active_domain.modules.get(MODULE_ID).cloned();
+        // The domain's API key, for the REST API, which is not shown.
         let api_key = json_profile
             .as_ref()
             .and_then(|profile| profile["apiKey"].as_str())
@@ -261,11 +261,11 @@ impl Module for OctopusModule {
         Some(flex_poll::POLL_INTERVAL)
     }
 
-    /// If any of the profile's capture devices polls Octopus's smart charging, reads the polls they took instead, so
+    /// If any of the domain's capture devices polls Octopus's smart charging, reads the polls they took instead, so
     /// that the app does not poll it too.
     async fn poll(&self, slot: Option<time::OffsetDateTime>) -> anyhow::Result<String> {
         let context = &self.context;
-        let devices = crate::capture_device::adopted_devices(&self.profile_name);
+        let devices = crate::capture_device::adopted_devices(&self.domain_name);
         let since = flex_poll::latest(context).and_then(|(time, _)| time);
         if !context.cache_config.offline
             && self
@@ -492,7 +492,7 @@ impl Module for OctopusModule {
                             accounts: account_user.accounts_.clone(),
                             selected_account_id: self.context.account_id.clone(),
                             profile: self.profile.clone(),
-                            profile_name: self.profile_name.clone(),
+                            domain_name: self.domain_name.clone(),
                         }
                         tr {
                             th { class: "row-header", "ID" }
@@ -582,10 +582,10 @@ impl OctopusModuleFactory {
             self.verbose,
         )
         .await?;
-        client.profile_name = self.context.profile.active_profile.name.clone();
+        client.domain_name = self.context.domain.active_domain.name.clone();
 
         if self.profile.init {
-            crate::profile::update_profile(&self.context.profile.active_profile.name, MODULE_ID, &self.profile)?;
+            crate::domain::update_domain(&self.context.domain.active_domain.name, MODULE_ID, &self.profile)?;
         }
 
         Ok(client)
@@ -676,13 +676,13 @@ impl OctopusModuleFactory {
                     .await;
                 if Self::login(&mut errors, &token_manager).await.is_ok() {
                     println!("Login successful!");
-                    // Store the api_key into the profile
-                    let new_profile = Profile {
+                    // Store the api_key into the domain
+                    let new_domain = Profile {
                         api_key: Some(values.api_key.as_ref().unwrap_or(&String::new()).trim().to_string()),
                         ..profile.clone()
                     };
 
-                    crate::profile::update_profile(&context.profile.active_profile.name, MODULE_ID, &new_profile)
+                    crate::domain::update_domain(&context.domain.active_domain.name, MODULE_ID, &new_domain)
                         .unwrap_or_else(|e| println!("profile update failed: {}", e));
                     crate::login::cleared(&context, MODULE_ID);
 
@@ -704,8 +704,8 @@ impl OctopusModuleFactory {
 #[async_trait]
 impl ModuleFactory for OctopusModuleFactory {
     async fn is_ready(&self) -> anyhow::Result<bool> {
-        // An offline profile has no login, it only shows its cached data, see Profile::offline.
-        if self.context.profile.active_profile.offline {
+        // An offline domain has no login, it only shows its cached data, see Profile::offline.
+        if self.context.domain.active_domain.offline {
             return Ok(true);
         }
         // Without a request, as for every module: a saved login which Octopus refuses is reported by the request which

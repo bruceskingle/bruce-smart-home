@@ -47,7 +47,7 @@ pub fn PollingPage() -> Element {
             "While the app is open it polls the modules whose data nothing else keeps, such as the Tesla gateway and the zappi's status. Where capture devices take a module's data, the app reads it from them instead, and does not poll it itself. Each poll and read is in the log too."
         }
         if rows.is_empty() {
-            p { "There is nothing to poll in this profile." }
+            p { "There is nothing to poll in this domain." }
         } else {
             PollingTable { rows, statuses }
         }

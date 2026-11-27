@@ -2,7 +2,8 @@
 The Meters page shows the half hourly readings from your smart meters, broken down by the rate you were charged at, together with what each half hour cost. You can view the readings as a table, as a stacked bar graph, or as a trend graph which compares one year with another.
 
 ## Choosing a Meter Point
-Open the Octopus module page by clicking on ```octopus``` in the top menu bar if necessary, and then click on ```Meters``` on the left menu. You will see a list of your electricity meter points:
+Open the Octopus module page by clicking on ```octopus``` in the top menu bar if necessary, and then click on
+```Meters``` on the left menu. You will see a list of your electricity meter points:
 
 <img src="Screenshot1.png" width="1024">
 
@@ -45,7 +46,8 @@ Each bar is split into a coloured section for each rate, with the standing charg
 
 The buttons along the top control what the graph shows:
 
-- **Cost / Units** show what the consumption cost, or how many units were used. The standing charge is only shown in ```Cost``` mode.
+- **Cost / Units** show what the consumption cost, or how many units were used. The standing charge is only shown in
+  ```Cost``` mode.
 - **Raw** shows a bar for each 30 minute reading.
 - **Rate** joins together consecutive readings with the same unit rates, so you get one bar for each run of time charged at the same rates, e.g. one for the cheap overnight period and one for the rest of the day. Because these bars cover different lengths of time their heights are per hour, so the area of each bar is its total.
 - **Day / Week / Month** add the readings up into a bar for each day, week or month.

@@ -6,10 +6,9 @@ use crate::views::log_panel::LogPanel;
 use crate::{
     AppContext, UpgradeRequested,
     components::{
-        app::Route, copy_profile::CopyProfileDialog, delete_profile::DeleteProfileDialog,
-        rename_profile::RenameProfileDialog,
+        app::Route, copy_domain::CopyDomainDialog, delete_domain::DeleteDomainDialog, rename_domain::RenameDomainDialog,
     },
-    profile::{Settings, profile_names_equal},
+    domain::{Settings, domain_names_equal},
 };
 use dioxus::prelude::*;
 use dioxus_free_icons::{
@@ -17,7 +16,7 @@ use dioxus_free_icons::{
     icons::ld_icons::{LdCircleHelp, LdScrollText, LdSettings, LdUser},
 };
 
-// use crate::PROFILE_MANAGER;
+// use crate::DOMAIN_MANAGER;
 
 const APP_ICON: Asset = asset!("/assets/app-icon.png");
 
@@ -37,32 +36,32 @@ pub fn Navbar() -> Element {
 
     // State for the dropdown menu
     let mut menu_open = use_signal(|| false);
-    let mut new_profile_open = use_signal(|| false);
-    let mut new_profile_generation = use_signal(|| 0u32);
-    let mut new_profile_name = use_signal(String::new);
-    let mut new_profile_error = use_signal(|| None::<String>);
-    // The profile whose ... menu is open, and the profiles being deleted, renamed and copied.
-    let mut profile_actions_open = use_signal(|| None::<String>);
-    let mut delete_profile = use_signal(|| None::<String>);
-    let mut rename_profile = use_signal(|| None::<String>);
-    let mut copy_profile = use_signal(|| None::<String>);
+    let mut new_domain_open = use_signal(|| false);
+    let mut new_domain_generation = use_signal(|| 0u32);
+    let mut new_domain_name = use_signal(String::new);
+    let mut new_domain_error = use_signal(|| None::<String>);
+    // The domain whose ... menu is open, and the domains being deleted, renamed and copied.
+    let mut domain_actions_open = use_signal(|| None::<String>);
+    let mut delete_domain = use_signal(|| None::<String>);
+    let mut rename_domain = use_signal(|| None::<String>);
+    let mut copy_domain = use_signal(|| None::<String>);
 
-    // The active profile's settings, for the Settings page and the log panel, which follow the profile when it changes.
-    let mut settings = use_context_provider(|| Signal::new(context.profile.active_profile.settings.clone()));
+    // The active domain's settings, for the Settings page and the log panel, which follow the domain when it changes.
+    let mut settings = use_context_provider(|| Signal::new(context.domain.active_domain.settings.clone()));
     use_effect(move || {
         if let Some(context) = context_signal.read().as_ref() {
-            settings.set(context.profile.active_profile.settings.clone());
+            settings.set(context.domain.active_domain.settings.clone());
         }
     });
     // Not in screenshots, see screenshots.rs.
     let show_log = settings.read().log.show && !crate::screenshots::running();
     // Shows or hides the log panel, and saves it so that it stays that way.
     let set_show_log = {
-        let profile_name = context.profile.active_profile.name.clone();
+        let domain_name = context.domain.active_domain.name.clone();
         move |show: bool| {
             let mut new_settings: Settings = settings.read().clone();
             new_settings.log.show = show;
-            if let Err(error) = crate::profile::update_settings(&profile_name, &new_settings) {
+            if let Err(error) = crate::domain::update_settings(&domain_name, &new_settings) {
                 crate::log_error!("Failed to save whether the log is shown: {error}");
             }
             settings.set(new_settings);
@@ -82,7 +81,7 @@ pub fn Navbar() -> Element {
     let home_help_topic = use_context_provider(|| crate::help::HomeHelpTopic(Signal::new("home.md")));
 
     let mut all = Vec::new();
-    for name in &context.profile.all_profiles {
+    for name in &context.domain.all_domains {
         all.push(name.clone());
     }
 
@@ -91,7 +90,7 @@ pub fn Navbar() -> Element {
     let navigator = use_navigator();
     let help_topic = match &current_route {
         Route::Home {} => String::from(home_help_topic.0()),
-        Route::ProfileSize { .. } => String::from("profile-size.md"),
+        Route::DomainSize { .. } => String::from("domain-size.md"),
         Route::Settings {} => String::from("settings.md"),
         Route::Module { module_id } => module_help_topic.0().unwrap_or_else(|| format!("{module_id}/index.md")),
     };
@@ -109,13 +108,13 @@ pub fn Navbar() -> Element {
             div { class: "nav-left",
 
                 Link {
-                    class: if matches!(&current_route, Route::Home {} | Route::ProfileSize { .. }) { "nav-item active" } else { "nav-item" },
+                    class: if matches!(&current_route, Route::Home {} | Route::DomainSize { .. }) { "nav-item active" } else { "nav-item" },
                     to: Route::Home {},
                     "Home"
                 }
 
-                // By name, as on Home, as the profile's modules are in a HashMap, in no order.
-                for module_id in context.profile.active_profile.modules.keys().cloned().collect::<std::collections::BTreeSet<_>>() {
+                // By name, as on Home, as the domain's modules are in a HashMap, in no order.
+                for module_id in context.domain.active_domain.modules.keys().cloned().collect::<std::collections::BTreeSet<_>>() {
                     Link {
                         class: match &current_route {
                             Route::Module { module_id: mid } if *mid == module_id => "nav-item active",
@@ -151,10 +150,10 @@ pub fn Navbar() -> Element {
                 }
                 div { class: "dropdown",
                     button {
-                        key: "{new_profile_generation}",
+                        key: "{new_domain_generation}",
                         class: "dropdown-toggle",
                         onclick: move |_| {
-                            if !*new_profile_open.read() {
+                            if !*new_domain_open.read() {
                                 let is_open = *menu_open.read();
                                 menu_open.set(!is_open);
                             }
@@ -163,51 +162,58 @@ pub fn Navbar() -> Element {
                         // aria_has_popup: "true",
                         aria_expanded: "{menu_open}",
 
-                        if *new_profile_open.read() {
-                            if let Some(error) = &*new_profile_error.read() {
+                        if *new_domain_open.read() {
+                            if let Some(error) = &*new_domain_error.read() {
                                 span { class: "invalid", "{error}" }
                             }
                             input {
-                                class: "profile-rename",
+                                class: "domain-rename",
                                 r#type: "text",
-                                placeholder: "Profile name",
+                                placeholder: "Domain name",
                                 autofocus: true,
                                 onmounted: move |event| async move {
                                     let _ = event.data().set_focus(true).await;
                                 },
-                                value: "{new_profile_name}",
-                                oninput: move |event| new_profile_name.set(event.value().clone()),
+                                value: "{new_domain_name}",
+                                oninput: move |event| new_domain_name.set(event.value().clone()),
                                 onclick: move |event| event.stop_propagation(),
                                 onkeydown: move |event| {
                                     match event.key().to_string().as_str() {
                                         "Enter" => {
-                                            let profile_name = new_profile_name.read().clone();
-                                            match crate::profile::create_profile(&profile_name) {
-                                                Ok(active_profile) => {
+                                            let domain_name = new_domain_name.read().clone();
+                                            match crate::domain::create_domain(&domain_name) {
+                                                Ok(active_domain) => {
+                                                    // Its domain is made first, on the Devices page, before it has a
+                                                    // store, which is then opened under the domain's ID.
+                                                    let name = active_domain.active_domain.name.clone();
+                                                    if let Err(error) = crate::domain::await_founding(&name) {
+                                                        crate::log_warning!("Unable to note that the domain {name} awaits its founding, {error:#}");
+                                                    }
+                                                    crate::domain_security::note_new_domain(&name);
 
                                                     // start
                                                     // let new_context = Arc::new(AppContext {
                                                     //     args: crate::Args::parse_all(),
-                                                    //     profile: active_profile,
+                                                    //     domain: active_domain,
                                                     // });
                                                     // context_signal.set(Some(new_context));
                                                     // end
-                                                    let new_context = AppContext::for_profile(crate::Args::parse_all(), active_profile);
+                                                    let new_context = AppContext::for_domain(crate::Args::parse_all(), active_domain);
                                                     context_signal.set(Some(new_context));
                                                     //next
                                                     upgrade_requested.set(UpgradeRequested(false));
-                                                    new_profile_open.set(false);
-                                                    new_profile_name.set(String::new());
-                                                    new_profile_error.set(None);
+                                                    new_domain_open.set(false);
+                                                    new_domain_name.set(String::new());
+                                                    new_domain_error.set(None);
                                                     navigator.replace(Route::Home {});
                                                 }
-                                                Err(error) => new_profile_error.set(Some(error.to_string())),
+                                                Err(error) => new_domain_error.set(Some(error.to_string())),
                                             }
                                         }
                                         "Escape" => {
-                                            new_profile_open.set(false);
-                                            new_profile_name.set(String::new());
-                                            new_profile_error.set(None);
+                                            new_domain_open.set(false);
+                                            new_domain_name.set(String::new());
+                                            new_domain_error.set(None);
                                         }
                                         _ => {}
                                     }
@@ -215,7 +221,7 @@ pub fn Navbar() -> Element {
                             }
                         } else {
                             Icon { class: "inline-icon", icon: LdUser, width: 14, height: 14 }
-                            " Profile {context.profile.active_profile.name} "
+                            " Domain {context.domain.active_domain.name} "
                             svg {
                                 width: "14",
                                 height: "14",
@@ -237,7 +243,7 @@ pub fn Navbar() -> Element {
                             class: "overlay",
                             onclick: move |_| {
                                 menu_open.set(false);
-                                profile_actions_open.set(None);
+                                domain_actions_open.set(None);
                             },
                         }
                     }
@@ -247,13 +253,13 @@ pub fn Navbar() -> Element {
 
                         for name in all {
                             div {
-                                class: "menu-item profile-item",
+                                class: "menu-item domain-item",
                                 onclick: {
                                     let name = name.clone();
                                     move |_| {
                                         menu_open.set(false);
-                                        profile_actions_open.set(None);
-                                        let new_context = AppContext::for_profile(crate::Args::parse_all(), crate::profile::set_active_profile(&name)?);
+                                        domain_actions_open.set(None);
+                                        let new_context = AppContext::for_domain(crate::Args::parse_all(), crate::domain::set_active_domain(&name)?);
 
                                         context_signal.set(Some(new_context));
                                         upgrade_requested.set(UpgradeRequested(false));
@@ -262,23 +268,23 @@ pub fn Navbar() -> Element {
                                     }
                                 },
                                 span { "{&name}" }
-                                // The active profile can only be copied, as the app has its files open, and its size seen.
-                                span { class: "profile-actions",
+                                // The active domain can only be copied, as the app has its files open, and its size seen.
+                                span { class: "domain-actions",
                                     button {
-                                        class: "profile-actions-toggle",
-                                        title: "Profile actions",
+                                        class: "domain-actions-toggle",
+                                        title: "Domain actions",
                                         onclick: {
                                             let name = name.clone();
                                             move |event: MouseEvent| {
                                                 event.stop_propagation();
-                                                let open = profile_actions_open.read().as_ref() == Some(&name);
-                                                profile_actions_open.set(if open { None } else { Some(name.clone()) });
+                                                let open = domain_actions_open.read().as_ref() == Some(&name);
+                                                domain_actions_open.set(if open { None } else { Some(name.clone()) });
                                             }
                                         },
                                         "…"
                                     }
-                                    if profile_actions_open.read().as_ref() == Some(&name) {
-                                        div { class: "profile-actions-menu",
+                                    if domain_actions_open.read().as_ref() == Some(&name) {
+                                        div { class: "domain-actions-menu",
                                             div {
                                                 class: "menu-item",
                                                 onclick: {
@@ -286,8 +292,8 @@ pub fn Navbar() -> Element {
                                                     move |event: MouseEvent| {
                                                         event.stop_propagation();
                                                         menu_open.set(false);
-                                                        profile_actions_open.set(None);
-                                                        navigator.push(Route::ProfileSize { name: name.clone() });
+                                                        domain_actions_open.set(None);
+                                                        navigator.push(Route::DomainSize { name: name.clone() });
                                                     }
                                                 },
                                                 "Size..."
@@ -299,13 +305,13 @@ pub fn Navbar() -> Element {
                                                     move |event: MouseEvent| {
                                                         event.stop_propagation();
                                                         menu_open.set(false);
-                                                        profile_actions_open.set(None);
-                                                        copy_profile.set(Some(name.clone()));
+                                                        domain_actions_open.set(None);
+                                                        copy_domain.set(Some(name.clone()));
                                                     }
                                                 },
                                                 "Copy..."
                                             }
-                                            if !profile_names_equal(&name, &context.profile.active_profile.name) {
+                                            if !domain_names_equal(&name, &context.domain.active_domain.name) {
                                                 div {
                                                     class: "menu-item",
                                                     onclick: {
@@ -313,8 +319,8 @@ pub fn Navbar() -> Element {
                                                         move |event: MouseEvent| {
                                                             event.stop_propagation();
                                                             menu_open.set(false);
-                                                            profile_actions_open.set(None);
-                                                            rename_profile.set(Some(name.clone()));
+                                                            domain_actions_open.set(None);
+                                                            rename_domain.set(Some(name.clone()));
                                                         }
                                                     },
                                                     "Rename..."
@@ -326,8 +332,8 @@ pub fn Navbar() -> Element {
                                                         move |event: MouseEvent| {
                                                             event.stop_propagation();
                                                             menu_open.set(false);
-                                                            profile_actions_open.set(None);
-                                                            delete_profile.set(Some(name.clone()));
+                                                            domain_actions_open.set(None);
+                                                            delete_domain.set(Some(name.clone()));
                                                         }
                                                     },
                                                     "Delete..."
@@ -343,13 +349,13 @@ pub fn Navbar() -> Element {
                             class: "menu-item create-new",
                             onclick: move |_| {
                                 menu_open.set(false);
-                                new_profile_open.set(true);
-                                let generation = *new_profile_generation.read() + 1;
-                                new_profile_generation.set(generation);
-                                new_profile_error.set(None);
-                                new_profile_name.set(String::new());
+                                new_domain_open.set(true);
+                                let generation = *new_domain_generation.read() + 1;
+                                new_domain_generation.set(generation);
+                                new_domain_error.set(None);
+                                new_domain_name.set(String::new());
                             },
-                            "Create New Profile"
+                            "Create New Domain"
                         }
                     }
                 }
@@ -363,14 +369,14 @@ pub fn Navbar() -> Element {
             }
         }
 
-        if let Some(name) = delete_profile.read().clone() {
-            DeleteProfileDialog { name, on_close: move |_| delete_profile.set(None) }
+        if let Some(name) = delete_domain.read().clone() {
+            DeleteDomainDialog { name, on_close: move |_| delete_domain.set(None) }
         }
-        if let Some(name) = rename_profile.read().clone() {
-            RenameProfileDialog { name, on_close: move |_| rename_profile.set(None) }
+        if let Some(name) = rename_domain.read().clone() {
+            RenameDomainDialog { name, on_close: move |_| rename_domain.set(None) }
         }
-        if let Some(name) = copy_profile.read().clone() {
-            CopyProfileDialog { name, on_close: move |_| copy_profile.set(None) }
+        if let Some(name) = copy_domain.read().clone() {
+            CopyDomainDialog { name, on_close: move |_| copy_domain.set(None) }
         }
 
         div { class: "app-body",

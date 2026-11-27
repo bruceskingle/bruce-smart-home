@@ -18,8 +18,8 @@ and its own layout:
 | myenergi status | App | `src/myenergi/fetch.rs` | A file a poll, `#status-HHMMSS` | No |
 | myenergi minute records | App | `src/myenergi/fetch.rs` | A day file, read, merged, rewritten | No |
 | Octopus dispatches | App | `src/octopus/flex_poll.rs` | Own save-if-new | No |
-| Temperature and humidity | App | `src/climate.rs` | `<profile>-climate/<device>/<series>/<date>.json` | No, its own layout |
-| Poll log | App | `src/polling.rs` | `<profile>-polling/<date>.jsonl` | No |
+| Temperature and humidity | App | `src/climate.rs` | `<domain>-climate/<device>/<series>/<date>.json` | No, its own layout |
+| Poll log | App | `src/polling.rs` | `<domain>-polling/<date>.jsonl` | No |
 | Captured records | Device | `capture/src/day_files.rs` | `/sd/capture/<feature>/<date>.jsonl`, appended, read by `since` | No |
 | Start log | Device | bruce-esp-idf's `starts.rs` | NVS, the last 30 | No |
 
@@ -28,14 +28,14 @@ taken once, from several devices, arriving late or out of order, some of them ne
 kept, such as the open temperature period. The cost showed: the 1 November unpadded-day bug was in Tesla's copy of the
 day-path code only, and "latest" was found by file modification time, which is wrong once devices write old records
 after new ones. So everything the app and the devices keep, the API caches included, moves into one store, and the
-whole profile replicates.
+whole domain replicates.
 
 ## Decisions of 6 November 2026
 
 Made before the crate was built, with the move of the app's stores onto it:
 
-- **A site belongs to a profile.** Each profile names its site, `Profile::site`, and two households, e.g. Bruce's and
-  a friend's, are two sites. A redacted profile is a site of its own, made by copying with redaction. Every profile's
+- **A site belongs to a domain.** Each domain names its site, `Domain::site`, and two households, e.g. Bruce's and
+  a friend's, are two sites. A redacted domain is a site of its own, made by copying with redaction. Every domain's
   site is in the data home's `store` directory, see `src/store.rs`.
 - **The app's node** is 12 hex characters made at random once and kept in the settings, `node`, and its origin is
   `app-<node>`, which sorts after any device's ID of digits. A capture device's node and origin is its MAC address.
@@ -43,17 +43,17 @@ Made before the crate was built, with the move of the app's stores onto it:
   what was asked for and when. Splitting is allowed; changing a value is not, see AGENTS.md's "Caches hold only what
   the source sent".
 - **Files, e.g. a bill's PDF, go in the store's blobs.** A capture device does not keep them, see the device's store.
-- **Secrets stay out of the store**: sessions, tokens and passwords stay in the profile and settings, so that they are
+- **Secrets stay out of the store**: sessions, tokens and passwords stay in the domain and settings, so that they are
   not copied to every node, until bruce-db's Security Contexts can carry them.
 - **IDs which are hashed**: account numbers, meter serials, MPANs, NMIs, Tesla gateway DINs and zappi serials. A
   capture device's ID stays readable.
 - **Derived data**: what is cheap to work out, e.g. totals and checks, is worked out by whoever reads it, which also
   decides how it is shown, e.g. whether a difference from a bill is in the customer's favour. What is expensive, e.g.
   a bill's text read from its PDF, may be kept, in a kind of its own.
-- **The existing profiles are converted, not fetched again**, into profiles renamed `_Old`, which only need to keep
-  working; new profiles are made which fetch fresh data a little at a time, so that no conversion of data the app
-  once changed, e.g. Octopus's meter readings, carries into them. The conversion is the profile upgrade to 0.5.0, see
-  `src/convert.rs`, which converts the cache directory beside the store and bumps the profile's version last, so that
+- **The existing domains are converted, not fetched again**, into domains renamed `_Old`, which only need to keep
+  working; new domains are made which fetch fresh data a little at a time, so that no conversion of data the app
+  once changed, e.g. Octopus's meter readings, carries into them. The conversion is the domain upgrade to 0.5.0, see
+  `src/convert.rs`, which converts the cache directory beside the store and bumps the domain's version last, so that
   one cut short is done again from the start.
 - **The app reads only the store.** A build of the app from before the store was kept as a snapshot, so the app does
   not read both a device's old API and the store's feed: a device not yet moved to the store is not read until it is.
@@ -74,6 +74,18 @@ items the app would when it polls a source itself:
 
 The app's modules keep their own kinds beside them, e.g. `tesla.details`, `myenergi.minutes`, `octopus.tariff`,
 `octopus.bills`, `octopus.measurementsconsumption`, the `globird.*` kinds and `app.poll`, each defined in its module.
+
+A site is a bruce-db domain, see [CaptureDeviceReplication.md](CaptureDeviceReplication.md), section 1, whose
+Security Contexts are bruce-db's own kinds, see its design, "Security Contexts and Principals":
+- `principals`, the domain's list of its principals, sorted by their IDs;
+- `principal/<ID>`, each principal's record, `-`, and keys, `key/<key ID>`;
+- `directory/<ID>/<SC ID>`, what is said of each principal in an SC, e.g. its name;
+- `security.sc`, of SCs;
+- `security.member/<SC ID>`, of each SC's memberships, sorted by the member's ID and when, as each change is a record;
+- `security.delegation/<subject ID>`, of each user's delegations to their apps.
+
+The app puts them all, see `src/site_security.rs`, and sends them to the devices; a device makes its own principal,
+which a co-owner's app admits, and gives a reader's app none of them.
 
 Every device polls the Tesla gateway, and their snapshots of a slot differ a little, taken moments apart, so a slot is
 one record: its version is the slot, and of equal versions the lowest device ID wins, the same on every node. If that
@@ -113,6 +125,13 @@ a start, and converts the records it kept before on the device itself.
   the device, in place of each module's own reading of `/api/capture/<module>/records`. Its cursor for each device is
   a record of the app's, `app.replication/<app node>/<device>`, with the device's store ID, so that a wiped card starts
   again from 0.
+- **Too far behind, the app copies the device's store.** A cursor older than the three days of journal the device
+  keeps, e.g. a new domain's, 0, is answered with no changes and `"tooFarBehind": true`; the app then pages through
+  `GET /api/store/copy?token=<t>&limit=<k>`, on the same port, which gives every record a page at a time with a token
+  for the next, then, once done, the cursor to catch up from with the change feed, see bruce-db 0.4.0's full copy. The
+  app keeps the copy's token in its cursor, so that a copy goes on where it was after the app is stopped; one which
+  the device can no longer finish, `"expired": true`, is started again. Both endpoints take `for=<node>`, so that a
+  peer device asking is not sent back what it made or sent.
 - **A device's site is a setting**, which the app sets when it adopts the device; its store is
   `/sd/store/<site hex>/`, and a device given another site starts another directory, leaving the first. Until it has a
   site and a card it keeps nothing, and its screen says its records are not stored. `GET /api/store/info` gives the
@@ -154,27 +173,28 @@ flowchart LR
   which halves the load on Octopus and myenergi. A standby device takes over when the newest record is older than
   twice the poll interval, and stops when the owner's records come back. Not built yet: the app pulls from each device,
   and devices do not yet pull from each other.
-- **The app is just another node**: it keeps the whole profile, and could later be one of the devices serving the
+- **The app is just another node**: it keeps the whole domain, and could later be one of the devices serving the
   pages, as Home Assistant does on its Green.
 
 ## Compaction
 
 bruce-db leaves compaction to its caller, and holds the store while it runs. Since bruce-db 0.3.0 the journal is a file
-an hour, and each node compacts the hours which have ended, every hour, with `Store::compact_through(now)`, so that
-the journal, which opening the store reads, stays an hour or two. The hours compacted are kept for three days, in
+an hour, and each node compacts the hours which have ended, every hour, with `Store::compact_through(now)`, so that the
+journal, which opening the store reads, stays an hour or two. The hours compacted are kept for three days, in
 `journal/kept/`, which a peer behind, e.g. the app reading a device, catches up from, a page in milliseconds, rather
-than from the DataSets' files, see bruce-db's journal by the hour. Before, each node compacted only the days before
-yesterday, which left one to two days in the journal: 8.6 s to open on the ESP32-S3-LCD-1.47B on 23 November 2026, 47
-s on the Guitron, and a peer behind what was compacted waited 4 to 7½ minutes for each page.
+than from the DataSets' files, see bruce-db's journal by the hour; one further behind copies the store, see above.
+Before, each node compacted only the days before yesterday, which left one to two days in the journal: 8.6 s to open on
+the ESP32-S3-LCD-1.47B on 23 November 2026, 47 s on the Guitron, and a peer behind what was compacted waited 4 to 7½
+minutes for each page.
 
-- **The app** compacts on a thread of its own, a minute after it opens a profile's store and then hourly, see
+- **The app** compacts on a thread of its own, a minute after it opens a domain's store and then hourly, see
   `store::compact_in_background`, so that the first page is drawn first. A copy of Bruce's store, with a two-day
   journal of 80 MB, took 1.9 s to compact the first time, on 23 November 2026, then opened in 0.1 ms.
 - **A capture device** compacts every hour, at a minute worked out from its ID, away from Octopus's poll minutes, so
   that two devices do not compact at once, and once 10 to 20 minutes after it starts, see `capture/src/db.rs`. A guard
   file, `/sd/store/compacting`, written for the build that compacts, stops a build which crashed compacting from
   compacting again, which `/api/store/info` reports.
-- **Timings**: bruce-db logs how long opening and compacting took, which the app puts into the profile's log, see
+- **Timings**: bruce-db logs how long opening and compacting took, which the app puts into the domain's log, see
   `logging::forward_libraries`, and the firmware into its serial log.
 
 ## Order of work
@@ -186,7 +206,7 @@ s on the Guitron, and a peer behind what was compacted waited 4 to 7½ minutes f
 4. The app's replicator, in place of each module's reading of devices. Done.
 5. The RLCD. Done.
 6. In progress: the app's own stores and the DataSet flavours onto the store, each converting what is cached once,
-   the profile upgrade to 0.5.0.
+   the domain upgrade to 0.5.0.
 7. Replication between devices, and owners of the internet sources.
 
 ## Open questions

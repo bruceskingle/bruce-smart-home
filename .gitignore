@@ -10,3 +10,5 @@ pack.temp.dmg
 /capture/.embuild
 /.cargo/config.toml
 /capture/.cargo/links.toml
+# Claude Code project locks
+.claude-lock.json

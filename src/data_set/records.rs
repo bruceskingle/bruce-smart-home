@@ -1,4 +1,4 @@
-//! A DataSet's records in the profile's store, see store.rs, which the DataSet flavours keep their data in, in place
+//! A DataSet's records in the domain's store, see store.rs, which the DataSet flavours keep their data in, in place
 //! of a JSON file a set.
 //!
 //! A DataSet's hash key, e.g. `<account>#<meter>#MeasurementsConsumption`, which has account and meter numbers in it,
@@ -57,7 +57,7 @@ impl Records {
         Ok(records)
     }
 
-    /// The records of the DataSet hash_key in store, to read, e.g. from a page which has the profile's store but not a
+    /// The records of the DataSet hash_key in store, to read, e.g. from a page which has the domain's store but not a
     /// module's CacheConfig, see open.
     pub fn in_store(store: Arc<Store>, hash_key: &str) -> anyhow::Result<Records> {
         let id = Id::of(&serde_json::json!({ "data-set": hash_key }))?;
@@ -121,7 +121,7 @@ impl Records {
     }
 
     /// Imports the DataSet's file in the old layout, relative to the module's cache directory, e.g. `#Viewer` or
-    /// `2026/October#<hash key>`, the first time it is asked to, giving put each of its lines, so that a profile made
+    /// `2026/October#<hash key>`, the first time it is asked to, giving put each of its lines, so that a domain made
     /// before the store keeps its data, see convert.rs. Returns whether there was a file to import. A file is imported
     /// once, which its `#imported/<file>` record says, and is left as it was.
     pub fn import_legacy(
@@ -132,7 +132,7 @@ impl Records {
     ) -> anyhow::Result<bool> {
         let marker = format!("#imported/{relative}");
         let path = config.dir_path().join(relative);
-        // An offline profile's are imported too, as it only shows what it has, which is in the store.
+        // An offline domain's are imported too, as it only shows what it has, which is in the store.
         if !path.exists() || self.get(&marker)?.is_some() {
             return Ok(false);
         }

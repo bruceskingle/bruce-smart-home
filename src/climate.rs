@@ -1,4 +1,4 @@
-//! The temperature and humidity which the profile's capture devices measure themselves, e.g. the Waveshare
+//! The temperature and humidity which the domain's capture devices measure themselves, e.g. the Waveshare
 //! ESP32-S3-RLCD-4.2's sensor, read from them every 5 minutes, see ClimateReader, and kept for the Temp & Humidity
 //! page, see views/climate.rs.
 //!
@@ -7,7 +7,7 @@
 //! one time to another, see the capture firmware's climate.rs, and gives the one still open again, with its end moved
 //! on, each time it is read, so a period is saved by its start, replacing what was saved of it before.
 //!
-//! They are kept in the profile's store, see store.rs, as the kind `climate.period`: a DataSet for each device and
+//! They are kept in the domain's store, see store.rs, as the kind `climate.period`: a DataSet for each device and
 //! series, by the device's ID, of each period as the device gave it, by its start, versioned by its end, written by the
 //! device, so that a period given again with its end moved on replaces what was kept of it. Where the app has got to in
 //! reading a device is a `#read` record in each of its DataSets, and the device's name, as it last said, is in
@@ -86,9 +86,9 @@ pub struct DeviceClimate {
     pub series: [Vec<Period>; 2],
 }
 
-/// The profile's store, which the readings are kept in, see store.rs.
-pub fn store(profile_name: &str) -> anyhow::Result<Arc<Store>> {
-    crate::store::for_profile(profile_name)
+/// The domain's store, which the readings are kept in, see store.rs.
+pub fn store(domain_name: &str) -> anyhow::Result<Arc<Store>> {
+    crate::store::for_domain(domain_name)
 }
 
 fn series_key(store: &Store, device_id: &str, series: &str) -> anyhow::Result<String> {
@@ -178,7 +178,7 @@ fn latest_end(store: &Store, id: &str) -> Option<OffsetDateTime> {
 
 /// The periods of every device which has any, of those saved, which overlap from to to, by its name.
 pub fn load(store: &Store, from: OffsetDateTime, to: OffsetDateTime) -> Vec<DeviceClimate> {
-    let prefix = format!("{}/{KIND}/", store.site());
+    let prefix = format!("{}/{KIND}/", store.domain());
     let mut ids: Vec<String> = store
         .data_sets(&prefix)
         .unwrap_or_default()
@@ -243,16 +243,16 @@ pub fn load_series(store: &Store, id: &str, series: &Series, from: OffsetDateTim
     periods
 }
 
-/// Reads the periods from the profile's capture devices which take them, polled as MODULE_ID, see polling.rs.
+/// Reads the periods from the domain's capture devices which take them, polled as MODULE_ID, see polling.rs.
 pub struct ClimateReader {
-    profile_name: String,
+    domain_name: String,
     capture: CaptureReader,
 }
 
 impl ClimateReader {
-    pub fn new(profile_name: &str) -> ClimateReader {
+    pub fn new(domain_name: &str) -> ClimateReader {
         ClimateReader {
-            profile_name: profile_name.to_string(),
+            domain_name: domain_name.to_string(),
             capture: CaptureReader::new("capture/climate/records"),
         }
     }
@@ -296,8 +296,8 @@ impl Module for ClimateReader {
     /// that a device with none, e.g. one without a sensor, does not make the others give all they have, saving them a
     /// device at a time, as reading and writing a day's file for each period would be slow when catching up.
     async fn poll(&self, _slot: Option<OffsetDateTime>) -> anyhow::Result<String> {
-        let store = store(&self.profile_name)?;
-        let devices = crate::capture_device::adopted_devices(&self.profile_name);
+        let store = store(&self.domain_name)?;
+        let devices = crate::capture_device::adopted_devices(&self.domain_name);
         let mut read: Vec<(DeviceProfile, Vec<Value>)> = Vec::new();
         let takes = self
             .capture

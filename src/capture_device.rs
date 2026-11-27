@@ -10,6 +10,10 @@
 //! of a device's RAM, which it may not have while it polls over HTTPS itself. Reads of records are signed with the key,
 //! see sign, so that it is never sent where it could be seen. Changes, e.g. of the config, which has passwords in it,
 //! and adoption, which sends the key, are over HTTPS.
+//!
+//! Once a device has been moved over to the site's Security Contexts, see domain_security.rs, the app signs its
+//! requests to it as its principal instead, and goes back to the key if the device refuses one, see
+//! DeviceClient::refused.
 
 use crate::discovery::CaptureDevice;
 use std::sync::{Arc, Mutex};
@@ -24,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-/// A device the profile has adopted, in its settings, see profile::update_capture_devices.
+/// A device the domain has adopted, in its settings, see domain::update_capture_devices.
 #[derive(Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceProfile {
@@ -74,6 +78,9 @@ pub struct DeviceInfo {
     #[serde(default)]
     pub last_crash: Option<String>,
     pub features: Vec<FeatureState>,
+    /// Who it is in its site, if its firmware has Security Contexts, see domain_security.rs.
+    #[serde(default)]
+    pub security: Option<crate::domain_security::DeviceSecurity>,
 }
 
 /// A device's chip, see DeviceInfo::chip.
@@ -244,11 +251,11 @@ const PLAIN_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const INFO_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long a page of records may take, see CaptureReader::read_page.
 const PAGE_TIMEOUT: Duration = Duration::from_secs(2 * 60);
-/// How long a page of a store's changes may take, far longer than PAGE_TIMEOUT: when the profile's cursor is older than
-/// what the device's store has compacted, bruce-db reads every compacted file to find the changes after it, which takes
-/// a device over 5 minutes on its SD card. A shorter limit gives up before the first change, and asks again for ever,
-/// while the device can answer nothing else; once a page arrives, the cursor is past the compacted part, and the next
-/// pages are quick. bruce-db is to skip compacted files which are all before the cursor, see its journal's redesign.
+/// How long a page of a store's changes, or of its full copy, may take, far longer than PAGE_TIMEOUT: on a device whose
+/// firmware is from before bruce-db 0.4.0, a domain's cursor older than what the device's store has compacted makes it
+/// read every compacted file to find the changes after it, which takes a device over 5 minutes on its SD card. A
+/// shorter limit gives up before the first change, and asks again for ever, while the device can answer nothing else.
+/// Firmware since answers that the app is too far behind, and the app copies the store instead, a page in seconds.
 const CHANGES_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
 /// The Authorization header of a request, of method, for uri, its path and query as sent, signed with key, the 32 bytes
@@ -273,6 +280,21 @@ fn sign(key: &str, method: &str, uri: &str, time: i64) -> anyhow::Result<String>
     Ok(format!("Bruce-HMAC-SHA256 {time}:{signature}"))
 }
 
+/// The path and query of url, as a request for it signs them.
+fn uri_of(url: &reqwest::Url) -> String {
+    match url.query() {
+        Some(query) => format!("{}?{query}", url.path()),
+        None => url.path().to_string(),
+    }
+}
+
+/// Whether error is the device saying status, e.g. 401 for a request it refused.
+fn is_status(error: &anyhow::Error, status: u16) -> bool {
+    error
+        .downcast_ref::<StatusError>()
+        .is_some_and(|error| error.status == status)
+}
+
 /// The addresses of the devices which have taken a signed request over plain HTTP, see get_query.
 static SIGNED: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
 
@@ -292,6 +314,13 @@ pub struct DeviceClient {
     plain: reqwest::Client,
     address: String,
     key: Option<String>,
+    /// The device's ID, for a device the domain has adopted.
+    device: Option<String>,
+    /// This installation, acting for the domain's user, to sign requests as, if the device has been moved over, see
+    /// domain_security::signer_for.
+    signer: Option<crate::domain_security::Signer>,
+    /// Whether the device refused a signed request, after which the key is used, see refused.
+    signer_refused: std::sync::atomic::AtomicBool,
     seen: Arc<Mutex<Option<String>>>,
 }
 
@@ -327,13 +356,51 @@ impl DeviceClient {
             plain,
             address: address.trim().to_string(),
             key: key.map(String::from),
+            device: None,
+            signer: None,
+            signer_refused: std::sync::atomic::AtomicBool::new(false),
             seen,
         })
     }
 
-    /// For a device the profile has adopted.
+    /// For a device the domain has adopted, or knows of from the site it joined, which it has no key for, signing as
+    /// this installation for the domain's user if it has been moved over.
     pub fn for_device(device: &DeviceProfile) -> anyhow::Result<DeviceClient> {
-        DeviceClient::new(&device.address, Some(&device.fingerprint), Some(&device.key))
+        let key = Some(device.key.as_str()).filter(|key| !key.is_empty());
+        let mut client = DeviceClient::new(&device.address, Some(&device.fingerprint), key)?;
+        client.device = Some(device.id.clone());
+        client.signer = crate::domain_security::signer_for(&device.id);
+        Ok(client)
+    }
+
+    /// Who to sign the next request as, unless the device has refused a signed request.
+    fn signer(&self) -> Option<&crate::domain_security::Signer> {
+        self.signer
+            .as_ref()
+            .filter(|_| !self.signer_refused.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// The Authorization header of a request signed by signer, acting for its user, see bruce-db's "Subjects and
+    /// actors".
+    fn signed(signer: &crate::domain_security::Signer, method: &str, uri: &str, body: &[u8]) -> String {
+        bruce_db::security::sign_request_for(
+            bruce_db::security::Subject::Away(&signer.user),
+            &signer.app,
+            method,
+            uri,
+            body,
+            time::OffsetDateTime::now_utc().unix_timestamp(),
+        )
+    }
+
+    /// Notes that the device refused a signed request, e.g. as its clock is wrong, or it has lost its domain's records,
+    /// so that the key is used from now on, until the next replication looks at the device again.
+    fn refused(&self, error: &anyhow::Error) {
+        self.signer_refused.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(device) = &self.device {
+            crate::log_warning!("The capture device {device} refused a signed request, using its key, {error:#}");
+            crate::domain_security::stop_signing(device);
+        }
     }
 
     /// The fingerprint of the certificate the device presented, once connected.
@@ -341,14 +408,43 @@ impl DeviceClient {
         self.seen.lock().unwrap().clone()
     }
 
-    async fn send(&self, request: reqwest::RequestBuilder) -> anyhow::Result<Value> {
+    /// Makes a request of method for path, with query and body, over HTTPS, one at a time, see device_lock, signed as
+    /// the app's principal, see signer, or with the key, if the device refuses that, or has not been moved over.
+    async fn send(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        query: &[(&str, String)],
+        body: Option<&Value>,
+    ) -> anyhow::Result<Value> {
+        let mut url = reqwest::Url::parse(&format!("{}/{path}", self.base))?;
+        if !query.is_empty() {
+            url.query_pairs_mut().extend_pairs(query);
+        }
+        // The bytes sent, as a signature covers them.
+        let bytes = body.map(serde_json::to_vec).transpose()?.unwrap_or_default();
+        let request = |authorization: Option<String>| {
+            let mut request = self.http.request(method.clone(), url.clone());
+            if body.is_some() {
+                request = request
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+                    .body(bytes.clone());
+            }
+            match authorization {
+                Some(authorization) => request.header(reqwest::header::AUTHORIZATION, authorization),
+                None => request,
+            }
+        };
         let lock = device_lock(&self.base);
         let _turn = lock.lock().await;
-        let request = match &self.key {
-            Some(key) => request.bearer_auth(key),
-            None => request,
-        };
-        Self::receive(request).await
+        if let Some(signer) = self.signer() {
+            let authorization = Self::signed(signer, method.as_str(), &uri_of(&url), &bytes);
+            match Self::receive(request(Some(authorization))).await {
+                Err(error) if is_status(&error, 401) => self.refused(&error),
+                result => return result,
+            }
+        }
+        Self::receive(request(self.key.as_ref().map(|key| format!("Bearer {key}")))).await
     }
 
     /// Makes request, returning the JSON the device responded with, or an error, a StatusError if it said no.
@@ -373,7 +469,7 @@ impl DeviceClient {
     }
 
     pub async fn get(&self, path: &str) -> anyhow::Result<Value> {
-        self.send(self.http.get(format!("{}/{path}", self.base))).await
+        self.send(reqwest::Method::GET, path, &[], None).await
     }
 
     /// The address of the device's server for slow reads, see BULK_PORT, None if its firmware has none, or its address
@@ -400,9 +496,10 @@ impl DeviceClient {
         query: &[(&str, String)],
         missing_over_https: bool,
     ) -> anyhow::Result<Value> {
-        if let Some(key) = &self.key {
+        if self.key.is_some() || self.signer().is_some() {
             // The change feed on the device's server for slow reads, if it has one, see BULK_PORT.
-            let bulk = path.starts_with("store/changes") && self.bulk_address().is_some();
+            let slow = path.starts_with("store/changes") || path.starts_with("store/copy");
+            let bulk = slow && self.bulk_address().is_some();
             let address = match self.bulk_address().filter(|_| bulk) {
                 Some(address) => address,
                 None => self.address.clone(),
@@ -411,24 +508,23 @@ impl DeviceClient {
             if !query.is_empty() {
                 url.query_pairs_mut().extend_pairs(query);
             }
-            let uri = match url.query() {
-                Some(query) => format!("{}?{query}", url.path()),
-                None => url.path().to_string(),
-            };
+            let uri = uri_of(&url);
             // One request at a time to each device, as over HTTPS, see send: a device answering requests which overlap
             // gives wrong answers, e.g. no records, or another feature's, seen on the RLCD on 5 November 2026.
             let lock = device_lock(&self.base);
             let _turn = lock.lock().await;
-            let authorization = sign(key, "GET", &uri, time::OffsetDateTime::now_utc().unix_timestamp())?;
+            let time = time::OffsetDateTime::now_utc().unix_timestamp();
+            let signer = self.signer();
+            let authorization = match (signer, &self.key) {
+                (Some(signer), _) => Self::signed(signer, "GET", &uri, &[]),
+                (None, Some(key)) => sign(key, "GET", &uri, time)?,
+                (None, None) => unreachable!("checked above"),
+            };
             let request = self
                 .plain
                 .get(url)
                 .header(reqwest::header::AUTHORIZATION, authorization)
-                .timeout(if path.starts_with("store/changes") {
-                    CHANGES_TIMEOUT
-                } else {
-                    PAGE_TIMEOUT
-                });
+                .timeout(if slow { CHANGES_TIMEOUT } else { PAGE_TIMEOUT });
             let result = Self::receive(request).await;
             drop(_turn);
             // A device whose firmware has no server for slow reads refuses the connection, at once, so it is read on its
@@ -444,6 +540,14 @@ impl DeviceClient {
                     self.address
                 );
                 NO_BULK.lock().unwrap().insert(self.address.clone());
+                return Box::pin(self.get_signed(path, query, missing_over_https)).await;
+            }
+            // A device which refuses a request signed as the app's principal is asked again with the key.
+            if signer.is_some()
+                && let Err(error) = &result
+                && is_status(error, 401)
+            {
+                self.refused(error);
                 return Box::pin(self.get_signed(path, query, missing_over_https)).await;
             }
             // A 404 from a device which has taken a signed request is a path it does not have, e.g. /api/store/info
@@ -469,13 +573,11 @@ impl DeviceClient {
                 }
             }
         }
-        self.send(self.http.get(format!("{}/{path}", self.base)).query(query))
-            .await
+        self.send(reqwest::Method::GET, path, query, None).await
     }
 
     pub async fn post(&self, path: &str, body: &Value) -> anyhow::Result<Value> {
-        self.send(self.http.post(format!("{}/{path}", self.base)).json(body))
-            .await
+        self.send(reqwest::Method::POST, path, &[], Some(body)).await
     }
 
     /// What the device says it is, over plain HTTP, to be quick, see PLAIN_CONNECT_TIMEOUT, and to not need the RAM
@@ -527,22 +629,22 @@ impl DeviceClient {
     }
 }
 
-/// The devices the profile has adopted, as saved now, not when the app started, as the Devices page may have adopted
+/// The devices the domain has adopted, as saved now, not when the app started, as the Devices page may have adopted
 /// or released one since.
-pub fn adopted_devices(profile_name: &str) -> Vec<DeviceProfile> {
-    crate::profile::fetch_active_profile(&Some(profile_name.to_string()))
-        .map(|profile| profile.active_profile.settings.capture_devices)
+pub fn adopted_devices(domain_name: &str) -> Vec<DeviceProfile> {
+    crate::domain::fetch_active_domain(&Some(domain_name.to_string()))
+        .map(|domain| domain.active_domain.settings.capture_devices)
         .unwrap_or_default()
 }
 
-/// Moves each of the profile's capture devices which discovery found at another address than the profile has, e.g. as
+/// Moves each of the domain's capture devices which discovery found at another address than the domain has, e.g. as
 /// the router gave it another, to the one it was found at, by its ID, so that it is not left unreachable, see
-/// discovery.rs, saving the profile only if one moved. Says which moved: their IDs, and where from and to.
+/// discovery.rs, saving the domain only if one moved. Says which moved: their IDs, and where from and to.
 pub fn follow_addresses(
-    profile_name: &str,
+    domain_name: &str,
     found: &[crate::discovery::Found],
 ) -> anyhow::Result<Vec<(String, String, String)>> {
-    let moves: Vec<(String, String, String)> = adopted_devices(profile_name)
+    let moves: Vec<(String, String, String)> = adopted_devices(domain_name)
         .iter()
         .filter_map(|device| {
             let found = found
@@ -555,7 +657,7 @@ pub fn follow_addresses(
     if moves.is_empty() {
         return Ok(moves);
     }
-    crate::profile::update_settings_with(profile_name, |settings| {
+    crate::domain::update_settings_with(domain_name, |settings| {
         for device in &mut settings.capture_devices {
             if let Some((_, _, to)) = moves.iter().find(|(id, _, _)| *id == device.id) {
                 device.address = to.clone();
@@ -608,9 +710,9 @@ pub async fn start_pairing(found: &FoundDevice) -> anyhow::Result<Duration> {
         .await
 }
 
-/// Adopts a found device with the code on its screen, giving it a new key, and returns it for the profile. Its store,
-/// if its firmware has one, is set up for the profile's site, see set_up_store, taking it over from any other site, as
-/// the device is the profile's now; if that fails, the device is still adopted, and replicate sets its store up later.
+/// Adopts a found device with the code on its screen, giving it a new key, and returns it for the domain. Its store,
+/// if its firmware has one, is set up for the domain, see set_up_store, taking it over from any other site, as
+/// the device is the domain's now; if that fails, the device is still adopted, and replicate sets its store up later.
 pub async fn adopt(found: &FoundDevice, code: &str, site: &str) -> anyhow::Result<DeviceProfile> {
     let key: String = rand::random::<[u8; 32]>()
         .iter()
@@ -713,7 +815,7 @@ fn next_occurrence(spec: &str, after: time::OffsetDateTime) -> Option<time::Offs
     time::OffsetDateTime::from_unix_timestamp(next.timestamp()).ok()
 }
 
-/// Reads one kind of record, e.g. the Powerwall's, from the profile's capture devices which take it, see read, so that
+/// Reads one kind of record, e.g. the Powerwall's, from the domain's capture devices which take it, see read, so that
 /// the app has them for the times it was not running, e.g. while the computer slept.
 pub struct CaptureReader {
     /// After /api/, e.g. capture/tesla/records.
@@ -778,7 +880,7 @@ pub struct LastPoll {
     pub last_success: Option<String>,
 }
 
-/// How reading a profile's capture devices is going, for the Polling page, see device_statuses.
+/// How reading a domain's capture devices is going, for the Polling page, see device_statuses.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct DeviceStatus {
     pub id: String,
@@ -799,7 +901,7 @@ pub struct DeviceStatus {
     pub polls: std::collections::BTreeMap<String, LastPoll>,
 }
 
-/// The status of each of the profile's capture devices, by ID, since the poller started, see clear_statuses.
+/// The status of each of the domain's capture devices, by ID, since the poller started, see clear_statuses.
 static STATUSES: Mutex<std::collections::BTreeMap<String, DeviceStatus>> =
     Mutex::new(std::collections::BTreeMap::new());
 
@@ -809,7 +911,7 @@ pub fn device_statuses() -> Vec<DeviceStatus> {
     STATUSES.lock().unwrap().values().cloned().collect()
 }
 
-/// Forgets the statuses, when the poller starts, e.g. for another profile.
+/// Forgets the statuses, when the poller starts, e.g. for another domain.
 pub fn clear_statuses() {
     STATUSES.lock().unwrap().clear();
 }
@@ -1125,12 +1227,15 @@ impl CaptureReader {
 }
 
 /// How many changes a device is asked for at a time, see replicate: the most a device gives, its MAX_CHANGES, so that a
-/// profile whose cursor is behind the device's compaction, each page of which takes minutes, see CHANGES_TIMEOUT, needs
+/// domain whose cursor is behind the device's compaction, each page of which takes minutes, see CHANGES_TIMEOUT, needs
 /// as few pages as can be. A page of 500 takes a Guitron some 14 seconds otherwise.
 const CHANGES_PAGE: usize = 1000;
 /// How long a device's replication is taken as current, so that the modules it takes, polled together on the same
 /// slot, do not each pull its changes, see replicate.
 const REPLICATED_FOR: Duration = Duration::from_secs(5);
+/// How many times a read of a device may start a copy of its store, see replicate: once, as the app is too far
+/// behind, and again if that copy expires.
+const MAX_COPIES: u32 = 2;
 /// The kind of the app's cursor of each device's change feed, see replicate.
 const REPLICATION_KIND: &str = "app.replication";
 
@@ -1147,14 +1252,75 @@ pub struct StoreInfo {
     pub features: std::collections::BTreeMap<String, RecordsDevice>,
 }
 
-/// A page of a device's change feed, /api/store/changes.
+/// A page of a device's change feed, /api/store/changes, or of its full copy, /api/store/copy, see the capture
+/// firmware's db.rs.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ChangesPage {
     store: String,
     changes: Vec<Value>,
-    next: u64,
+    /// The cursor to ask the change feed from next; of a copy, once it is done, the one to catch up from.
+    next: Option<u64>,
+    /// The cursor asked from is older than the device's journal kept, so the app copies the store instead.
+    #[serde(default)]
+    too_far_behind: bool,
+    /// Of a copy, the token to ask for its next page with.
+    token: Option<String>,
+    /// Of a copy, the device's store has moved on too far for it to be finished, so it is started again.
+    #[serde(default)]
+    expired: bool,
     /// Why it could not read them all, after which it gave those it had.
     error: Option<String>,
+}
+
+/// Where the app has got to in a device's store, kept in its cursor, see replicate: the change feed from a sequence
+/// number, or a full copy, from its token, or its start if none, for when the feed says the app is too far behind.
+#[derive(Clone, Debug, PartialEq)]
+enum Place {
+    Feed(u64),
+    Copy(Option<String>),
+}
+
+impl Place {
+    /// The place a cursor, as replicate keeps it, gives, if it is of store, the device's store's ID, and the feed's
+    /// start otherwise, e.g. as the device's card was changed.
+    fn of(cursor: Option<&Value>, store: Option<&str>) -> Place {
+        let Some(cursor) = cursor.filter(|cursor| cursor["store"].as_str() == store) else {
+            return Place::Feed(0);
+        };
+        match &cursor["copy"] {
+            Value::Null => Place::Feed(cursor["next"].as_u64().unwrap_or(0)),
+            copy => Place::Copy(copy.as_str().filter(|token| !token.is_empty()).map(str::to_string)),
+        }
+    }
+
+    /// The cursor which keeps the place, in store, the device's store's ID.
+    fn cursor(&self, store: &str) -> Value {
+        match self {
+            Place::Feed(next) => serde_json::json!({ "store": store, "next": next }),
+            Place::Copy(token) => serde_json::json!({ "store": store, "copy": token.clone().unwrap_or_default() }),
+        }
+    }
+
+    /// The place after page, read from this place, and whether there may be more to read now.
+    fn after(&self, page: &ChangesPage, asked: usize) -> anyhow::Result<(Place, bool)> {
+        Ok(match self {
+            Place::Feed(_) if page.too_far_behind => (Place::Copy(None), true),
+            Place::Feed(since) => {
+                let next = page
+                    .next
+                    .ok_or_else(|| anyhow!("The change feed gave no next cursor"))?;
+                // Only while the page moved on, so that a device which gives fewer than asked for is not asked forever.
+                (Place::Feed(next), page.changes.len() >= asked && next != *since)
+            }
+            Place::Copy(_) if page.expired => (Place::Copy(None), true),
+            Place::Copy(_) => match (&page.token, page.next) {
+                (Some(token), _) => (Place::Copy(Some(token.clone())), true),
+                (None, Some(next)) => (Place::Feed(next), true),
+                (None, None) => anyhow::bail!("The copy gave neither a token nor a cursor"),
+            },
+        })
+    }
 }
 
 /// A device's latest replication, when it was and what the device said of itself then, locked while one is made.
@@ -1164,7 +1330,7 @@ type Replication = Arc<tokio::sync::Mutex<Option<(std::time::Instant, StoreInfo)
 static REPLICATIONS: Mutex<std::collections::BTreeMap<String, Replication>> =
     Mutex::new(std::collections::BTreeMap::new());
 
-/// Sets the device's store up for the profile's site, see set_up_store, if it is off or keeps no site, but not if it
+/// Sets the device's store up for the domain, see set_up_store, if it is off or keeps no domain, but not if it
 /// keeps another site, the first time replicate finds it so, once each time the app runs, as a device from before the
 /// store has none, and is read as before. Setting it up restarts it, which loses nothing, as with its store off it
 /// keeps nothing; it is an error then, so that the device's status says so until it is replicated.
@@ -1175,7 +1341,7 @@ async fn set_up_store_once(device: &DeviceProfile, site: &str) -> anyhow::Result
     }
     match set_up_store(device, site, false).await {
         Ok(true) => anyhow::bail!(
-            "The capture device {} kept no store, so it has been set up for this profile's site, and the device \
+            "The capture device {} kept no store, so it has been set up for this domain, and the device \
             restarted",
             device.id
         ),
@@ -1216,7 +1382,17 @@ pub async fn replicate(
         );
         return Ok(Some(info.clone()));
     }
-    let client = DeviceClient::for_device(device)?;
+    let mut client = DeviceClient::for_device(device)?;
+    // Moved over to the site's Security Contexts, if the domain has a site and the device's firmware has them, so that
+    // its requests are signed from now on; if that fails, the key goes on being used, and it is tried again next time.
+    match crate::domain_security::move_over(store, &client, device).await {
+        Ok(true) => client = DeviceClient::for_device(device)?,
+        Ok(false) => {}
+        Err(error) => crate::log_warning!(
+            "Unable to move the capture device {} over to the site's Security Contexts, {error:#}",
+            device.id
+        ),
+    }
     let named = STATUSES
         .lock()
         .unwrap()
@@ -1230,7 +1406,7 @@ pub async fn replicate(
             Err(error) => crate::log_info!("Unable to get the name of the capture device {}, {error:#}", device.id),
         }
     }
-    let site = store.site().to_string();
+    let site = store.domain().to_string();
     let info: StoreInfo = match client.get_signed("store/info", &[], false).await {
         Ok(json) => serde_json::from_value(json)?,
         Err(error)
@@ -1260,7 +1436,7 @@ pub async fn replicate(
     }
     if info.site.as_deref() != Some(site.as_str()) {
         anyhow::bail!(
-            "The capture device {} keeps the site {}, not this profile's",
+            "The capture device {} keeps the site {}, not this domain's",
             device.id,
             info.site.as_deref().unwrap_or("none")
         );
@@ -1273,27 +1449,54 @@ pub async fn replicate(
         ],
     )?;
     let cursor = store.get(&hk, "-")?.and_then(|item| item.attributes);
-    let mut since = cursor
-        .as_ref()
-        .filter(|cursor| cursor["store"].as_str() == info.store.as_deref())
-        .and_then(|cursor| cursor["next"].as_u64())
-        .unwrap_or(0);
+    let mut place = Place::of(cursor.as_ref(), info.store.as_deref());
     progress(format!("Reading the capture device {}", device.id));
-    let (mut read, mut stored) = (0u64, 0u64);
+    let (mut read, mut stored, mut copies) = (0u64, 0u64, 0u32);
     loop {
-        let query = [("since", since.to_string()), ("limit", CHANGES_PAGE.to_string())];
-        crate::log_info!("Capture device {} GET /api/store/changes {query:?}", device.id);
-        let page: ChangesPage = serde_json::from_value(client.get_query("store/changes", &query).await?)?;
+        let (path, query) = match &place {
+            Place::Feed(since) => (
+                "store/changes",
+                vec![("since", since.to_string()), ("limit", CHANGES_PAGE.to_string())],
+            ),
+            Place::Copy(token) => {
+                let mut query = vec![("limit", CHANGES_PAGE.to_string())];
+                if let Some(token) = token {
+                    query.push(("token", token.clone()));
+                }
+                ("store/copy", query)
+            }
+        };
+        crate::log_info!("Capture device {} GET /api/{path} {:?}", device.id, &query[..1]);
+        let page: ChangesPage = serde_json::from_value(client.get_query(path, &query).await?)?;
         let count = page.changes.len();
+        let (next, more) = place.after(&page, CHANGES_PAGE)?;
+        if page.too_far_behind || page.expired {
+            // A copy started, or started again, at most a few times, so that one which keeps expiring is not tried
+            // for ever, but at the next read.
+            copies += 1;
+            if copies > MAX_COPIES {
+                anyhow::bail!("The copy of the capture device {}'s store keeps expiring", device.id);
+            }
+            crate::log_info!(
+                "Capture device {}: {}, so copying its store",
+                device.id,
+                if page.expired {
+                    "the copy expired"
+                } else {
+                    "too far behind its change feed"
+                }
+            );
+        }
         let changes = page
             .changes
             .into_iter()
             .map(bruce_db::Change::from_json)
             .collect::<Result<Vec<_>, _>>()?;
-        // A page and the cursor after it, put as one batch, off the main thread, as it is hundreds of changes, see
-        // store::write_batch.
+        // A page and the place after it, put as one batch, off the main thread, as it is hundreds of changes, see
+        // store::write_batch. A copy's place is kept too, so that a copy of the whole store, which takes a while, goes
+        // on from where it got to, e.g. after the computer slept.
         let (from, cursor_hk) = (crate::store::device_part(&device.id), hk.clone());
-        let cursor = serde_json::json!({ "store": page.store, "next": page.next });
+        let cursor = next.cursor(&page.store);
         stored += crate::store::write_batch(store.clone(), move |store| {
             let mut stored = 0u64;
             for change in changes {
@@ -1317,10 +1520,8 @@ pub async fn replicate(
                 device.id
             );
         }
-        // Only while the page moved on, so that a device which gives fewer than asked for is not asked forever.
-        let moved = page.next != since;
-        since = page.next;
-        if count < CHANGES_PAGE || !moved {
+        place = next;
+        if !more {
             break;
         }
         progress(format!(
@@ -1328,6 +1529,9 @@ pub async fn replicate(
             device.id
         ));
     }
+    let Place::Feed(since) = place else {
+        anyhow::bail!("The copy of the capture device {}'s store stopped part way", device.id);
+    };
     crate::log_info!(
         "Capture device {}: {read} changes, {stored} new, up to {since}",
         device.id
@@ -1350,7 +1554,7 @@ pub async fn replicate(
     Ok(Some(info))
 }
 
-/// For --deviceget: GETs path, which may have a query, e.g. capture/climate/records?limit=5, of the active profile's
+/// For --deviceget: GETs path, which may have a query, e.g. capture/climate/records?limit=5, of the active domain's
 /// capture device device, signed with the key the app keeps for it, which is not shown, and prints its response.
 pub fn cli_get(args: &crate::Args, device_id: &str, path: &str) -> anyhow::Result<()> {
     let device = cli_device(args, device_id)?;
@@ -1374,7 +1578,7 @@ pub fn cli_get(args: &crate::Args, device_id: &str, path: &str) -> anyhow::Resul
     Ok(())
 }
 
-/// For --devicepost: POSTs body, JSON, to path, e.g. config, of the active profile's capture device device, signed as
+/// For --devicepost: POSTs body, JSON, to path, e.g. config, of the active domain's capture device device, signed as
 /// cli_get's are, and prints its response.
 pub fn cli_post(args: &crate::Args, device_id: &str, path: &str, body: &str) -> anyhow::Result<()> {
     let device = cli_device(args, device_id)?;
@@ -1386,11 +1590,11 @@ pub fn cli_post(args: &crate::Args, device_id: &str, path: &str, body: &str) -> 
     Ok(())
 }
 
-/// The active profile's capture device with the ID device_id, for --deviceget and --devicepost.
+/// The active domain's capture device with the ID device_id, for --deviceget and --devicepost.
 fn cli_device(args: &crate::Args, device_id: &str) -> anyhow::Result<DeviceProfile> {
-    let profile = crate::profile::fetch_active_profile(&args.app_args.profile)?;
-    profile
-        .active_profile
+    let domain = crate::domain::fetch_active_domain(&args.app_args.domain)?;
+    domain
+        .active_domain
         .settings
         .capture_devices
         .iter()
@@ -1398,8 +1602,8 @@ fn cli_device(args: &crate::Args, device_id: &str) -> anyhow::Result<DeviceProfi
         .cloned()
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "The profile {} has no capture device {device_id}",
-                profile.active_profile.name
+                "The domain {} has no capture device {device_id}",
+                domain.active_domain.name
             )
         })
 }
@@ -1407,6 +1611,62 @@ fn cli_device(args: &crate::Args, device_id: &str) -> anyhow::Result<DeviceProfi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A page of a device's changes, as /api/store/changes or /api/store/copy gives it, of count changes.
+    fn page(count: usize, end: Value) -> ChangesPage {
+        let mut json = serde_json::json!({ "device": "d", "site": "s", "store": "st", "changes": vec![serde_json::json!({}); count] });
+        json.as_object_mut().unwrap().extend(end.as_object().unwrap().clone());
+        serde_json::from_value(json).unwrap()
+    }
+
+    /// The app follows the change feed until it stops; told it is too far behind, it copies the store a page at a
+    /// time, starting again if the copy expires, then catches up from the cursor the copy gives, and keeps its place
+    /// in each, in the cursor, so that a copy goes on after the app was stopped.
+    #[test]
+    fn replication_follows_the_feed_copies_when_too_far_behind_then_catches_up() {
+        let feed = Place::Feed(10);
+        assert_eq!(
+            feed.after(&page(5, serde_json::json!({ "next": 15 })), 5).unwrap(),
+            (Place::Feed(15), true)
+        );
+        assert_eq!(
+            feed.after(&page(3, serde_json::json!({ "next": 13 })), 5).unwrap(),
+            (Place::Feed(13), false)
+        );
+        assert_eq!(
+            feed.after(&page(5, serde_json::json!({ "next": 10 })), 5).unwrap(),
+            (Place::Feed(10), false)
+        );
+        let behind = page(0, serde_json::json!({ "next": 10, "tooFarBehind": true }));
+        assert_eq!(feed.after(&behind, 5).unwrap(), (Place::Copy(None), true));
+
+        let copy = Place::Copy(None);
+        let more = page(5, serde_json::json!({ "token": "t1" }));
+        assert_eq!(copy.after(&more, 5).unwrap(), (Place::Copy(Some("t1".into())), true));
+        let copy = Place::Copy(Some("t1".into()));
+        assert_eq!(
+            copy.after(&page(0, serde_json::json!({ "expired": true })), 5).unwrap(),
+            (Place::Copy(None), true)
+        );
+        assert_eq!(
+            copy.after(&page(2, serde_json::json!({ "next": 40 })), 5).unwrap(),
+            (Place::Feed(40), true)
+        );
+        assert!(copy.after(&page(2, serde_json::json!({})), 5).is_err());
+
+        // Kept in the cursor, of the device's store, and from the start for another store.
+        for place in [Place::Feed(7), Place::Copy(None), Place::Copy(Some("t2".into()))] {
+            let cursor = place.cursor("st");
+            assert_eq!(Place::of(Some(&cursor), Some("st")), place);
+            assert_eq!(Place::of(Some(&cursor), Some("other")), Place::Feed(0));
+        }
+        // A cursor from before copies.
+        assert_eq!(
+            Place::of(Some(&serde_json::json!({ "store": "st", "next": 9 })), Some("st")),
+            Place::Feed(9)
+        );
+        assert_eq!(Place::of(None, Some("st")), Place::Feed(0));
+    }
 
     /// A device's config, as GET /api/config gives it, with its Store feature on or off, keeping the site, if any.
     fn config(enabled: Value, site: Option<&str>) -> Value {

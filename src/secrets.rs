@@ -1,4 +1,4 @@
-//! The encryption of the secrets kept in the settings directory, see data_home.rs: the logins in the profile file, e.g.
+//! The encryption of the secrets kept in the settings directory, see data_home.rs: the logins in the domain file, e.g.
 //! an API key or a password, and the modules' token files, so that a slip which shows one of the files, e.g. printing
 //! it, or a copy of it, e.g. in a backup, does not give them away.
 //!

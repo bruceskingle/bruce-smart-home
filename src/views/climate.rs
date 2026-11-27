@@ -35,10 +35,10 @@ fn timezone() -> &'static Tz {
 #[component]
 pub fn ClimatePage() -> Element {
     let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
-    let profile_name = context_signal
+    let domain_name = context_signal
         .read()
         .as_ref()
-        .map(|context| context.profile.active_profile.name.clone())
+        .map(|context| context.domain.active_domain.name.clone())
         .unwrap_or_default();
     let statuses = use_context::<PollStatuses>();
     let tz = timezone();
@@ -52,7 +52,7 @@ pub fn ClimatePage() -> Element {
         .get(climate::MODULE_ID)
         .and_then(|status| status.last_time);
 
-    let dir = match climate::store(&profile_name) {
+    let dir = match climate::store(&domain_name) {
         Ok(dir) => dir,
         Err(error) => return rsx! { ErrorText { error: format!("{error:#}") } },
     };

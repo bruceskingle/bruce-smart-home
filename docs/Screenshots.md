@@ -1,20 +1,20 @@
 # Screenshots
 
 The screenshots of the app in the documentation are taken by the app itself, from a redacted, offline, copy of a real
-profile's data, see [Redaction](Redaction.md), so that they do not identify anyone and come out the same every time.
+domain's data, see [Redaction](Redaction.md), so that they do not identify anyone and come out the same every time.
 
 ```
-bruce-smart-home --redact <profile> demo
+bruce-smart-home --redact <domain> demo
 bruce-smart-home --home /Users/yourname --screenshots
 ```
 
-or the **Redact Profile into Demo** and **Take Screenshots** launch configurations in VS Code. Run them in the
+or the **Redact Domain into Demo** and **Take Screenshots** launch configurations in VS Code. Run them in the
 repository's directory.
 
 The screenshots are taken in a data directory of their own, `/Users/yourname`, given with `--home`, so that they do not
-show your own profiles. The shot list's `freshDataDirectory` clears it first, so that the first shots show what someone
-sees the first time they run the app, e.g. its default profile and the help. Then a `loadProfile` step copies the demo
-profile into the default one, for the rest. Create the directory once, owned by you.
+show your own domains. The shot list's `freshDataDirectory` clears it first, so that the first shots show what someone
+sees the first time they run the app, e.g. its default domain and the help. Then a `loadDomain` step copies the demo
+domain into the default one, for the rest. Create the directory once, owned by you.
 
 Taking the pictures needs macOS's Screen Recording permission for what started the app, e.g. Visual Studio Code or
 Terminal. The app asks macOS for it, which shows a prompt or adds it to the list in System Settings, Privacy &
@@ -47,11 +47,11 @@ The shots are in `docs/screenshots.json`, or another file given after `--screens
 - `window` is the size of the window's content, in points. The documentation shows the pictures at most 1024 pixels
   wide, less in the book's column, so the bigger the window the more it shows, and the smaller its text. 1700 by 1024
   is the size the earlier screenshots were taken at.
-- `freshDataDirectory` at the top is a data directory whose profiles and data are deleted before the shots, which must
+- `freshDataDirectory` at the top is a data directory whose domains and data are deleted before the shots, which must
   be the one given with `--home`, and not your usual one, or the app stops without deleting anything.
-- `newProfiles` at the top lists profiles the shots create, e.g. `new_demo` to show a new profile's first run and the
-  login page, which are deleted before the shots and afterwards, when the profile the app started with is made the
-  active one again. Any profile with one of these names is deleted.
+- `newDomains` at the top lists domains the shots create, e.g. `new_demo` to show a new domain's first run and the
+  login page, which are deleted before the shots and afterwards, when the domain the app started with is made the
+  active one again. Any domain with one of these names is deleted.
 - `file` is where the picture is saved, relative to the repository.
 - `help` is `true` to show the help panel, which is otherwise hidden. The log panel is always hidden.
 - `pages` is `true` to show a module's list of pages on the left in the picture, which is otherwise hidden while the
@@ -68,12 +68,12 @@ The shots are in `docs/screenshots.json`, or another file given after `--screens
     - `{ "input": "input[type=date]", "index": 0, "value": "2025-01-01" }` types into a field.
     - `{ "scroll": "Consumption Analysis", "bottom": true }` scrolls the shot's window, e.g. a bill's, so that what
       has that text is at the top of it, or with `bottom`, at the bottom.
-    - `{ "loadProfile": "demo" }` copies that profile from your usual data directory into the active profile, offline
+    - `{ "loadDomain": "demo" }` copies that domain from your usual data directory into the active domain, offline
       and without logins, and starts the app again with it.
     - `{ "wait": 2000 }` waits for that many milliseconds, e.g. for a window to open.
     - `{ "waitFor": "Categories" }` waits for that text to appear, e.g. once data has loaded.
 
 A shot whose step fails, e.g. as the app has changed, is reported and not taken, and the others still are.
 
-The demo profile shows its data as of when it was last fetched, see `clock.rs`, so the pages open on its latest data,
+The demo domain shows its data as of when it was last fetched, see `clock.rs`, so the pages open on its latest data,
 e.g. this month is the month it was last fetched in.

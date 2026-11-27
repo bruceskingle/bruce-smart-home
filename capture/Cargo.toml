@@ -36,13 +36,13 @@ rgb = "0.8.53"
 md-5 = "0.10"
 
 # The store the device keeps its records in, as the app does, see ../docs/Store.md, "Capture devices on the store".
-bruce-db = "0.3.0"
+bruce-db = "0.4.0"
 
 # The platform, and the board simulator the virtual capture device is built on, see bruce-embedded-std's
 # docs/Simulator.md. Without bruce-esp-idf's default, espidf, so that the sim feature can choose the simulator in its
 # place.
 bruce-embedded-std = "0.3.0"
-bruce-esp-idf = { version = "0.3.0", default-features = false, features = ["sd-card"] }
+bruce-esp-idf = { version = "0.4.0", default-features = false, features = ["sd-card"] }
 
 embedded-svc = "0.29.0"
 # The launcher's window to choose a board, with the sim feature, see src/sim_launcher.rs.

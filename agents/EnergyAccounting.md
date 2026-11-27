@@ -3,7 +3,7 @@
 Notes for coding agents changing Home's pages or `src/power/`, moved from AGENTS.md.
 
 - **The site's topology is never assumed.** Where each meter and CT clamp measures differs from house to house, so the
-  split of the import by use comes from the profile's topology, `src/power/topology.rs`, set on Home's Site page, see
+  split of the import by use comes from the domain's topology, `src/power/topology.rs`, set on Home's Site page, see
   [docs/PowerSchema.md](../docs/PowerSchema.md). Say "topology", not wiring, and that a circuit feeds another, or is fed
   from it, not "under" it, as the diagram goes from left to right.
 - **What the supplier says, and what happened.** A module's pages show what its source says, e.g. Octopus's Meters

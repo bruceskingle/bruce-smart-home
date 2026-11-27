@@ -1,7 +1,7 @@
 # Fetching Data on a Schedule
 
-Bruce's Smart Home can fetch the latest data without opening its window, and then exit. Run it like this on a schedule, e.g.
-once a week, and the app is always up to date when you open it.
+Bruce's Smart Home can fetch the latest data without opening its window, and then exit. Run it like this on a schedule,
+e.g. once a week, and the app is always up to date when you open it.
 
 It matters most for data which Octopus only keeps for a short time. The Home Mini's readings every 10 seconds are only
 available for 30 days, so if the app is not opened for longer than that, the readings in between are lost for good. A
@@ -13,16 +13,17 @@ scheduled fetch saves them as it goes.
 bruce-smart-home --fetch
 ```
 
-fetches what every page would fetch if you opened it with the date range set to the last 30 days: bills (and the
-details of those issued in the last 30 days), properties, each meter's readings, each charger's charging sessions and
-the Home Mini's readings. First it copies what the profile's capture devices have recorded since it last did, from
-those whose firmware keeps a store; those with older firmware are read when the modules are. Anything already downloaded and up to date is not downloaded again, so a run is quick when
-little has changed. It prints what it is doing, and exits with status 0 if everything was fetched, or 1 if anything
-failed, e.g. a network problem or a login which has expired, in which case open the app and log in again.
+fetches what every page would fetch if you opened it with the date range set to the last 30 days: bills (and the details
+of those issued in the last 30 days), properties, each meter's readings, each charger's charging sessions and the Home
+Mini's readings. First it copies what the domain's capture devices have recorded since it last did, from those whose
+firmware keeps a store; those with older firmware are read when the modules are. Anything already downloaded and up to
+date is not downloaded again, so a run is quick when little has changed. It prints what it is doing, and exits with
+status 0 if everything was fetched, or 1 if anything failed, e.g. a network problem or a login which has expired, in
+which case open the app and log in again.
 
-It uses the profile the app last used. To use another one, add `--profile <name>`, and if the data has been moved from
-your home directory (see [Profiles](gettingStarted/profiles.md#moving-the-data-directory)), add `--home <directory>` or set the same
-environment variable for the scheduled task as for the app.
+It uses the domain the app last used. To use another one, add `--domain <name>`, and if the data has been moved from
+your home directory (see [Domains](gettingStarted/domains.md#moving-the-data-directory)), add `--home <directory>` or
+set the same environment variable for the scheduled task as for the app.
 
 You must have opened the app and logged in at least once, as the scheduled fetch uses the saved login.
 
@@ -40,8 +41,8 @@ not lost.
 On macOS, use launchd rather than cron: it runs a fetch which was missed while the Mac was asleep as soon as it wakes,
 and needs no extra permissions.
 
-1. Create the file `~/Library/LaunchAgents/org.skingle.bruce-smart-home.fetch.plist` with this, which fetches every Sunday
-   at 03:00 (`Weekday` 0 is Sunday, 1 is Monday, and so on), replacing `YOU` with your user name:
+1. Create the file `~/Library/LaunchAgents/org.skingle.bruce-smart-home.fetch.plist` with this, which fetches every
+   Sunday at 03:00 (`Weekday` 0 is Sunday, 1 is Monday, and so on), replacing `YOU` with your user name:
 
     ```xml
     <?xml version="1.0" encoding="UTF-8"?>
@@ -98,8 +99,8 @@ To fetch every day instead, at 03:00, leave out the `Weekday` key and its value,
 </dict>
 ```
 
-To change the schedule, edit the file, then unload it and load it again. To stop the scheduled fetches altogether, unload
-it and delete the file:
+To change the schedule, edit the file, then unload it and load it again. To stop the scheduled fetches altogether,
+unload it and delete the file:
 
 ```
 launchctl bootout gui/$(id -u)/org.skingle.bruce-smart-home.fetch
@@ -111,8 +112,8 @@ It runs while you are logged in, which includes a Mac which is asleep or has its
 ## Windows
 
 On Windows, use Task Scheduler. In PowerShell (not as administrator), this creates a task which fetches every Sunday at
-03:00, or as soon as possible after that if the computer was off, and writes what it did to `BrucesSmartHome-fetch.log` in
-your local app data folder:
+03:00, or as soon as possible after that if the computer was off, and writes what it did to `BrucesSmartHome-fetch.log`
+in your local app data folder:
 
 ```powershell
 $exe = "$env:LOCALAPPDATA\Programs\BrucesSmartHome\bruce-smart-home.exe"

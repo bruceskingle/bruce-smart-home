@@ -1,4 +1,4 @@
-//! Electricity imported and exported, combined from all the readings the profile's modules give, see SiteData: a
+//! Electricity imported and exported, combined from all the readings the domain's modules give, see SiteData: a
 //! supplier's meters' readings, e.g. Octopus's half hours, which split the import into the rates it is billed at, e.g.
 //! Home Low Rate, but arrive a few days later, and a grid meter's readings every 10 seconds, e.g. the Octopus Home
 //! Mini's, which are up to date but not split, and only go back as far as they were saved. Written for Octopus's

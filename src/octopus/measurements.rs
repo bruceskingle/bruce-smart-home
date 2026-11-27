@@ -1280,7 +1280,7 @@ impl MeasurementsConsumptionSource {
 }
 
 /// A measurement as the store keeps it, see SlotSource::Stored: as Octopus gave it, with when it was fetched, which
-/// with its time says whether it is final, see MeasurementsReading::from, or, from a profile made before the store, as
+/// with its time says whether it is final, see MeasurementsReading::from, or, from a domain made before the store, as
 /// a reading an older version of the app made of it, whose figures it worked out are not marked as such.
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(untagged)]

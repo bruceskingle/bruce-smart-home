@@ -9,8 +9,8 @@ Notes for coding agents adding or changing Octopus queries, moved from AGENTS.md
   `PropertyType.measurements` 20 a minute; 500,000 points an hour.
 - `smartMeterTelemetry` at TEN_SECONDS gives 12 and 13 hours, an empty list with no error for 18 hours, and KT-GB-4039
   for 24, so the app asks for at most 12 hours at a time, `MAX_REQUEST_SECONDS` in `src/octopus/telemetry.rs`.
-- `--profile <profile> --octopusday <YYYY-MM-DD>` asks Octopus for each meter's half hours of a day, with the app's
+- `--domain <domain> --octopusday <YYYY-MM-DD>` asks Octopus for each meter's half hours of a day, with the app's
   GraphQL query (RAW_INTERVAL, and THIRTY_MIN_INTERVAL for the import), and for the import meter from the REST API's
-  `consumption` endpoint with the profile's API key, which is not shown, printing only counts, times and values, and
+  `consumption` endpoint with the domain's API key, which is not shown, printing only counts, times and values, and
   storing nothing: e.g. on 23 November 2026 all three had only 00:00 of the import meter's 10 November, the export all
   48, so the gap was Octopus's, though its iOS app showed the day, presumably from the Home Mini.

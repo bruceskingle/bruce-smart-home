@@ -21,13 +21,14 @@ mod polling;
 mod navbar;
 pub use navbar::Navbar;
 
-mod profile_size;
-pub use profile_size::ProfileSize;
+mod domain_size;
+pub use domain_size::DomainSize;
 
 mod settings;
 pub use settings::Settings;
 
 mod devices;
+mod domain_access;
 
 pub mod electricity;
 

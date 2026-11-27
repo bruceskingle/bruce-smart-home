@@ -41,7 +41,7 @@ static PAGES: &[HelpPage] = help_pages![
     "electricity.md",
     "site.md",
     "live.md",
-    "profile-size.md",
+    "domain-size.md",
     "settings.md",
     "devices.md",
     "climate.md",
@@ -81,7 +81,7 @@ static ICONS: &[(&str, &str)] = help_icons![
     "help",
     "log",
     "settings",
-    "profile",
+    "domain",
     "close",
     "back",
     "hide-pages",
@@ -221,16 +221,16 @@ pub fn use_help_topic(topic: Option<String>) {
     }));
 }
 
-/// Whether the help is shown, in every window, see use_help_shown: the active profile's setting, see start.
+/// Whether the help is shown, in every window, see use_help_shown: the active domain's setting, see start.
 static SHOWN: AtomicBool = AtomicBool::new(true);
-/// The active profile, whose setting it is.
-static PROFILE: Mutex<String> = Mutex::new(String::new());
+/// The active domain, whose setting it is.
+static DOMAIN: Mutex<String> = Mutex::new(String::new());
 /// How often a window checks whether another has shown or hidden the help.
 const POLL: std::time::Duration = std::time::Duration::from_millis(300);
 
-/// Starts showing or hiding the help as the profile's settings say. Called when the profile is chosen.
-pub fn start(profile_name: &str, settings: &HelpSettings) {
-    *PROFILE.lock().unwrap() = profile_name.to_string();
+/// Starts showing or hiding the help as the domain's settings say. Called when the domain is chosen.
+pub fn start(domain_name: &str, settings: &HelpSettings) {
+    *DOMAIN.lock().unwrap() = domain_name.to_string();
     SHOWN.store(settings.show, Ordering::SeqCst);
 }
 
@@ -238,11 +238,11 @@ pub fn is_shown() -> bool {
     SHOWN.load(Ordering::SeqCst)
 }
 
-/// Shows or hides the help in every window, and saves it in the profile so that it stays that way.
+/// Shows or hides the help in every window, and saves it in the domain so that it stays that way.
 pub fn set_shown(show: bool) {
     SHOWN.store(show, Ordering::SeqCst);
-    let profile_name = PROFILE.lock().unwrap().clone();
-    if let Err(error) = crate::profile::update_help_settings(&profile_name, &HelpSettings { show }) {
+    let domain_name = DOMAIN.lock().unwrap().clone();
+    if let Err(error) = crate::domain::update_help_settings(&domain_name, &HelpSettings { show }) {
         crate::log_error!("Failed to save whether the help is shown: {error}");
     }
 }
@@ -266,7 +266,7 @@ pub fn use_help_shown() -> Signal<bool> {
     shown
 }
 
-/// The help settings of a profile, see Settings.
+/// The help settings of a domain, see Settings.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HelpSettings {
@@ -312,10 +312,10 @@ mod tests {
         assert_eq!(
             follow(
                 "octopus/index.md",
-                "../../gettingStarted/profiles.md#moving-the-data-directory"
+                "../../gettingStarted/domains.md#moving-the-data-directory"
             ),
             HelpLink::Web(String::from(
-                "https://bruceskingle.github.io/bruce-smart-home/gettingStarted/profiles.html#moving-the-data-directory"
+                "https://bruceskingle.github.io/bruce-smart-home/gettingStarted/domains.html#moving-the-data-directory"
             ))
         );
         // Not in the book, so on GitHub.

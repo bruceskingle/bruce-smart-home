@@ -1,4 +1,4 @@
-//! The settings of the active profile which are the app's rather than a module's, see profile::Settings: when the log
+//! The settings of the active domain which are the app's rather than a module's, see domain::Settings: when the log
 //! is started again, and whether the log panel is shown.
 
 use std::sync::Arc;
@@ -6,8 +6,8 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 
 use crate::AppContext;
+use crate::domain::Settings as DomainSettings;
 use crate::logging::{self, LogRetention};
-use crate::profile::Settings as ProfileSettings;
 
 /// The defaults of each kind of retention, offered when it is chosen.
 const DEFAULT_HOURS: u32 = logging::DEFAULT_HOURS;
@@ -16,11 +16,11 @@ const DEFAULT_MEGABYTES: u32 = 10;
 #[component]
 pub fn Settings() -> Element {
     let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
-    let mut settings = use_context::<Signal<ProfileSettings>>();
-    let profile_name = context_signal
+    let mut settings = use_context::<Signal<DomainSettings>>();
+    let domain_name = context_signal
         .read()
         .as_ref()
-        .map(|context| context.profile.active_profile.name.clone())
+        .map(|context| context.domain.active_domain.name.clone())
         .unwrap_or_default();
 
     // The settings being edited, until they are saved.
@@ -43,12 +43,12 @@ pub fn Settings() -> Element {
                 | ("size", LogRetention::Size { .. })
         )
     };
-    let log_path = logging::log_path(&profile_name)
+    let log_path = logging::log_path(&domain_name)
         .map(|path| path.display().to_string())
         .unwrap_or_default();
 
     let save = {
-        let profile_name = profile_name.clone();
+        let domain_name = domain_name.clone();
         move |_| {
             let mut new_settings = settings.read().clone();
             new_settings.log.retention = match retention() {
@@ -58,15 +58,15 @@ pub fn Settings() -> Element {
                     megabytes: megabytes().max(1),
                 },
             };
-            match crate::profile::update_settings(&profile_name, &new_settings) {
+            match crate::domain::update_settings(&domain_name, &new_settings) {
                 Ok(()) => {
                     logging::set_retention(new_settings.log.retention);
-                    crate::log_info!("Saved the settings of profile {profile_name}");
+                    crate::log_info!("Saved the settings of domain {domain_name}");
                     settings.set(new_settings);
                     status.set(Some(Ok(String::from("Saved"))));
                 }
                 Err(error) => {
-                    crate::log_error!("Failed to save the settings of profile {profile_name}: {error}");
+                    crate::log_error!("Failed to save the settings of domain {domain_name}: {error}");
                     status.set(Some(Err(format!("Failed to save the settings: {error}"))));
                 }
             }
@@ -76,7 +76,7 @@ pub fn Settings() -> Element {
     rsx! {
         div { class: "settings-page",
             h1 { "Settings" }
-            p { class: "note", "The settings of profile {profile_name}." }
+            p { class: "note", "The settings of domain {domain_name}." }
 
             h2 { "Log" }
             p { class: "note", "The log records the important things the app does, e.g. the data it fetched and anything which failed, including what a scheduled fetch does. It is kept in {log_path}." }

@@ -6,4 +6,4 @@ It is shown along the bottom of the window, and ![Log](icons/log.svg) at the top
 
 It includes what a [scheduled fetch](../ScheduledFetch.md) does, even while the app is open, marked **fetch** in the column beside the time. Times are in your computer's time zone.
 
-The log is kept in a file for each profile, in the data directory, and the [settings](settings.md) choose how much of it is kept.
+The log is kept in a file for each domain, in the data directory, and the [settings](settings.md) choose how much of it is kept.

@@ -21,8 +21,9 @@ It can also display a year on year trend graph of cost or units consumed, with s
 
 ![Meter Costs](docs/readMe/Screenshot8.png)
 
-This application also allows you to get a detailed view of your energy account statements with an analysis of the unit rates you are consuming.
-In this screenshot you can see the summary lines from a statement more or less as they appear on the documents provided by the company.
+This application also allows you to get a detailed view of your energy account statements with an analysis of the unit
+rates you are consuming. In this screenshot you can see the summary lines from a statement more or less as they appear
+on the documents provided by the company.
 
 Values in white text (e.g. <img src="docs/readMe/Screenshot2.png" height="15">, the Net value from the electricity import line) are from the Octopus API directly.
 
@@ -49,21 +50,25 @@ The application is written entirely in the [Rust programming language](https://r
 
 The source code is all available on GitHub and available under the MIT or Apache2.0 license at your choice, and there are pre-compiled binaries for Windows and MacOS in both ```x86``` (64bit intel processors) and ```aarch64/arm64``` (Apple Silicon/ARM64) processor families.
 
-A verbose mode causes the app to print the individual GraphQL queries, variables and responses made by the application. This may be useful if you are
-writing code which accesses the API.
+A verbose mode causes the app to print the individual GraphQL queries, variables and responses made by the application.
+This may be useful if you are writing code which accesses the API.
 
-There is some documentation which lists the queries I have observed the Octopus web application making which I used to understand which API
-calls I needed to make and which may be useful to anyone who is attempting to call the API in their own code. I have also documented the process to see these queries from the Google Chrome web inspector. This is pretty standard practice for people developing web apps commercially but if this is something you have not seen before it might be useful to know.
+There is some documentation which lists the queries I have observed the Octopus web application making which I used to
+understand which API calls I needed to make and which may be useful to anyone who is attempting to call the API in their
+own code. I have also documented the process to see these queries from the Google Chrome web inspector. This is pretty
+standard practice for people developing web apps commercially but if this is something you have not seen before it might
+be useful to know.
 
 I will endeavor to respond to any comments or questions (email: github at skingle.org), but please bear in mind that this is a hobby project.
 
 # Installation
-Navigate to [https://github.com/bruceskingle/bruce-smart-home/releases/](https://github.com/bruceskingle/bruce-smart-home/releases/) to find the
-latest release: 
+Navigate to
+[https://github.com/bruceskingle/bruce-smart-home/releases/](https://github.com/bruceskingle/bruce-smart-home/releases/)
+to find the latest release:
 
 ![Download Page](docs/gettingStarted/download.png)
 
-Look for the one with the <img src="docs/gettingStarted/latest.png" width="60"> label, and then select the correct version for your computer. 
+Look for the one with the <img src="docs/gettingStarted/latest.png" width="60"> label, and then select the correct version for your computer.
 
 The ```.dmg``` files are for Mac OSX and the ```setup.exe``` ones are for Microsoft Windows. Releases up to 0.4.3 also had ```.msi``` installers for Windows, which install the same app.
 

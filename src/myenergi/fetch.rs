@@ -1,4 +1,4 @@
-//! Fetching myenergi data into the profile's store, see store.rs, and what the days kept add up to.
+//! Fetching myenergi data into the domain's store, see store.rs, and what the days kept add up to.
 //!
 //! The status, as it is each time, is the kind `myenergi.status`, a DataSet for the site's hub, of each status as it was
 //! saved, by its time to the second, written by what took it, the app or a capture device, the app's a microsecond
@@ -819,7 +819,7 @@ fn day_records(store: &Store, hk: &str, date: Date) -> Vec<serde_json::Value> {
 /// The summaries of every day fetched, newest first, from each DataSet's #fetched records.
 pub fn summaries(store: &Store) -> Vec<DaySummary> {
     let today = crate::clock::now_utc().date().to_string();
-    let prefix = format!("{}/{MINUTES_KIND}/", store.site());
+    let prefix = format!("{}/{MINUTES_KIND}/", store.domain());
     // The devices of the latest status, by serial number, as a response names the device U<serial>, whatever it is.
     let devices: std::collections::BTreeMap<String, Device> = latest_saved(store)
         .map(|saved| Device::from_status(saved_status(&saved)))

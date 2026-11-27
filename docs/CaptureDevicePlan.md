@@ -93,7 +93,7 @@ One slow page blocked everything else on it, see 1.9; done: the change feed is o
   `fw`, `fwv`, `pv` and `adopted`, from the platform, which keeps `adopted` up to date, and `site` and `bulk` from the
   capture firmware. Replies go to the asker as well as the group, as multicast replies did not cross the networks.
 - **The app:** `discovery.rs` asks for both types from a port of its own, and the Devices page lists the capture
-  devices found which the profile does not have, with Find.
+  devices found which the domain does not have, with Find.
 - **Seen working:** from the Mac, `dns-sd` and the app find the 1.47B; the others need this firmware.
 
 - **Also done, 23 Nov:** the browse is bruce-embedded-flash's `discovery.rs`, shared by the app and the flasher, whose

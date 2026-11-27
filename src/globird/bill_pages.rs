@@ -494,7 +494,7 @@ fn BillDetail(context: SharedProp<GlobirdContext>, document_id: i64) -> Element 
     let comparison = compare(&bill, &summaries).unwrap_or_default();
     // The days' figures only when they are all of the bill's, which they can only be compared with then.
     let complete = comparison.complete();
-    // Its missing days can be fetched, as GloBird keeps them, unless the profile is offline.
+    // Its missing days can be fetched, as GloBird keeps them, unless the domain is offline.
     let period = bill.period;
     let fetchable = !complete && period.is_some() && !context.0.cache_config.offline;
     let fetch_days = {

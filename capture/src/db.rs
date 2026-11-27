@@ -1,6 +1,7 @@
 //! The device's store, bruce-db, in /sd/store/<site hex>/, which each feature puts its records in, as the items the app
 //! would put, see bruce-smart-home's src/device_kinds.rs, and which the app reads through the store's change feed,
-//! /api/store/changes, see bruce-smart-home's docs/Store.md, "Capture devices on the store".
+//! /api/store/changes, or, when too far behind, its full copy, /api/store/copy, see bruce-smart-home's docs/Store.md,
+//! "Capture devices on the store".
 //!
 //! The site is a setting, which the app sets when it adopts the device; until it is set, or if there is no SD card,
 //! there is no store, and the records are only shown on the screen. The records kept before the store, in
@@ -10,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use bruce_db::{Cursor, Id, Item, Micros, Part, Store};
+use bruce_db::{Change, CopyPage, CopyToken, Cursor, Feed, Id, Item, Micros, Part, Store};
 use bruce_embedded_std::config::ConfigSpec;
 use bruce_embedded_std::config::ConfigSpecValue;
 use bruce_embedded_std::config::FeatureConfig;
@@ -36,7 +37,7 @@ const CONVERTED_KIND: &str = "device.converted";
 /// Where the conversion's progress goes on the screen, after the features' lines.
 const PANEL_ORDER: u8 = 9;
 
-/// The most changes given at once, see changes, and how many if the app does not say.
+/// The most changes given at once, see changes and copy, and how many if the app does not say.
 const MAX_CHANGES: usize = 1000;
 const DEFAULT_CHANGES: usize = 500;
 
@@ -79,7 +80,7 @@ fn device_hash(device: &str) -> u64 {
 #[derive(FeatureConfig)]
 #[config(label = "Store")]
 pub struct StoreConfig {
-    /// The ID of the site of the profile which adopted the device, which the app sets.
+    /// The ID of the site of the domain which adopted the device, which the app sets.
     #[config(len = 64, label = "Store Site (set by the app)")]
     store_site: Option<String>,
 }
@@ -129,7 +130,7 @@ impl Db {
     }
 
     /// Where the SD card is mounted, if it is.
-    fn mount_point(&self) -> Option<PathBuf> {
+    pub(crate) fn mount_point(&self) -> Option<PathBuf> {
         self.state.lock().unwrap().mount_point.clone()
     }
 
@@ -170,7 +171,7 @@ impl Db {
         bruce_esp_idf::sd_card::space().map(|(total, free)| json!({ "totalBytes": total, "freeBytes": free }))
     }
 
-    /// Opens the site's store on the card mounted at mount_point, saying why not if it can not.
+    /// Opens the domain's store on the card mounted at mount_point, saying why not if it can not.
     fn open(&self, device: String, mount_point: Result<&str, String>, site: Option<&str>) {
         let mut state = self.state.lock().unwrap();
         state.device = device;
@@ -294,7 +295,7 @@ impl Db {
         json!({
             "device": self.device(),
             "firmware": crate::device::FIRMWARE,
-            "site": store.as_ref().map(|store| store.site().to_string()),
+            "site": store.as_ref().map(|store| store.domain().to_string()),
             "store": store.as_ref().map(|store| store.store_id()),
             "format": 1,
             "problem": self.problem(),
@@ -339,7 +340,12 @@ impl Feature for StoreFeature {
             .open(device.clone(), platform.sd_card(), config.store_site.as_deref());
         // The site, in the device's mDNS service's facts, so that the site's other devices and the app find it, and
         // the port of its change feed, see bruce-esp-idf's api.rs.
-        if let Some(site) = config.store_site.as_deref().map(str::trim).filter(|site| !site.is_empty()) {
+        if let Some(site) = config
+            .store_site
+            .as_deref()
+            .map(str::trim)
+            .filter(|site| !site.is_empty())
+        {
             platform.mdns_txt().set("site", site);
         }
         #[cfg(not(feature = "sim"))]
@@ -356,6 +362,23 @@ impl Feature for StoreFeature {
                 }));
         }
         let name = crate::device::captured_by(platform);
+        // Who may do what, from the domain's Security Contexts, alongside the adopting app's key, see site.rs.
+        let site = match crate::domain::DomainAccess::load(platform.nvs_partition(), self.db.clone()) {
+            Ok(site) => {
+                platform.set_authoriser(site.clone());
+                let posted = site.clone();
+                platform.api_post(
+                    "/api/store/security",
+                    bruce_esp_idf::access::Access::Manage,
+                    move |request, body| crate::domain::post(request, body, &posted),
+                )?;
+                Some(site)
+            }
+            Err(error) => {
+                warn!("Unable to load the device's principals, {error:#}");
+                None
+            }
+        };
         self.db.put(|store, writer| {
             Ok(Some(device_kinds::device_info(
                 store,
@@ -410,8 +433,14 @@ impl Feature for StoreFeature {
             bruce_esp_idf::api::respond(request, 200, &db.info())
         })?;
         let db = self.db.clone();
-        // On a server of its own, see api_get_bulk, as a page behind what was compacted can take minutes.
-        platform.api_get_bulk("/api/store/changes", move |request| changes(request, &db))?;
+        // On a server of their own, see api_get_bulk, as a page of either can take a while, and should not hold up the
+        // device's other requests.
+        let changes_site = site.clone();
+        platform.api_get_bulk("/api/store/changes", move |request| {
+            changes(request, &db, changes_site.as_deref())
+        })?;
+        let db = self.db.clone();
+        platform.api_get_bulk("/api/store/copy", move |request| copy(request, &db, site.as_deref()))?;
         Ok(())
     }
 }
@@ -529,21 +558,82 @@ fn build_id() -> String {
 }
 
 /// Responds to a request for the store's changes after the sequence number in its since parameter, 0 if it has none,
-/// up to its limit parameter, as {"device", "site", "store", "changes": [...], "next": n}, each change a journal's line,
-/// see bruce_db::Change::to_json, and next the cursor to ask from next time, which the app asks from until it stops
-/// moving. Written a change at a time, as a page of them would not all fit in the RAM as one piece of JSON. If reading
-/// them fails, the error is at the end, as "error", after the changes before it, which the app can still put.
+/// up to its limit parameter, leaving out, if its for parameter names the node asking, e.g. a peer device, what came
+/// from it or was made by it, see bruce_db's for_peer. As {"device", "site", "store", "changes": [...], "next": n},
+/// each change a journal's line, see bruce_db::Change::to_json, and next the cursor to ask from next time, which the
+/// app asks from until it stops moving. A since older than the journal kept, e.g. of a new peer, is answered with no
+/// changes, next as since, and "tooFarBehind": true, after which the node asking makes a full copy, see copy.
 fn changes(
     request: bruce_esp_idf::svc::http::server::Request<&mut bruce_esp_idf::svc::http::server::EspHttpConnection<'_>>,
     db: &Db,
+    site: Option<&crate::domain::DomainAccess>,
 ) -> anyhow::Result<()> {
+    let all = sees_security_records(&request, site);
     let since = parameter(request.uri(), "since")
         .and_then(|value| value.parse().ok())
         .unwrap_or(0);
-    let limit = parameter(request.uri(), "limit")
+    let (limit, peer) = (limit(request.uri()), parameter(request.uri(), "for"));
+    stream_changes(request, db, all, move |store, visit| {
+        Ok(match store.changes(Cursor(since), limit, peer.as_deref(), visit)? {
+            Feed::Next(next) => format!(r#""next":{}"#, next.0),
+            Feed::TooFarBehind => format!(r#""next":{since},"tooFarBehind":true"#),
+        })
+    })
+}
+
+/// Responds to a request for a page of a full copy of the store, see bruce_db's Store::copy, for a node too far
+/// behind for the change feed, see changes: from its token parameter, or the start if it has none, up to its limit
+/// parameter, leaving out, as changes does, what came from or was made by the node its for parameter names. As
+/// {"device", "site", "store", "changes": [...]} with, at the end, "token", to ask for the next page with, or, once the
+/// copy is done, "next", the cursor to catch up from with changes, or "expired": true, if the store has moved on too
+/// far for the copy to be finished, so that it is started again.
+fn copy(
+    request: bruce_esp_idf::svc::http::server::Request<&mut bruce_esp_idf::svc::http::server::EspHttpConnection<'_>>,
+    db: &Db,
+    site: Option<&crate::domain::DomainAccess>,
+) -> anyhow::Result<()> {
+    let all = sees_security_records(&request, site);
+    let token = parameter(request.uri(), "token")
+        .filter(|token| !token.is_empty())
+        .map(CopyToken);
+    let (limit, peer) = (limit(request.uri()), parameter(request.uri(), "for"));
+    stream_changes(request, db, all, move |store, visit| {
+        Ok(match store.copy(token.as_ref(), limit, peer.as_deref(), visit)? {
+            CopyPage::More(next) => format!(r#""token":{}"#, serde_json::to_string(&next.0)?),
+            CopyPage::Done(cursor) => format!(r#""next":{}"#, cursor.0),
+            CopyPage::Expired => r#""expired":true"#.to_string(),
+        })
+    })
+}
+
+/// Whether the store's security records may be given in answer to request, see site.rs's sees_security_records, as
+/// the platform has let it read the store: so, if the device has no principals, as only the adopting app's key reads.
+fn sees_security_records(
+    request: &bruce_esp_idf::svc::http::server::Request<&mut bruce_esp_idf::svc::http::server::EspHttpConnection<'_>>,
+    site: Option<&crate::domain::DomainAccess>,
+) -> bool {
+    site.is_none_or(|site| site.sees_security_records("GET", request.uri(), request.header("Authorization")))
+}
+
+/// The limit parameter of a request for changes, see changes and copy, DEFAULT_CHANGES if it has none, and at most
+/// MAX_CHANGES.
+fn limit(uri: &str) -> usize {
+    parameter(uri, "limit")
         .and_then(|value| value.parse().ok())
         .unwrap_or(DEFAULT_CHANGES)
-        .min(MAX_CHANGES);
+        .min(MAX_CHANGES)
+}
+
+/// Responds with the changes read gives, for changes and copy, as {"device", "site", "store", "changes": [...], ...},
+/// what read returns, the fields which end it, e.g. "next":12, following the changes. Written a change at a time, as a
+/// page of them would not all fit in the RAM as one piece of JSON. If reading them fails, the error is at the end, as
+/// "error", after the changes before it, which the app can still put.
+fn stream_changes(
+    request: bruce_esp_idf::svc::http::server::Request<&mut bruce_esp_idf::svc::http::server::EspHttpConnection<'_>>,
+    db: &Db,
+    all: bool,
+    read: impl FnOnce(&Store, &mut dyn FnMut(Change) -> anyhow::Result<()>) -> anyhow::Result<String> + Send,
+) -> anyhow::Result<()> {
     let Some(store) = db.store() else {
         let problem = db.problem().unwrap_or_else(|| "There is no store".to_string());
         return bruce_esp_idf::api::respond(request, 503, &json!({ "error": problem }));
@@ -556,7 +646,7 @@ fn changes(
     out.write(br#"{"device":"#)?;
     out.write(&serde_json::to_vec(&db.device())?)?;
     out.write(br#","site":"#)?;
-    out.write(&serde_json::to_vec(&store.site().to_string())?)?;
+    out.write(&serde_json::to_vec(&store.domain().to_string())?)?;
     out.write(br#","store":"#)?;
     out.write(&serde_json::to_vec(&store.store_id())?)?;
     out.write(br#","changes":["#)?;
@@ -565,11 +655,15 @@ fn changes(
     // response is given up, as the receiver is then dropped.
     let (sender, receiver) = std::sync::mpsc::sync_channel::<Vec<u8>>(CHANGES_QUEUE);
     let store = &store;
-    let result = std::thread::scope(|scope| -> anyhow::Result<anyhow::Result<Cursor>> {
+    let result = std::thread::scope(|scope| -> anyhow::Result<anyhow::Result<String>> {
         let reader = std::thread::Builder::new()
             .stack_size(bruce_embedded_std::thread_stack(16 * 1024))
             .spawn_scoped(scope, move || {
-                store.changes(Cursor(since), limit, None, &mut |change| {
+                read(store, &mut |change| {
+                    // Left out for a request not entitled to them, see sees_security_records; the cursor moves on.
+                    if !all && bruce_db::security::is_security_data_set(&change.item.hk) {
+                        return Ok(());
+                    }
                     sender
                         .send(serde_json::to_vec(&change.to_json()?)?)
                         .map_err(|_| anyhow::Error::new(SendFailed("the response was given up".to_string())))
@@ -595,8 +689,8 @@ fn changes(
         written?;
         Ok(read)
     })?;
-    let next = match result {
-        Ok(next) => next.0,
+    let end = match result {
+        Ok(end) => end,
         Err(error) if error.is::<SendFailed>() => {
             warn!("Unable to send the changes, {error:#}");
             return Err(error);
@@ -609,8 +703,8 @@ fn changes(
             return out.flush();
         }
     };
-    out.write(br#"],"next":"#)?;
-    out.write(next.to_string().as_bytes())?;
+    out.write(b"],")?;
+    out.write(end.as_bytes())?;
     out.write(b"}")?;
     out.flush()
 }

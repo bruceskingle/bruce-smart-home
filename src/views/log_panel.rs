@@ -33,7 +33,7 @@ pub fn LogPanel(on_close: EventHandler<()>) -> Element {
         let mut unwritten = 0;
         loop {
             let path = logging::current_path();
-            // Starting again when the profile, and so the log, changes.
+            // Starting again when the domain, and so the log, changes.
             if reader.as_ref().map(|reader| reader.path()) != path.as_deref() {
                 reader = path.map(LogReader::new);
                 unwritten = 0;

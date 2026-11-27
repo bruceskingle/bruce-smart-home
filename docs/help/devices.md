@@ -1,35 +1,71 @@
 # Capture Devices
 
 Capture devices are small always-on ESP32 boards with a screen, such as a Waveshare ESP32-S3-LCD-1.47B, see [Capture
-Device Hardware](../CaptureHardware.md) for which boards and SD cards, which fetch data while this computer sleeps, e.g. the Powerwall's and the zappi's every 5 minutes, and show the latest on their screens. The app reads what they fetched when
-it next runs. **Devices** in Home's page list shows them.
+Device Hardware](../CaptureHardware.md) for which boards and SD cards, which fetch data while this computer sleeps, e.g.
+the Powerwall's and the zappi's every 5 minutes, and show the latest on their screens. The app reads what they fetched
+when it next runs. **Devices** in Home's page list shows them.
 
 A capture device needs a **micro SD card**, formatted FAT32, which is where it keeps what it fetches, a file a day,
-until the app reads it. Without one it only keeps the last few of each in its memory, which are lost if it restarts. The Powerwall's readings every 10 seconds
-take about 9 MB a day, so an 8 GB card holds over two years.
+until the app reads it. Without one it only keeps the last few of each in its memory, which are lost if it restarts. The
+Powerwall's readings every 10 seconds take about 9 MB a day, so an 8 GB card holds over two years.
 
 ## Adopting a device
 
 A new device has its own settings page in a browser, at its address followed by /config, which is where it is put on
 your Wi-Fi. Once it is on the Wi-Fi, adopt it here:
 
-1. Under **Add a Capture Device**, the capture devices on the network which this profile does not have are listed, found by mDNS, every 15 seconds: click **Find** beside the one to add. Or enter its IP address, and click **Find**, e.g. for a device whose firmware is from before 23 November 2026, which is not found on the network, or one on a network which mDNS does not reach. The app shows what the device is. An adopted device which the router gives another address is followed: the app looks for the profile's devices on the network every 5 minutes, and moves one found at a new address to it.
+1. Under **Add a Capture Device**, the capture devices on the network which this domain does not have are listed, found by mDNS, every 15 seconds: click **Find** beside the one to add. Or enter its IP address, and click **Find**, e.g. for a device whose firmware is from before 23 November 2026, which is not found on the network, or one on a network which mDNS does not reach. The app shows what the device is. An adopted device which the router gives another address is followed: the app looks for the domain's devices on the network every 5 minutes, and moves one found at a new address to it.
 2. Click **Show Pairing Code**. The device shows a 6 digit code on its screen for 2 minutes.
 3. Type the code and click **Adopt**. The app turns on the device's **Store**, which keeps what it takes on its SD
-   card, for this profile, and restarts it. Once it is back, the app reads what the device has taken that it does not
+   card, for this domain, and restarts it. Once it is back, the app reads what the device has taken that it does not
    have yet, see Polling in Home.
 
 A device adopted before devices had a store, whose **Store** is off, or keeps no site, keeps nothing the app can read.
-The first time the app finds one so, it turns its store on for this profile and restarts it, which loses nothing, and
-its status says so. A device whose store keeps another profile's site is left as it is, and its status says so: adopt
-it again in this profile to move it here.
+The first time the app finds one so, it turns its store on for this domain and restarts it, which loses nothing, and
+its status says so. A device whose store keeps another domain is left as it is, and its status says so: adopt
+it again in this domain to move it here.
 
 The screen also shows the start of the device's certificate, which should be the same as the **Certificate** the app
 shows. If it is not, something else on the network may be pretending to be the device, so do not adopt it.
 
-Once adopted, only this profile can change the device's settings: its own /config page only says that an app manages
+Once adopted, only this domain can change the device's settings: its own /config page only says that an app manages
 it, unless it cannot join the Wi-Fi, when it makes its own Wi-Fi network for its settings page again, with only the
 Wi-Fi settings on it.
+
+## Sharing the devices: the domain
+
+Under **Domain**, a domain's devices can be shared with other people, each using their own copy of the app: your
+partner as a **co-owner**, an equal with full control, an **admin**, who manages the devices but cannot let anyone
+else in, or a **reader**, e.g. a friend, who can only read what they have captured. Until the domain is founded,
+only this app can use its devices, as before.
+
+**Your key file** says that you are you. The first time you need it, the app asks for a password, at least 8
+characters, and where to save it: keep it safe, e.g. on a USB stick, and do not forget the password, which the app
+never keeps. One key file holds your keys for every domain you belong to, each made for that domain, so that nothing
+links them. The app asks for the password whenever it acts for you in the domain, e.g. to let someone join; otherwise,
+e.g. reading the devices, it acts for you by itself. **Open My Key File…** uses a key file you made before, e.g. on
+another computer.
+
+- **Found This Domain** founds the domain, with its name, e.g. 7 Sadlers Close, which its members see, e.g. in an
+  invitation, and you, by the name you give, as its founder and co-owner. A new domain asks for this as soon as it is
+  made, and keeps nothing until it is founded, as the ID it is then given is where its data is kept. A domain made
+  before 25 November 2026, with data already, is moved to its new ID: the app first reads everything its devices have,
+  then moves its data, and the devices' too, restarting each, and adds them to the domain, so they must be on and
+  reachable; then quit the app and open it again. A device whose
+  firmware is from before 25 November 2026 must be updated first.
+- **Add Devices to the Domain** adds the devices adopted since.
+- **Rename the Domain…** changes its name, with your password, as only a co-owner may; the devices are told at once.
+- **To let someone join yours:** click **Invite Someone…**, which saves an invitation file, and send it to them, e.g.
+  by email: nothing in it is secret. They send back a request; click **Let Someone Join…**, open it, choose what they
+  will be, enter your password, and save the reply, to send back to them. The devices the app can reach are told at
+  once.
+- **To join someone's domain:** click **Ask to Join a Domain…** and open their invitation, give your name and your key
+  file's password, and save the request, to send back to them. When their reply comes, click **Join a Domain…** and
+  open it, then **Join**, which adds a domain of its own for their domain, with its devices. Switch to that domain to
+  use them. A reader's app is never given the list of the domain's members.
+
+To use another domain's devices from elsewhere, e.g. a friend's from your home, your computer also needs a way to
+reach them, such as a VPN.
 
 ## A virtual capture device
 
@@ -40,10 +76,10 @@ Wi-Fi set up. Its screen shows its address, this computer's with a port of its o
 click its window, or press Cmd+C (Ctrl+C on Windows), to copy it, which also copies the pairing code while it shows
 one. Adopt it as above.
 
-It polls only while its window is open, so leave it open, minimised if need be. Once adopted, its **Restart**
-restarts it, as a real device's does, or, if its window was closed, e.g. after this computer restarted, starts it
-again, with its board, settings and address. It keeps its settings and what it fetched between runs. It has no sensors, so it shows no temperature,
-humidity or battery.
+It polls only while its window is open, so leave it open, minimised if need be. Once adopted, its **Restart** restarts
+it, as a real device's does, or, if its window was closed, e.g. after this computer restarted, starts it again, with its
+board, settings and address. It keeps its settings and what it fetched between runs. It has no sensors, so it shows no
+temperature, humidity or battery.
 
 ## Managing a device
 
@@ -52,45 +88,45 @@ why it last started, in red after a crash, and its restarts in the last 7 days, 
 can be reached. Click a device's ID, its Wi-Fi MAC address, for its card, below the table, with all of its details
 and buttons; clicking another's shows its card instead.
 
-- **Settings** shows each of the device's features, with its settings. Change them and click **Save**, then
-  **Restart Now**, as they take effect when the device restarts. Passwords are never shown, only whether they are set:
-  type a new one to replace it, or **Clear Password** to remove an optional one. **Fill in from this profile** fills in what the
-  profile already knows for a feature, e.g. the Tesla gateway's login or the myenergi and Octopus API keys, to check
+- **Settings** shows each of the device's features, with its settings. Change them and click **Save**, then **Restart
+  Now**, as they take effect when the device restarts. Passwords are never shown, only whether they are set: type a new
+  one to replace it, or **Clear Password** to remove an optional one. **Fill in from this domain** fills in what the
+  domain already knows for a feature, e.g. the Tesla gateway's login or the myenergi and Octopus API keys, to check
   before saving.
-- The card shows what the device is, the board its firmware was built for and the **Chip** it is running on, with
-  its flash and PSRAM, how long it has been running, and why it last started. **Restarts** counts how often it started in the last 7 days, by kind, crashes,
-  watchdog resets and power dips in red, as they are trouble. Click the count for the list, with when each was. The
-  device keeps its last 30 starts. Older firmware kept them on its SD card, so with no card they are
-  **Not known**, and a card moved from another device brought that device's starts with it: update its firmware. If it
-  last started after a crash, **Crash** says why, if the device knows: the error, or that it ran out of memory, with
-  how much it wanted and how much was free.
-  **Records kept on** says where it keeps its records: on its SD card, with how much of it is free, in red if less
-  than a tenth is, or only in its memory, which loses them when it restarts, with why as a tooltip, e.g. that its SD
-  card slot is empty. **Polls** lists the sources it takes, as it said when the app last read its records: any whose latest poll failed
-  is in red, with the error, such as an API key the source did not accept, and when it last succeeded, as a tooltip.
-  The log says when one starts failing, and when it polls again.
+- The card shows what the device is, the board its firmware was built for and the **Chip** it is running on, with its
+  flash and PSRAM, how long it has been running, and why it last started. **Restarts** counts how often it started in
+  the last 7 days, by kind, crashes, watchdog resets and power dips in red, as they are trouble. Click the count for the
+  list, with when each was. The device keeps its last 30 starts. Older firmware kept them on its SD card, so with no
+  card they are **Not known**, and a card moved from another device brought that device's starts with it: update its
+  firmware. If it last started after a crash, **Crash** says why, if the device knows: the error, or that it ran out of
+  memory, with how much it wanted and how much was free. **Records kept on** says where it keeps its records: on its SD
+  card, with how much of it is free, in red if less than a tenth is, or only in its memory, which loses them when it
+  restarts, with why as a tooltip, e.g. that its SD card slot is empty. **Polls** lists the sources it takes, as it said
+  when the app last read its records: any whose latest poll failed is in red, with the error, such as an API key the
+  source did not accept, and when it last succeeded, as a tooltip. The log says when one starts failing, and when it
+  polls again.
 - A device with its own temperature sensor, e.g. the Waveshare ESP32-S3-RLCD-4.2, reads high, as the board warms it, by an amount set in its settings as **Temperature Offset**, in tenths of a degree. To set it, put a thermometer beside it for half an hour, type what the thermometer says into **Actual temperature now** under the offset, and click **Work out offset**, which fills in the offset from the device's latest temperature, then **Save**. It takes effect when the device restarts.
 - A device with a battery, e.g. the Waveshare ESP32-S3-RLCD-4.2, shows its voltage over the last 2 days under its
   details, as it logs it with its temperature and humidity, so only while its **Temperature and Humidity Log** is on.
   The voltage says roughly how charged it is, but reads higher while it charges.
 - **Refresh** asks the device again what it is, and **Restart** restarts it, when it can be reached.
-- **Release** gives the device back to its own /config page, and removes it from this profile.
-- **Forget** only removes it from this profile, e.g. if it no longer works. It stays adopted until its **BOOT** button
+- **Release** gives the device back to its own /config page, and removes it from this domain.
+- **Forget** only removes it from this domain, e.g. if it no longer works. It stays adopted until its **BOOT** button
   is held down for 5 seconds, which releases it.
 
-The app keeps a key for each device it adopts in the profile, which lets it change the device's settings, so keep the
-profile's files private. A redacted copy of a profile does not include its devices.
+The app keeps a key for each device it adopts in the domain, which lets it change the device's settings, so keep the
+domain's files private. A redacted copy of a domain does not include its devices.
 
 ## Boards on the network
 
-**Boards on the Network** lists every board found on the network, looked for every 15 seconds, whatever its firmware: capture devices, and other boards on the same platform, e.g. a board's demo. Each says its ID, name, board, firmware and version, and address, and whether this profile has it, another app has adopted it, or it is not adopted; a board whose firmware has no adoption, e.g. a demo, cannot be adopted. A board is found by mDNS, which it advertises with firmware from 23 November 2026 on, so one with older firmware is not listed.
+**Boards on the Network** lists every board found on the network, looked for every 15 seconds, whatever its firmware: capture devices, and other boards on the same platform, e.g. a board's demo. Each says its ID, name, board, firmware and version, and address, and whether this domain has it, another app has adopted it, or it is not adopted; a board whose firmware has no adoption, e.g. a demo, cannot be adopted. A board is found by mDNS, which it advertises with firmware from 23 November 2026 on, so one with older firmware is not listed.
 
 ## Flashing a board
 
 **Flash a Board**, at the bottom of the page, puts the capture firmware on a board plugged into this computer by USB,
 e.g. a new one, or updates an adopted one's. Click **Show the Boards on USB** for the list of USB serial ports, with
 what the computer says of each. A board on its chip's own USB, e.g. an ESP32-S3 or -C6, shows its ID, its Wi-Fi MAC
-address, and is named as adopted if it is one of this profile's devices, without touching it; a board with a USB
+address, and is named as adopted if it is one of this domain's devices, without touching it; a board with a USB
 serial chip, e.g. a CYD, does not say. Each board identified on this computer is remembered, so the list says what it
 was when last identified, for sure for a board which shows its ID, and only as **Maybe** for one on a USB serial chip,
 as the computer names its port after the USB socket it is plugged into, and another board may be in it now.
@@ -100,18 +136,18 @@ firmware was built for. **Identify** does the same for any other, and **Restart*
 it is by its lights or screen. Both restart the board, so a device that is capturing loses a few seconds.
 
 Click a board's row for what it is. If its firmware says which board it is, the app says so, and offers **Flash**,
-with the newest of the firmware it runs, or for a device this profile has adopted, or a new board, the capture
+with the newest of the firmware it runs, or for a device this domain has adopted, or a new board, the capture
 firmware, and **Other Firmware**, for the other firmware for its chip, e.g. an older version. If its firmware does not
 say, e.g. as it is new, or was last flashed before firmware said, pick which board it is from those with its chip,
 each with what it looks like and its maker's page.
 
 Flash asks for one more click, **Yes, Flash It**, if the firmware is for another board than its firmware says, as
-firmware for the wrong board can damage it, or its firmware does not say which board it is, when **Restart It** lets
-you see which board it is by its lights or screen, or the firmware would replace other firmware, e.g. a board's demo
-over the capture firmware, or anything but the capture firmware on a device this profile has adopted. The app checks
-again, just before flashing, that it is the same board and the right chip, shows how far it has got in a box over
-the page, and restarts the board when it is done; the box then says how it ended until you **Close** it. A part of the firmware already on the board is not written again, so flashing the same
-firmware again takes only a few seconds.
+firmware for the wrong board can damage it, or its firmware does not say which board it is, when **Restart It** lets you
+see which board it is by its lights or screen, or the firmware would replace other firmware, e.g. a board's demo over
+the capture firmware, or anything but the capture firmware on a device this domain has adopted. The app checks again,
+just before flashing, that it is the same board and the right chip, shows how far it has got in a box over the page, and
+restarts the board when it is done; the box then says how it ended until you **Close** it. A part of the firmware
+already on the board is not written again, so flashing the same firmware again takes only a few seconds.
 
 If the app cannot reach a board's bootloader over USB, start it by hand, as the page says for each board, e.g. hold
 BOOT, press and release RESET, then release BOOT, and click **Identify** again.

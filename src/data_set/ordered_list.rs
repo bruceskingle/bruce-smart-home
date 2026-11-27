@@ -75,7 +75,7 @@ where
             refresh = true;
         }
 
-        // An offline profile only has what is cached.
+        // An offline domain only has what is cached.
         if refresh && !config.offline {
             let from = fetch_from(data.iter().map(|(_, (_, value))| indexer(value)));
             let last_record = from

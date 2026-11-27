@@ -51,7 +51,7 @@ fn select_account_id(account_ids: &[String], preferred_account_id: Option<&str>)
     let preferred = preferred_account_id.and_then(|preferred| {
         let found = account_ids.iter().find(|account_id| account_id.as_str() == preferred);
         if found.is_none() {
-            crate::log_warning!("The Octopus account {preferred} in the profile is not one of this user's accounts, {}, so the first is used",
+            crate::log_warning!("The Octopus account {preferred} in the domain is not one of this user's accounts, {}, so the first is used",
                 account_ids.join(", "));
         }
         found

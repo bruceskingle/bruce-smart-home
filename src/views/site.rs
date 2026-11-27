@@ -1,5 +1,5 @@
 //! Home's Site page: the site's topology, where in the house each module's channels measure, see power::topology, drawn
-//! as a diagram from the grid to the house, and edited as a list of its circuits, which is saved with the profile's
+//! as a diagram from the grid to the house, and edited as a list of its circuits, which is saved with the domain's
 //! settings. The Electricity page splits the grid's import by use with it. The topology being edited is checked against
 //! the last CHECK_DAYS days' measurements, which also say how the channels relate, whatever the topology, see
 //! power::check.
@@ -16,10 +16,10 @@ use crate::components::category_filter::{category_colour, use_colour_store};
 use crate::components::date_range_picker::{LocalSlot, RangeSelection};
 use crate::components::error_text::ErrorText;
 use crate::data_set::CancelToken;
+use crate::domain::Settings as DomainSettings;
 use crate::period::Period;
 use crate::power::check::{self, Check, CheckKind, Relation, Series};
 use crate::power::topology::{Channel, Circuit, Use};
-use crate::profile::Settings as ProfileSettings;
 use crate::util::SharedProp;
 use crate::views::electricity::Found;
 use crate::{AppContext, ModuleRegistrations};
@@ -33,7 +33,7 @@ pub(super) const COLUMN_GAP: f64 = 70.0;
 pub(super) const ROW_GAP: f64 = 18.0;
 pub(super) const MARGIN: f64 = 8.0;
 
-/// The colour of a circuit: a kind's, or its category's, from colours, the profile's categories', see
+/// The colour of a circuit: a kind's, or its category's, from colours, the domain's categories', see
 /// category_colours, as the Electricity page's labels have them, e.g. the car's is EV Low Rate's.
 pub(super) fn use_colour(use_: &Use, colours: &BTreeMap<String, String>) -> String {
     match use_ {
@@ -48,8 +48,8 @@ pub(super) fn use_colour(use_: &Use, colours: &BTreeMap<String, String>) -> Stri
     }
 }
 
-/// The colour of each of the profile's categories and the batteries', see category_filter::category_colour.
-pub(super) fn category_colours(settings: &ProfileSettings) -> BTreeMap<String, String> {
+/// The colour of each of the domain's categories and the batteries', see category_filter::category_colour.
+pub(super) fn category_colours(settings: &DomainSettings) -> BTreeMap<String, String> {
     let categories = settings.all_categories();
     categories
         .iter()
@@ -229,7 +229,7 @@ fn flattened(circuit: &Circuit, path: Vec<usize>, rows: &mut Vec<(Vec<usize>, Ci
     }
 }
 
-/// The circuits as a list to edit: each one's name, use and channels, which are chosen from those the profile's
+/// The circuits as a list to edit: each one's name, use and channels, which are chosen from those the domain's
 /// modules have, with buttons to add a circuit it feeds and to remove it.
 #[component]
 fn TopologyEditor(edited: Signal<Option<Circuit>>, channels: Vec<Channel>, categories: Vec<String>) -> Element {
@@ -341,15 +341,15 @@ fn TopologyEditor(edited: Signal<Option<Circuit>>, channels: Vec<Channel>, categ
     }
 }
 
-/// The channels a circuit can be measured by: the profile's modules', and any it has which none of them has now,
-/// e.g. of a module since taken out of the profile, so that they can be taken off it.
+/// The channels a circuit can be measured by: the domain's modules', and any it has which none of them has now,
+/// e.g. of a module since taken out of the domain, so that they can be taken off it.
 fn channel_choices(channels: &[Channel], circuit: &Circuit) -> Vec<Channel> {
     let mut choices = channels.to_vec();
     for id in &circuit.channels {
         if !choices.iter().any(|channel| channel.id == *id) {
             choices.push(Channel {
                 id: id.clone(),
-                description: String::from("No module of this profile has this channel now"),
+                description: String::from("No module of this domain has this channel now"),
                 use_: circuit.use_.clone(),
                 phases: None,
             });
@@ -363,7 +363,7 @@ fn channel_choices(channels: &[Channel], circuit: &Circuit) -> Vec<Channel> {
 pub fn SitePage() -> Element {
     let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let registrations = use_context::<ModuleRegistrations>();
-    let mut settings = use_context::<Signal<ProfileSettings>>();
+    let mut settings = use_context::<Signal<DomainSettings>>();
     let mut edited = use_signal(|| settings.peek().topology.clone());
     let mut status = use_signal(|| None::<Result<String, String>>);
     let found = use_resource(move || {
@@ -371,7 +371,7 @@ pub fn SitePage() -> Element {
         let registrations = registrations.clone();
         async move {
             let found =
-                super::electricity::find(context.ok_or_else(|| anyhow!("There is no profile"))?, registrations).await?;
+                super::electricity::find(context.ok_or_else(|| anyhow!("There is no domain"))?, registrations).await?;
             anyhow::Ok(Rc::new(found))
         }
     });
@@ -400,22 +400,22 @@ pub fn SitePage() -> Element {
         Some(Ok(found)) => (found.channels.clone(), found.not_ready.clone(), found.clone()),
     };
     let check = move |_: MouseEvent| start_check(found.clone(), checked, checking, progress);
-    let profile_name = context_signal
+    let domain_name = context_signal
         .read()
         .as_ref()
-        .map(|context| context.profile.active_profile.name.clone())
+        .map(|context| context.domain.active_domain.name.clone())
         .unwrap_or_default();
     let saved = settings.read().topology.clone();
     let changed = edited() != saved;
     let problems = edited().map(|topology| topology.problems()).unwrap_or_default();
     // Saves the topology, or clears it if it is None.
     let save = move |topology: Option<Circuit>| {
-        let profile_name = profile_name.clone();
+        let domain_name = domain_name.clone();
         move |_: MouseEvent| {
             if topology.is_none() {
                 edited.set(None);
             }
-            match crate::profile::update_topology(&profile_name, topology.as_ref()) {
+            match crate::domain::update_topology(&domain_name, topology.as_ref()) {
                 Ok(()) => {
                     settings.write().topology = topology.clone();
                     status.set(Some(Ok(String::from(if topology.is_some() {
@@ -472,9 +472,9 @@ pub fn SitePage() -> Element {
                     if measured_suggestion {
                         "A first one, which the measurements of the last {CHECK_DAYS} days fit:"
                     } else if checking() {
-                        "A first one from what this profile's channels usually measure, while the measurements are checked:"
+                        "A first one from what this domain's channels usually measure, while the measurements are checked:"
                     } else {
-                        "A first one from what this profile's channels usually measure, which the measurements do not say is right:"
+                        "A first one from what this domain's channels usually measure, which the measurements do not say is right:"
                     }
                 }
                 div { class: "topology-scroll", TopologyDiagram { topology: suggested.clone(), colours: colours.clone() } }
@@ -773,30 +773,30 @@ fn ChannelRelations(measured: SharedProp<Measured>) -> Element {
     }
 }
 
-/// The categories of the profile's loads, see power::topology::Use::Load, each with its colour, which is its labels'
-/// default in the graphs, to choose, and a way to add more, which saves them with the profile, see
-/// profile::update_settings_with. One which is not built in can be removed if no circuit of edited is of it.
+/// The categories of the domain's loads, see power::topology::Use::Load, each with its colour, which is its labels'
+/// default in the graphs, to choose, and a way to add more, which saves them with the domain, see
+/// domain::update_settings_with. One which is not built in can be removed if no circuit of edited is of it.
 #[component]
 fn CategoryEditor(edited: Signal<Option<Circuit>>) -> Element {
-    let mut settings = use_context::<Signal<ProfileSettings>>();
+    let mut settings = use_context::<Signal<DomainSettings>>();
     let context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let store = use_colour_store();
     let mut new_category = use_signal(String::new);
     let mut error = use_signal(|| None::<String>);
-    let profile_name = context_signal
+    let domain_name = context_signal
         .read()
         .as_ref()
-        .map(|context| context.profile.active_profile.name.clone())
+        .map(|context| context.domain.active_domain.name.clone())
         .unwrap_or_default();
     let all = settings.read().all_categories();
     let colours = category_colours(&settings.read());
     let used = edited().map(|topology| topology.categories()).unwrap_or_default();
     // Saves a change to the categories, and shows them as saved.
-    /// A change to the profile's categories.
+    /// A change to the domain's categories.
     type CategoriesChange = Box<dyn FnOnce(&mut Vec<String>)>;
     let mut change_categories =
-        move |profile_name: String, change: CategoriesChange| match crate::profile::update_settings_with(
-            &profile_name,
+        move |domain_name: String, change: CategoriesChange| match crate::domain::update_settings_with(
+            &domain_name,
             |saved| change(&mut saved.categories),
         ) {
             Ok(saved) => {
@@ -806,7 +806,7 @@ fn CategoryEditor(edited: Signal<Option<Circuit>>) -> Element {
             Err(failed) => error.set(Some(format!("Unable to save the categories, {failed:#}"))),
         };
     let add = {
-        let (profile_name, all) = (profile_name.clone(), all.clone());
+        let (domain_name, all) = (domain_name.clone(), all.clone());
         move || {
             let name = new_category.read().trim().to_string();
             if !crate::power::topology::is_valid_category(&name) {
@@ -816,7 +816,7 @@ fn CategoryEditor(edited: Signal<Option<Circuit>>) -> Element {
             } else if all.iter().any(|category| category.eq_ignore_ascii_case(&name)) {
                 error.set(Some(format!("There is a category {name} already")));
             } else {
-                change_categories(profile_name.clone(), Box::new(move |categories| categories.push(name)));
+                change_categories(domain_name.clone(), Box::new(move |categories| categories.push(name)));
                 new_category.set(String::new());
             }
         }
@@ -851,8 +851,8 @@ fn CategoryEditor(edited: Signal<Option<Circuit>>) -> Element {
                             button {
                                 r#type: "button",
                                 onclick: {
-                                    let (profile_name, category) = (profile_name.clone(), category.clone());
-                                    move |_| change_categories(profile_name.clone(), Box::new({
+                                    let (domain_name, category) = (domain_name.clone(), category.clone());
+                                    move |_| change_categories(domain_name.clone(), Box::new({
                                         let category = category.clone();
                                         move |categories| categories.retain(|known| *known != category)
                                     }))

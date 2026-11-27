@@ -1,27 +1,27 @@
 use bruce_smart_home::components::app::App;
 
 fn main() {
-    // The libraries' own log records, e.g. the store's timings, go to the profile's log once it is started.
+    // The libraries' own log records, e.g. the store's timings, go to the domain's log once it is started.
     bruce_smart_home::logging::forward_libraries();
     // With --fetch the latest data is fetched without a window, e.g. from a scheduled task, then the app exits.
     let args = bruce_smart_home::Args::parse_all();
-    // With --redact a profile's data is copied to a redacted, offline, profile, then the app exits.
+    // With --redact a domain's data is copied to a redacted, offline, domain, then the app exits.
     if let Some((from, to)) = args.redact() {
-        if let Err(error) = bruce_smart_home::redact::redact_profile(from, to) {
+        if let Err(error) = bruce_smart_home::redact::redact_domain(from, to) {
             eprintln!("{error:#}");
             std::process::exit(1);
         }
         std::process::exit(0);
     }
-    if let Some(profile) = args.upgrade() {
-        if let Err(error) = bruce_smart_home::convert::upgrade(profile) {
+    if let Some(domain) = args.upgrade() {
+        if let Err(error) = bruce_smart_home::convert::upgrade(domain) {
             eprintln!("{error:#}");
             std::process::exit(1);
         }
         std::process::exit(0);
     }
-    if let Some(profile) = args.encrypt_secrets() {
-        if let Err(error) = bruce_smart_home::convert::encrypt_secrets(profile) {
+    if let Some(domain) = args.encrypt_secrets() {
+        if let Err(error) = bruce_smart_home::convert::encrypt_secrets(domain) {
             eprintln!("{error:#}");
             std::process::exit(1);
         }
@@ -64,7 +64,7 @@ fn main() {
         });
     }
 
-    // The guide for AI agents to the data, with the profiles as they are now, see agents_guide.rs.
+    // The guide for AI agents to the data, with the domains as they are now, see agents_guide.rs.
     bruce_smart_home::agents_guide::write();
 
     // For screenshots the window is the size the shot list gives, see screenshots.rs.

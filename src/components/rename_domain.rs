@@ -4,10 +4,10 @@ use dioxus::prelude::*;
 
 use crate::AppContext;
 
-/// A modal dialog asking for a profile's new name. OK renames it, see profile::rename_profile, and reloads the
-/// profiles so that the menu lists it by its new name, Cancel calls on_close.
+/// A modal dialog asking for a domain's new name. OK renames it, see domain::rename_domain, and reloads the
+/// domains so that the menu lists it by its new name, Cancel calls on_close.
 #[component]
-pub fn RenameProfileDialog(name: String, on_close: EventHandler<()>) -> Element {
+pub fn RenameDomainDialog(name: String, on_close: EventHandler<()>) -> Element {
     let mut context_signal = use_context::<Signal<Option<Arc<AppContext>>>>();
     let mut new_name = use_signal(|| name.clone());
     let mut error = use_signal(|| None::<String>);
@@ -16,14 +16,14 @@ pub fn RenameProfileDialog(name: String, on_close: EventHandler<()>) -> Element 
         let name = name.clone();
         move || {
             let context = context_signal.read().as_ref().unwrap().clone();
-            let active_name = context.profile.active_profile.name.clone();
-            let result = crate::profile::rename_profile(&name, &new_name.read(), &active_name)
-                .and_then(|_| crate::profile::fetch_active_profile(&Some(active_name)));
+            let active_name = context.domain.active_domain.name.clone();
+            let result = crate::domain::rename_domain(&name, &new_name.read(), &active_name)
+                .and_then(|_| crate::domain::fetch_active_domain(&Some(active_name)));
             match result {
-                Ok(profile) => {
+                Ok(domain) => {
                     context_signal.set(Some(Arc::new(AppContext {
                         args: crate::Args::parse_all(),
-                        profile,
+                        domain,
                         store: Default::default(),
                     })));
                     on_close.call(());
@@ -35,7 +35,7 @@ pub fn RenameProfileDialog(name: String, on_close: EventHandler<()>) -> Element 
 
     rsx! {
         div { class: "modal-backdrop",
-            div { class: "modal profile-dialog",
+            div { class: "modal domain-dialog",
                 h3 { "Rename {name}" }
                 input {
                     r#type: "text",

@@ -1,7 +1,7 @@
 //! Polling what Octopus's smart charging (Intelligent Octopus) does, which Octopus only keeps for a few days: the
 //! charging it has planned for each device, the charging it has carried out, and the devices' preferences, including
 //! whether charging is capped to the hours Octopus guarantees are cheap. Each poll's responses are saved, as they came,
-//! in the profile's store, see store.rs, as the kind `octopus.flex`, a DataSet for the account, by the hash of its
+//! in the domain's store, see store.rs, as the kind `octopus.flex`, a DataSet for the account, by the hash of its
 //! number, of each poll by its time to the second, written by what took it, the app or a capture device, the app's a
 //! microsecond newer, as Tesla's snapshots are.
 //!

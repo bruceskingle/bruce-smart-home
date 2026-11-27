@@ -124,11 +124,11 @@ weight.
 
 https://sagroups.ieee.org/2030-5/
 
-IEEE 2030.5, which began as Smart Energy Profile 2.0, is used, for example in California, for utilities to communicate directly with distributed energy resources such as solar inverters and
-batteries. It defines a large data model and a full certificate infrastructure which each device must implement, and
-it is built for a utility to monitor and control those devices. That suits a regulated market requiring it of every
-inverter, but not a lightweight, voluntary agreement between a supplier and a household using the devices it already
-has.
+IEEE 2030.5, which began as Smart Energy Profile 2.0, is used, for example in California, for utilities to communicate
+directly with distributed energy resources such as solar inverters and batteries. It defines a large data model and a
+full certificate infrastructure which each device must implement, and it is built for a utility to monitor and control
+those devices. That suits a regulated market requiring it of every inverter, but not a lightweight, voluntary agreement
+between a supplier and a household using the devices it already has.
 
 ## Related Policy: AI Vision for Energy
 

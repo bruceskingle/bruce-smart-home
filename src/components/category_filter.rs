@@ -1,6 +1,6 @@
 //! The categories of measurement shown in graphs, e.g. the standing charge or the consumption at one rate, with the
 //! colour, line style and visibility chosen for each, and the colour chosen for each year in the trend graph. The
-//! colours chosen are saved with the profile, see profile::Settings::colours, and are the defaults of every graph's
+//! colours chosen are saved with the domain, see domain::Settings::colours, and are the defaults of every graph's
 //! after, as are those of the site's categories, e.g. Hot water for Hot water Low Rate, see category_colour.
 
 use std::collections::BTreeMap;
@@ -43,9 +43,9 @@ const CATEGORY_COLORS: [(&str, &str); 4] = [
     (crate::power::topology::BATTERY, "#9b51e0"),
 ];
 
-/// The colour of a category of the site's loads, e.g. Car or Hot water: the one chosen, see profile::Settings::colours,
-/// or a built-in category's, or one of the palette's, by where it is in categories, e.g. the profile's, see
-/// profile::Settings::all_categories.
+/// The colour of a category of the site's loads, e.g. Car or Hot water: the one chosen, see domain::Settings::colours,
+/// or a built-in category's, or one of the palette's, by where it is in categories, e.g. the domain's, see
+/// domain::Settings::all_categories.
 pub fn category_colour(category: &str, saved: &BTreeMap<String, String>, categories: &[String]) -> String {
     saved
         .get(category)
@@ -71,10 +71,10 @@ fn category_label_colour<'a>(label: &str, colours: impl IntoIterator<Item = (&'a
     })
 }
 
-/// A filter whose colours are the defaults saved with the active profile, see profile::Settings::colours, for a page's
+/// A filter whose colours are the defaults saved with the active domain, see domain::Settings::colours, for a page's
 /// graph.
 pub fn use_category_filter() -> Signal<CategoryFilter> {
-    let settings = try_use_context::<Signal<crate::profile::Settings>>();
+    let settings = try_use_context::<Signal<crate::domain::Settings>>();
     use_signal(move || {
         CategoryFilter::with_saved(
             settings
@@ -84,14 +84,14 @@ pub fn use_category_filter() -> Signal<CategoryFilter> {
     })
 }
 
-/// Where the active profile's colours are saved, see save_colour: its name, and its settings, which the pages share.
+/// Where the active domain's colours are saved, see save_colour: its name, and its settings, which the pages share.
 #[derive(Clone, Copy)]
 pub struct ColourStore {
     context: Option<Signal<Option<std::sync::Arc<crate::AppContext>>>>,
-    settings: Option<Signal<crate::profile::Settings>>,
+    settings: Option<Signal<crate::domain::Settings>>,
 }
 
-/// Where the active profile's colours are saved, from a component.
+/// Where the active domain's colours are saved, from a component.
 pub fn use_colour_store() -> ColourStore {
     ColourStore {
         context: try_use_context(),
@@ -100,18 +100,18 @@ pub fn use_colour_store() -> ColourStore {
 }
 
 impl ColourStore {
-    /// Saves the colour chosen for a label or category with the active profile, so that it is the default from now on,
+    /// Saves the colour chosen for a label or category with the active domain, so that it is the default from now on,
     /// in every graph, see use_category_filter.
     pub fn save(self, label: &str, color: &str) {
-        let Some(profile_name) = self.context.and_then(|context| {
+        let Some(domain_name) = self.context.and_then(|context| {
             context
                 .peek()
                 .as_ref()
-                .map(|context| context.profile.active_profile.name.clone())
+                .map(|context| context.domain.active_domain.name.clone())
         }) else {
             return;
         };
-        match crate::profile::update_settings_with(&profile_name, |settings| {
+        match crate::domain::update_settings_with(&domain_name, |settings| {
             settings.colours.insert(label.to_string(), color.to_string());
         }) {
             Ok(saved) => {
@@ -156,7 +156,7 @@ pub struct CategoryStyle {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CategoryFilter {
     styles: BTreeMap<String, CategoryStyle>,
-    /// The colours saved with the profile, by label or category, see use_category_filter.
+    /// The colours saved with the domain, by label or category, see use_category_filter.
     saved: BTreeMap<String, String>,
     dashes: BTreeMap<String, String>,
     year_colors: BTreeMap<i32, String>,
